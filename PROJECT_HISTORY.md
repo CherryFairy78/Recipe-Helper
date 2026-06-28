@@ -370,6 +370,9 @@ Recipe Helper searches FFXIV recipes, calculates the materials required for a ch
 - Verification after adding multi-plan crafting and completed-raw-material visibility: Debug and clean Release builds both succeeded with zero warnings and zero errors; the development manifest reports version 1.1.3.0.
 - Published Recipe Helper v1.1.3 as the latest GitHub release with `DalamudRecipeHelper-v1.1.3.zip`. GitHub and the local package report the same SHA-256 digest: `062406B9985DA08B1E7E0E4481ADBA8D7F05D20E94F7506181BBC7073A93A681`.
 - Activated the custom-repository manifest for v1.1.3 only after the matching public release asset was verified.
+- Updated Artisan queue status text to use `pre-crafts` instead of `intermediates`. The status reports recipe-plan counts for multi-plan crafting or recipe counts for the regular queue, only mentions pre-crafts when they are actually required, and clears automatically after Artisan completes the queue.
+- Advanced the local development and release-candidate version to 1.1.4.0.
+- Verification after updating the Artisan queue status lifecycle: Debug and clean Release builds both succeeded with zero warnings and zero errors.
 
 ## Continuation checklist
 
