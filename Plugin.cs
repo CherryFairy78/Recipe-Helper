@@ -51,6 +51,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly PluginIntegrationService pluginIntegrationService;
     private readonly Configuration configuration;
     private readonly FileLogService fileLog;
+    private readonly SavedPlanStorageService savedPlanStorage;
     private readonly string[] mainCommands;
     private readonly string overlayCommand;
 
@@ -71,6 +72,11 @@ public sealed class Plugin : IDalamudPlugin
                 : "Loaded as a published plugin; registering published commands.");
         this.configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
         this.configuration.SavedRecipePlans ??= [];
+        this.savedPlanStorage = new SavedPlanStorageService(
+            PluginInterface.GetPluginConfigDirectory(),
+            this.fileLog);
+        if (this.savedPlanStorage.RestoreOrMirror(this.configuration))
+            PluginInterface.SavePluginConfig(this.configuration);
         this.settingsWindow = new SettingsWindow(this.configuration, this.SaveConfiguration);
         var aetherialReductionService = new AetherialReductionService(DataManager, this.fileLog);
         this.pluginIntegrationService =
@@ -176,5 +182,9 @@ public sealed class Plugin : IDalamudPlugin
 
     private void OpenSettings() => this.settingsWindow.IsOpen = true;
 
-    private void SaveConfiguration() => PluginInterface.SavePluginConfig(this.configuration);
+    private void SaveConfiguration()
+    {
+        this.savedPlanStorage.Save(this.configuration.SavedRecipePlans);
+        PluginInterface.SavePluginConfig(this.configuration);
+    }
 }
