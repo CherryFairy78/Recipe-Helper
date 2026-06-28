@@ -164,6 +164,26 @@ public sealed class AetherialReductionService
         return GetWaitMinutes(timedSource, currentMinute);
     }
 
+    public bool IsCurrentlyAvailable(
+        uint itemId,
+        IReadOnlyList<AetherialReductionSource>? reductionSources)
+    {
+        var currentMinute = GetCurrentEorzeaMinute();
+        if (reductionSources is { Count: > 0 })
+        {
+            return reductionSources.Any(source =>
+                !source.IsFishing &&
+                source.Windows.Any(window =>
+                    GetRemainingMinutes(window, currentMinute) > 0));
+        }
+
+        if (itemId is >= 2 and <= 19)
+            return false;
+
+        return this.GetNodeWindows(itemId).Any(window =>
+            GetRemainingMinutes(window, currentMinute) > 0);
+    }
+
     private void EnsureSources()
     {
         if (this.sourcesByResult is not null)
