@@ -25,6 +25,10 @@ public sealed class Configuration : IPluginConfiguration
 
     public Vector4 TextColor = Defaults.Text;
 
+    public bool UseTransparentOverlayBackground;
+
+    public float OverlayBackgroundOpacity = 0.72f;
+
     public void ResetColors()
     {
         this.EnoughRowColor = Defaults.EnoughRow;
