@@ -364,6 +364,10 @@ Recipe Helper searches FFXIV recipes, calculates the materials required for a ch
 - Updated the public custom-repository manifest to advertise v1.1.2 only after the matching release asset was available.
 - Repaired a GitHub web-editor synchronization issue that had appended previous content to updated text files. GitHub's contents API then confirmed that every file on the current `main` branch exactly matches the local project, and the public `repo.json` parses as one valid v1.1.2 entry.
 - The v1.1.2 Dalamud install ZIP and custom-repository feed are verified and unaffected. GitHub's automatically generated v1.1.2 source archives were created from the tag before the web-editor repair; use the current `main` branch for the corrected v1.1.2 source.
+- Started post-v1.1.2 development by adding saved-plan selection checkboxes. Multiple checked plans can be merged into the active workspace or sent to Artisan as one combined, dependency-ordered crafting queue.
+- Added a persistent main-window toggle to show or hide completed raw materials, shards, crystals, and clusters without hiding direct ingredients.
+- Advanced the local development version to 1.1.3.0 while leaving the published custom-repository manifest on v1.1.2 until the next release is explicitly requested.
+- Verification after adding multi-plan crafting and completed-raw-material visibility: Debug and clean Release builds both succeeded with zero warnings and zero errors; the development manifest reports version 1.1.3.0.
 
 ## Continuation checklist
 
