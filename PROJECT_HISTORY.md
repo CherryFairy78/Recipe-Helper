@@ -315,6 +315,9 @@ Recipe Helper searches FFXIV recipes, calculates the materials required for a ch
 - Verification after renaming the Artisan action: build succeeded with zero warnings and zero errors.
 - Published Recipe Helper v1.1.0 on GitHub with persistent named recipe plans, brief plan-status messages, separate published/development commands, and the renamed `Craft Items` action.
 - Verified the clean API 15 Release package with zero warnings and zero errors, confirmed its SHA-256 digest (`0913AE191105CBEF9315E0DE909E0322E754824BD00CBB7FFF5E6E1F62CA3DC4`), and updated the public custom-repository manifest to install and update from the v1.1.0 release asset.
+- Started the v1.1.1 patch and required Ctrl to be held while clicking a saved plan's `Delete` button; an explanatory message and hover tooltip now make the safeguard visible.
+- Added the public icon URL to the plugin's packaged manifest. The custom repository already supplied the URL, but Dalamud's installed manifest was taking the ZIP metadata where `IconUrl` was previously absent.
+- Verification for the saved-plan safeguard and icon fix: Debug and clean Release builds both succeeded with zero warnings and zero errors, and both generated manifests contain the v1.1.1 version and public icon URL.
 
 ## Continuation checklist
 
