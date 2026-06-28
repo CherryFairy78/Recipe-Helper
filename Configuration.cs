@@ -6,7 +6,7 @@ namespace DalamudRecipeHelper;
 
 public sealed class Configuration : IPluginConfiguration
 {
-    public int Version { get; set; } = 4;
+    public int Version { get; set; } = 5;
 
     public List<SavedRecipePlan> SavedRecipePlans = [];
 
@@ -35,6 +35,8 @@ public sealed class Configuration : IPluginConfiguration
     public float SearchPaneWidth = 180f;
 
     public int EstimatedSecondsPerCraft = 30;
+
+    public bool ShowObtainedRawMaterials = true;
 
     public void ResetColors()
     {
