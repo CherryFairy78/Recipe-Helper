@@ -6,7 +6,7 @@ namespace DalamudRecipeHelper;
 
 public sealed class Configuration : IPluginConfiguration
 {
-    public int Version { get; set; } = 2;
+    public int Version { get; set; } = 3;
 
     public List<SavedRecipePlan> SavedRecipePlans = [];
 
@@ -31,6 +31,8 @@ public sealed class Configuration : IPluginConfiguration
     public bool UseTransparentOverlayBackground;
 
     public float OverlayBackgroundOpacity = 0.72f;
+
+    public float SearchPaneWidth = 180f;
 
     public void ResetColors()
     {
