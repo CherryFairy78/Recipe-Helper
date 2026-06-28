@@ -5,7 +5,12 @@ Recipe Helper is a Dalamud plugin for planning multiple FFXIV recipes and tracki
 ## Features
 
 - Add multiple recipes to a shared plan and set an individual output quantity for each.
-- Save, name, reload, update, and delete recipe plans with their output quantities preserved.
+- Save, name, reload, update, duplicate, rename, and protected-delete recipe plans with their output quantities preserved.
+- Begin a clean plan automatically after saving, with the selected recipes and plan-name field reset.
+- Keep a separate persistent saved-plan backup and restore from it if the main plugin configuration is ever reset.
+- Find recipes that can be crafted from combined inventory, saddlebags, and saved retainer stock, including craftable intermediate ingredients, with maximum craft and output totals.
+- Drag the divider beside the recipe search list to choose and retain a comfortable search-panel width.
+- Search without a fixed result limit.
 - Combine duplicate direct ingredients, raw materials, shards, crystals, and clusters.
 - Compare requirements with NQ/HQ inventory, saddlebags, and saved retainer snapshots.
 - Refresh quantities automatically as inventory changes.
@@ -50,7 +55,7 @@ Recipe Helper is distributed through a third-party custom repository and is not 
 
 Open each retainer at least once after installing Recipe Helper. The plugin stores that retainer's most recently observed inventory locally and refreshes it whenever the retainer is opened again.
 
-Snapshots and logs remain on the user's computer under the standard Dalamud plugin configuration directory.
+Snapshots, saved-plan backups, and logs remain on the user's computer under the standard Dalamud plugin configuration directory.
 
 ## Building
 
