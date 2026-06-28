@@ -15,10 +15,13 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
     private readonly RecipeService recipeService;
     private readonly Configuration configuration;
     private IReadOnlyList<IngredientNeed> materials = [];
-    private string recipeName = string.Empty;
+    private IReadOnlyList<string> selectedRecipeNames = [];
     private string message = string.Empty;
     private bool messageIsError;
     private bool inventoryRefreshRequested;
+    private bool materialsExpanded = true;
+    private bool overlayBackgroundPushed;
+    private float overlayWidth = 430;
 
     public RawMaterialsOverlayWindow(
         PluginIntegrationService pluginIntegrationService,
@@ -38,21 +41,48 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
         this.SizeCondition = ImGuiCond.FirstUseEver;
         this.SizeConstraints = new WindowSizeConstraints
         {
-            MinimumSize = new Vector2(330, 140),
+            MinimumSize = new Vector2(330, 72),
             MaximumSize = new Vector2(620, 650),
         };
     }
 
-    public override void PreDraw() => WindowTheme.Push(this.configuration);
+    public override void PreDraw()
+    {
+        WindowTheme.Push(this.configuration);
+        this.overlayBackgroundPushed =
+            this.configuration.UseTransparentOverlayBackground;
+        if (this.overlayBackgroundPushed)
+        {
+            var background = this.configuration.WindowBackgroundColor;
+            ImGui.PushStyleColor(
+                ImGuiCol.WindowBg,
+                new Vector4(
+                    background.X,
+                    background.Y,
+                    background.Z,
+                    Math.Clamp(this.configuration.OverlayBackgroundOpacity, 0.20f, 1f)));
+        }
 
-    public override void PostDraw() => WindowTheme.Pop();
+        ImGui.SetNextWindowSize(
+            new Vector2(this.overlayWidth, this.CalculateOverlayHeight()),
+            ImGuiCond.Always);
+    }
+
+    public override void PostDraw()
+    {
+        if (this.overlayBackgroundPushed)
+            ImGui.PopStyleColor();
+        WindowTheme.Pop();
+    }
 
     public void Dispose() =>
         this.inventoryService.InventoryChanged -= this.OnInventoryChanged;
 
-    public void SetMaterials(string selectedRecipeName, IReadOnlyList<IngredientNeed> rawMaterials)
+    public void SetMaterials(
+        IReadOnlyList<string> recipeNames,
+        IReadOnlyList<IngredientNeed> rawMaterials)
     {
-        this.recipeName = selectedRecipeName;
+        this.selectedRecipeNames = recipeNames;
         this.materials = rawMaterials;
     }
 
@@ -64,29 +94,34 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
             this.RefreshOwnedQuantities();
         }
 
-        ImGui.TextColored(this.configuration.AccentColor, "MISSING ITEMS OVERLAY");
-        if (!string.IsNullOrWhiteSpace(this.recipeName))
-            ImGui.TextDisabled(this.recipeName);
-        ImGui.Spacing();
+        this.overlayWidth = Math.Clamp(ImGui.GetWindowSize().X, 330, 620);
+        if (this.selectedRecipeNames.Count > 0)
+        {
+            ImGui.TextDisabled(
+                $"{this.selectedRecipeNames.Count} selected " +
+                (this.selectedRecipeNames.Count == 1 ? "recipe" : "recipes"));
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.BeginTooltip();
+                ImGui.TextColored(this.configuration.AccentColor, "Selected recipes");
+                foreach (var recipeName in this.selectedRecipeNames)
+                    ImGui.BulletText(recipeName);
+                ImGui.EndTooltip();
+            }
+        }
 
-        var gatherableMaterials = this.materials
-            .Where(material => material.IsGatherable && material.Missing > 0)
-            .OrderBy(material =>
-                this.aetherialReductionService.GetAvailabilitySortKey(
-                    material.ItemId,
-                    material.ReductionSources))
-            .ThenBy(material => material.Name)
-            .ToList();
+        var gatherableMaterials = this.GetGatherableMaterials();
         if (gatherableMaterials.Count == 0)
         {
             ImGui.TextDisabled("No missing gatherable raw materials.");
             return;
         }
 
-        var showMaterials = ImGui.CollapsingHeader(
+        this.materialsExpanded = ImGui.CollapsingHeader(
             "MATERIALS##raw-overlay-materials",
             ImGuiTreeNodeFlags.DefaultOpen);
-        if (showMaterials &&
+        ImGui.PushStyleVar(ImGuiStyleVar.CellPadding, new Vector2(6, 2));
+        if (this.materialsExpanded &&
             ImGui.BeginTable(
                 "raw-travel-items",
                 4,
@@ -107,7 +142,16 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
                 var reductionSource =
                     this.aetherialReductionService.GetPreferredSource(material.ReductionSources);
 
-                ImGui.TableNextRow(ImGuiTableRowFlags.None, 26);
+                ImGui.TableNextRow();
+                if (this.aetherialReductionService.IsCurrentlyAvailable(
+                        material.ItemId,
+                        material.ReductionSources))
+                {
+                    ImGui.TableSetBgColor(
+                        ImGuiTableBgTarget.RowBg0,
+                        ImGui.GetColorU32(this.configuration.EnoughRowColor));
+                }
+
                 ImGui.TableNextColumn();
                 ImGui.TextUnformatted(material.Name);
                 MaterialUsageTooltip.Draw(
@@ -139,15 +183,18 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
                 ImGui.PopStyleColor(3);
                 if (teleportClicked)
                 {
-                    this.messageIsError = !this.pluginIntegrationService.GatherWithGatherBuddy(
+                    var gathered = this.pluginIntegrationService.GatherWithGatherBuddy(
                         reductionSource?.Name ?? material.Name,
                         reductionSource?.IsFishing ?? material.IsFishing,
-                        out this.message);
+                        out var gatherMessage);
+                    this.messageIsError = !gathered;
+                    this.message = gathered ? string.Empty : gatherMessage;
                 }
             }
 
             ImGui.EndTable();
         }
+        ImGui.PopStyleVar();
 
         if (!string.IsNullOrWhiteSpace(this.message))
         {
@@ -177,6 +224,37 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
     }
 
     private void OnInventoryChanged() => this.inventoryRefreshRequested = true;
+
+    private IReadOnlyList<IngredientNeed> GetGatherableMaterials() =>
+        this.materials
+            .Where(material => material.IsGatherable && material.Missing > 0)
+            .OrderBy(material =>
+                this.aetherialReductionService.GetAvailabilitySortKey(
+                    material.ItemId,
+                    material.ReductionSources))
+            .ThenBy(material => material.Name)
+            .ToList();
+
+    private float CalculateOverlayHeight()
+    {
+        var materialCount = this.GetGatherableMaterials().Count;
+        var selectedRecipeHeight = this.selectedRecipeNames.Count > 0 ? 23f : 0f;
+        if (materialCount == 0)
+            return 72f + selectedRecipeHeight;
+
+        if (!this.materialsExpanded)
+            return 70f + selectedRecipeHeight;
+
+        var tableHeight = 23f * (materialCount + 1);
+        var messageHeight =
+            this.messageIsError && !string.IsNullOrWhiteSpace(this.message)
+                ? 28f
+                : 0f;
+        return Math.Clamp(
+            76f + selectedRecipeHeight + tableHeight + messageHeight,
+            96f,
+            650f);
+    }
 
     private static Vector4 WithAlpha(Vector4 color, float alpha) =>
         new(color.X, color.Y, color.Z, alpha);
