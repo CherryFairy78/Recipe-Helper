@@ -76,6 +76,9 @@ Recipe Helper searches FFXIV recipes, calculates the materials required for a ch
 - Teamcraft:
   - `Open in Teamcraft` creates a Teamcraft import URL from the selected result item and desired amount.
   - Teamcraft List Maker does not expose a public IPC API and is not required for this hand-off.
+- Raphael:
+  - Each selected recipe has a `Raphael` action that opens the official web solver and copies the exact result name for its recipe search.
+  - Raphael stores its application state locally and does not expose a stable recipe/stat deep-link or Dalamud IPC, so Recipe Helper does not attempt to predict or scrape an HQ outcome.
 - GatherBuddy:
   - Normal gatherable items are sent through `/gather <item name>`.
   - Fish and spearfishing items are sent through `/gatherfish <item name>`.
@@ -86,7 +89,7 @@ Recipe Helper searches FFXIV recipes, calculates the materials required for a ch
 
 - `Missing Items Overlay` opens a separate compact panel for the selected recipe plan.
 - It lists only missing raw materials that can be gathered.
-- Each row includes the missing quantity, live timed-node availability where known, and a `Teleport` button.
+- Each row includes the missing quantity, live timed-node availability where known, and a `Gather` button.
 - Rows with currently active timed nodes use the configured sufficient-row green highlight until their node window closes.
 - Materials are rendered with compact cell padding and the window automatically adjusts its height when the Materials section is expanded or collapsed.
 - Hovering the selected-recipe count lists every recipe represented by the combined overlay requirements.
@@ -160,7 +163,7 @@ Recipe Helper searches FFXIV recipes, calculates the materials required for a ch
 - Artisan must be loaded and idle enough to accept the crafting request.
 - Teamcraft opening depends on the system browser being available.
 - Built-in map flags remain less reliable than GatherBuddy for gathering nodes whose exact coordinates live outside standard Excel rows.
-- Raphael HQ outcome percentages are not displayed because Raphael does not expose a supported Dalamud IPC contract for recipe solutions or predicted HQ results. Artisan exposes solver selection through IPC but not Raphael's simulation outcome.
+- Raphael HQ outcome percentages are not displayed inside Recipe Helper because Raphael does not expose a supported Dalamud IPC contract or stable web import/result URL. Selected recipes can instead be handed to the official Raphael website, where the user's saved solver stats and settings remain authoritative.
 - Public source repository: `https://github.com/CherryFairy78/Recipe-Helper`.
 - The project is licensed under the MIT Licence.
 - Before sharing a release broadly, personally test the packaged build in game and clearly disclose substantial AI-assisted development where the repository or community requires it.
@@ -293,6 +296,10 @@ Recipe Helper searches FFXIV recipes, calculates the materials required for a ch
 - Added a conditional `Craft all with Artisan` button and a sequential queue driven by Artisan's public `CraftItem` and `IsBusy` IPC endpoints.
 - Assessed Raphael integration and deferred HQ prediction because neither Raphael nor Artisan exposes a supported IPC result containing Raphael's simulated HQ outcome.
 - Verification after the overlay, transparency, tooltip, and Craft All changes: build succeeded with zero warnings and zero errors.
+- Renamed the Missing Items Overlay action from `Teleport` to `Gather`.
+- Reworked overlay auto-height using the actual title, window padding, frame, header, row, and message heights; removed the previous 650-pixel maximum so the expanded Materials table can fit all rendered rows.
+- Added a `Raphael` action to each selected recipe. It opens `raphael-xiv.com` and copies the exact recipe name because Raphael currently has no stable URL import or Dalamud IPC for preloading recipes, character stats, or HQ outcomes.
+- Verification after the Gather label, auto-height correction, and Raphael hand-off: build succeeded with zero warnings and zero errors.
 
 ## Continuation checklist
 
