@@ -130,7 +130,14 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
                 ImGui.SetCursorPosX(
                     ImGui.GetCursorPosX() +
                     MathF.Max(0, (travelColumnWidth - teleportButtonWidth) / 2));
-                if (ImGui.SmallButton($"Teleport##raw-overlay-{material.ItemId}"))
+                var accent = this.configuration.AccentColor;
+                ImGui.PushStyleColor(ImGuiCol.Button, WithAlpha(accent, 0.72f));
+                ImGui.PushStyleColor(ImGuiCol.ButtonHovered, AdjustColor(accent, 0.10f));
+                ImGui.PushStyleColor(ImGuiCol.ButtonActive, AdjustColor(accent, -0.08f));
+                var teleportClicked =
+                    ImGui.SmallButton($"Teleport##raw-overlay-{material.ItemId}");
+                ImGui.PopStyleColor(3);
+                if (teleportClicked)
                 {
                     this.messageIsError = !this.pluginIntegrationService.GatherWithGatherBuddy(
                         reductionSource?.Name ?? material.Name,
@@ -170,4 +177,14 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
     }
 
     private void OnInventoryChanged() => this.inventoryRefreshRequested = true;
+
+    private static Vector4 WithAlpha(Vector4 color, float alpha) =>
+        new(color.X, color.Y, color.Z, alpha);
+
+    private static Vector4 AdjustColor(Vector4 color, float amount) =>
+        new(
+            Math.Clamp(color.X + amount, 0, 1),
+            Math.Clamp(color.Y + amount, 0, 1),
+            Math.Clamp(color.Z + amount, 0, 1),
+            color.W);
 }
