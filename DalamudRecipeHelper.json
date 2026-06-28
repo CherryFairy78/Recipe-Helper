@@ -1,0 +1,15 @@
+{
+  "Author": "Meghan",
+  "Name": "Recipe Helper",
+  "Punchline": "Plan recipes and find every material you still need.",
+  "Description": "Build a combined plan from multiple FFXIV recipes, compare NQ and HQ requirements with live inventory and saved retainer snapshots, track timed gathering materials, and hand crafting or travel actions to Artisan, Teamcraft, and GatherBuddy.",
+  "RepoUrl": "https://github.com/CherryFairy78/Recipe-Helper",
+  "ApplicableVersion": "any",
+  "Tags": [
+    "crafting",
+    "recipe",
+    "inventory"
+  ],
+  "InternalName": "DalamudRecipeHelper",
+  "AssemblyVersion": "1.0.0.0"
+}
