@@ -27,7 +27,7 @@ Recipe Helper is a Dalamud plugin for planning multiple FFXIV recipes and tracki
 - Automatically resize and compact the overlay when its Materials section is expanded or collapsed.
 - Hover the selected-recipe count in the overlay to see every recipe in the current plan.
 - Send recipes to Artisan, lists to Teamcraft, and gathering targets to GatherBuddy.
-- Queue missing craftable intermediates in dependency order, followed by every selected final recipe, when the combined stock can support the full Artisan queue.
+- Queue missing craftable pre-crafts in dependency order, followed by every selected final recipe, when the combined stock can support the full Artisan queue.
 - Customise interface, text, highlight, title-bar, and background colours.
 - Apply optional transparency to the Missing Items Overlay without changing other windows.
 - Keep capped daily operational logs for 30 days.
