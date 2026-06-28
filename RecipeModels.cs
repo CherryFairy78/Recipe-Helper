@@ -6,6 +6,11 @@ namespace DalamudRecipeHelper;
 
 public sealed record RecipeMatch(uint RecipeId, uint ResultItemId, string ResultName, uint ResultAmount);
 
+public sealed record CraftableRecipeAvailability(
+    RecipeMatch Recipe,
+    uint CraftCount,
+    ulong OutputAmount);
+
 public sealed record RecipePlanSelection(RecipeMatch Recipe, uint DesiredAmount);
 
 public sealed class SavedRecipePlan
