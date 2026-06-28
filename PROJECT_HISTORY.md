@@ -7,7 +7,7 @@ This file is the durable hand-off record for Recipe Helper. Read it before makin
 - Last updated: 2026-06-28
 - Plugin name: Recipe Helper
 - Internal name: `DalamudRecipeHelper`
-- Version: `1.0.0.0`
+- Version: `1.1.0.0`
 - Framework: Dalamud API 15
 - Target: `.NET 10` on Windows x64
 - Command: `/recipehelper`
@@ -26,6 +26,8 @@ Recipe Helper searches FFXIV recipes, calculates the materials required for a ch
 - Searches the FFXIV Lumina `Recipe` sheet by result name or item ID.
 - Lets the user add multiple search results to one recipe plan.
 - Lets the user set the desired number of finished items independently for every selected recipe and remove recipes from the plan.
+- Saves named recipe plans in the standard plugin configuration, preserving selected recipes and individual output quantities across restarts.
+- Saved plans can be loaded, overwritten by saving the same name, or deleted from the recipe window.
 - Accounts for recipe yields when calculating the number of crafts.
 - Combines duplicate direct ingredients and raw materials across all selected recipes.
 - Aggregates shared direct craftable ingredients before expanding the raw-material plan so their recipe yields are applied to the combined quantity.
@@ -301,6 +303,16 @@ Recipe Helper searches FFXIV recipes, calculates the materials required for a ch
 - Replaced manual ZIP installation instructions with the custom-repository URL workflow; end users can now install and update Recipe Helper through Dalamud's Plugin Installer without handling the ZIP directly.
 - Corrected the public author and copyright name from `Meghan` to `Meghann` in the project, plugin, custom repository, and MIT licence metadata.
 - Removed the standalone Raphael website button and hand-off because Raphael solver functionality is already available through Artisan; restored the selected-recipe Actions column to its compact width and removed Raphael from current public metadata.
+- Started the v1.1.0 update with persistent named recipe plans.
+- Added save, load, overwrite, and delete controls; each saved plan preserves recipe IDs, result details, and requested output quantities in the standard Dalamud plugin configuration.
+- Verification after adding named recipe plans: build succeeded with zero warnings and zero errors.
+- Limited saved-plan save, update, load, delete, and validation messages to three seconds so confirmations do not remain in the recipe window.
+- Verification after adding timed plan messages: build succeeded with zero warnings and zero errors.
+- Added published-build shortcuts `/recipehelper` and `/rchelp`, plus `/rhoverlay` to toggle the Missing Items Overlay.
+- Plugins loaded through Dalamud's Dev Plugins screen now register `/recipehelperdev`, `/rchelpdev`, and `/rhoverlaydev` instead, preventing command registration conflicts when development and published copies are loaded together. This uses Dalamud's runtime `IsDev` status rather than the DLL build configuration.
+- Verification after switching command selection to Dalamud's runtime development status: Debug and Release builds both succeeded with zero warnings and zero errors.
+- Renamed the selected-recipe `Artisan` action button to `Craft Items` while retaining the same Artisan crafting hand-off.
+- Verification after renaming the Artisan action: build succeeded with zero warnings and zero errors.
 
 ## Continuation checklist
 
