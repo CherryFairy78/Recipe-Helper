@@ -318,6 +318,8 @@ Recipe Helper searches FFXIV recipes, calculates the materials required for a ch
 - Started the v1.1.1 patch and required Ctrl to be held while clicking a saved plan's `Delete` button; an explanatory message and hover tooltip now make the safeguard visible.
 - Added the public icon URL to the plugin's packaged manifest. The custom repository already supplied the URL, but Dalamud's installed manifest was taking the ZIP metadata where `IconUrl` was previously absent.
 - Verification for the saved-plan safeguard and icon fix: Debug and clean Release builds both succeeded with zero warnings and zero errors, and both generated manifests contain the v1.1.1 version and public icon URL.
+- Published Recipe Helper v1.1.1 on GitHub and marked it as the latest release.
+- Verified the release asset and custom-repository update path; the v1.1.1 ZIP SHA-256 digest is `2210851FEEBFCB3CB75518041BCA1305D10773F0A25B49B8494299042C03701F`.
 
 ## Continuation checklist
 
