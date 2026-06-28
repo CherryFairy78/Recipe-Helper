@@ -23,6 +23,7 @@ public sealed class RecipeWindow : Window, IDisposable
         new Dictionary<uint, CraftableRecipeAvailability>();
     private bool showingCraftableRecipes;
     private readonly List<RecipePlanSelection> selectedRecipes = [];
+    private readonly HashSet<SavedRecipePlan> selectedSavedPlans = [];
     private IReadOnlyList<ArtisanCraftQueueEntry> artisanCraftQueue = [];
     private string artisanCraftQueueError = string.Empty;
     private string searchText = string.Empty;
@@ -437,7 +438,7 @@ public sealed class RecipeWindow : Window, IDisposable
             if (this.configuration.SavedRecipePlans.Count > 0 &&
                 this.DrawCollapsibleSection(
                     "SAVED PLANS",
-                    "Load, duplicate, rename, or delete a named recipe plan",
+                    "Select, combine, craft, or manage named recipe plans",
                     "saved-plans-empty-section"))
                 this.DrawSavedPlans();
             return;
@@ -451,7 +452,7 @@ public sealed class RecipeWindow : Window, IDisposable
         if (this.configuration.SavedRecipePlans.Count > 0 &&
             this.DrawCollapsibleSection(
                 "SAVED PLANS",
-                "Load, duplicate, rename, or delete a named recipe plan",
+                "Select, combine, craft, or manage named recipe plans",
                 "saved-plans-section"))
             this.DrawSavedPlans();
 
@@ -530,11 +531,37 @@ public sealed class RecipeWindow : Window, IDisposable
         var directIngredients = details.Ingredients
             .Where(material => !IsElementalCatalyst(material))
             .ToList();
-        var rawMaterials = details.RawMaterials
+        var allRawMaterials = details.RawMaterials
             .Where(material => !IsElementalCatalyst(material))
             .ToList();
-        var elementalCatalysts = details.RawMaterials
+        var allElementalCatalysts = details.RawMaterials
             .Where(IsElementalCatalyst)
+            .ToList();
+        var obtainedRawCount =
+            allRawMaterials.Count(material => material.HasEnough) +
+            allElementalCatalysts.Count(material => material.HasEnough);
+        if (obtainedRawCount > 0)
+        {
+            var obtainedToggleLabel = this.configuration.ShowObtainedRawMaterials
+                ? $"Hide obtained raw & crystals ({obtainedRawCount})"
+                : $"Show obtained raw & crystals ({obtainedRawCount})";
+            if (ImGui.SmallButton(obtainedToggleLabel))
+            {
+                this.configuration.ShowObtainedRawMaterials =
+                    !this.configuration.ShowObtainedRawMaterials;
+                this.saveConfiguration();
+            }
+        }
+
+        var rawMaterials = allRawMaterials
+            .Where(material =>
+                this.configuration.ShowObtainedRawMaterials ||
+                !material.HasEnough)
+            .ToList();
+        var elementalCatalysts = allElementalCatalysts
+            .Where(material =>
+                this.configuration.ShowObtainedRawMaterials ||
+                !material.HasEnough)
             .ToList();
 
         if (directIngredients.Count > 0 &&
@@ -600,15 +627,20 @@ public sealed class RecipeWindow : Window, IDisposable
         SavedRecipePlan? planToDuplicate = null;
         SavedRecipePlan? planToRename = null;
         SavedRecipePlan? planToDelete = null;
+        var loadSelectedPlans = false;
+        var craftSelectedPlans = false;
+        this.selectedSavedPlans.RemoveWhere(plan =>
+            !this.configuration.SavedRecipePlans.Contains(plan));
         if (ImGui.BeginTable(
                 "saved-recipe-plans",
-                3,
+                4,
                 ImGuiTableFlags.RowBg |
                 ImGuiTableFlags.BordersInnerH |
                 ImGuiTableFlags.BordersInnerV |
                 ImGuiTableFlags.Resizable |
                 ImGuiTableFlags.SizingStretchProp))
         {
+            ImGui.TableSetupColumn("Select", ImGuiTableColumnFlags.WidthFixed, 54);
             ImGui.TableSetupColumn("Plan", ImGuiTableColumnFlags.WidthStretch, 1);
             ImGui.TableSetupColumn("Recipes", ImGuiTableColumnFlags.WidthFixed, 60);
             ImGui.TableSetupColumn("Actions", ImGuiTableColumnFlags.WidthFixed, 220);
@@ -622,6 +654,16 @@ public sealed class RecipeWindow : Window, IDisposable
                 var savedPlan = displayedPlans[planIndex];
                 ImGui.PushID($"saved-plan-{planIndex}");
                 ImGui.TableNextRow();
+                ImGui.TableNextColumn();
+                var isSelected = this.selectedSavedPlans.Contains(savedPlan);
+                if (ImGui.Checkbox("##select-saved-plan", ref isSelected))
+                {
+                    if (isSelected)
+                        this.selectedSavedPlans.Add(savedPlan);
+                    else
+                        this.selectedSavedPlans.Remove(savedPlan);
+                }
+
                 ImGui.TableNextColumn();
                 ImGui.TextUnformatted(savedPlan.Name);
                 ImGui.TableNextColumn();
@@ -657,6 +699,20 @@ public sealed class RecipeWindow : Window, IDisposable
             ImGui.EndTable();
         }
 
+        if (this.selectedSavedPlans.Count > 0)
+        {
+            if (ImGui.Button($"Load selected plans ({this.selectedSavedPlans.Count})"))
+                loadSelectedPlans = true;
+
+            ImGui.SameLine();
+            ImGui.PushStyleColor(
+                ImGuiCol.Button,
+                this.configuration.ReadyButtonColor);
+            craftSelectedPlans =
+                ImGui.Button($"Craft selected plans ({this.selectedSavedPlans.Count})");
+            ImGui.PopStyleColor();
+        }
+
         if (planToLoad is not null)
             this.LoadSavedPlan(planToLoad);
 
@@ -674,10 +730,16 @@ public sealed class RecipeWindow : Window, IDisposable
 
         if (planToDelete is not null)
         {
+            this.selectedSavedPlans.Remove(planToDelete);
             this.configuration.SavedRecipePlans.Remove(planToDelete);
             this.saveConfiguration();
             this.ShowPlanMessage($"Deleted plan '{planToDelete.Name}'.", false);
         }
+
+        if (loadSelectedPlans)
+            this.LoadSavedPlans(this.selectedSavedPlans, false);
+        else if (craftSelectedPlans)
+            this.LoadSavedPlans(this.selectedSavedPlans, true);
 
         this.DrawRenamePlanPopup();
     }
@@ -848,6 +910,74 @@ public sealed class RecipeWindow : Window, IDisposable
         this.searchText = string.Empty;
         this.searchResults = [];
         this.RefreshDetails(true);
+    }
+
+    private void LoadSavedPlans(
+        IReadOnlyCollection<SavedRecipePlan> savedPlans,
+        bool craftImmediately)
+    {
+        var plans = savedPlans
+            .Where(plan => this.configuration.SavedRecipePlans.Contains(plan))
+            .ToList();
+        if (plans.Count == 0)
+        {
+            this.ShowPlanMessage("Select at least one saved plan.", true);
+            return;
+        }
+
+        var combinedRecipes = plans
+            .SelectMany(plan => plan.Recipes)
+            .GroupBy(recipe => recipe.RecipeId)
+            .Select(group =>
+            {
+                var first = group.First();
+                var desiredAmount = (uint)Math.Min(
+                    group.Aggregate(
+                        0UL,
+                        (total, recipe) => total + Math.Max(1U, recipe.DesiredAmount)),
+                    uint.MaxValue);
+                return new RecipePlanSelection(
+                    new RecipeMatch(
+                        first.RecipeId,
+                        first.ResultItemId,
+                        first.ResultName,
+                        Math.Max(1U, first.ResultAmount)),
+                    desiredAmount);
+            })
+            .OrderBy(selection => selection.Recipe.ResultName)
+            .ToList();
+        if (combinedRecipes.Count == 0)
+        {
+            this.ShowPlanMessage("The selected plans do not contain any recipes.", true);
+            return;
+        }
+
+        this.selectedRecipes.Clear();
+        this.selectedRecipes.AddRange(combinedRecipes);
+        this.planName = plans.Count == 1 ? plans[0].Name : string.Empty;
+        this.searchText = string.Empty;
+        this.searchResults = [];
+        this.RefreshDetails(true);
+        this.ShowPlanMessage(
+            $"Loaded {plans.Count} saved plan{(plans.Count == 1 ? string.Empty : "s")}.",
+            false);
+
+        if (!craftImmediately)
+            return;
+
+        if (this.artisanCraftQueue.Count == 0)
+        {
+            this.integrationError = true;
+            this.integrationMessage = string.IsNullOrWhiteSpace(this.artisanCraftQueueError)
+                ? "The selected plans cannot be crafted from the available materials."
+                : this.artisanCraftQueueError;
+            return;
+        }
+
+        this.integrationError =
+            !this.pluginIntegrationService.CraftAllWithArtisan(
+                this.artisanCraftQueue,
+                out this.integrationMessage);
     }
 
     private void ShowPlanMessage(string message, bool isError)
