@@ -30,7 +30,7 @@ public sealed class RecipeService
         this.aetherialReductionService = aetherialReductionService;
     }
 
-    public IReadOnlyList<RecipeMatch> Search(string query, int maxResults = 40)
+    public IReadOnlyList<RecipeMatch> Search(string query)
     {
         var recipes = this.dataManager.GetExcelSheet<Recipe>();
         if (recipes is null)
@@ -49,10 +49,87 @@ public sealed class RecipeService
                 match.ResultItemId.ToString(CultureInfo.InvariantCulture) == cleanQuery)
             .OrderBy(match => match.ResultName.StartsWith(cleanQuery, StringComparison.CurrentCultureIgnoreCase) ? 0 : 1)
             .ThenBy(match => match.ResultName)
-            .Take(maxResults)
             .ToList();
         this.fileLog.Info("Recipes", $"Search '{cleanQuery}' returned {results.Count} result(s).");
         return results;
+    }
+
+    public IReadOnlyList<CraftableRecipeAvailability> GetCraftableRecipes(
+        IReadOnlyDictionary<uint, OwnedInventoryItem> ownedItems)
+    {
+        var recipes = this.dataManager.GetExcelSheet<Recipe>();
+        if (recipes is null || ownedItems.Count == 0)
+            return [];
+
+        var recipeRows = recipes
+            .Select(recipe => (Recipe: recipe, Match: this.TryCreateMatch(recipe)))
+            .Where(entry =>
+                entry.Match is not null &&
+                this.ReadIngredients(entry.Recipe).Count > 0)
+            .ToList();
+        var recipesByResult = this.BuildRecipesByResult(
+            recipeRows.Select(entry => entry.Recipe));
+        var available = recipeRows
+            .Select(entry =>
+            {
+                var craftCount = this.GetMaximumCraftCount(
+                    entry.Recipe,
+                    recipesByResult,
+                    ownedItems);
+                return new CraftableRecipeAvailability(
+                    entry.Match!,
+                    craftCount,
+                    MultiplySaturating(
+                        (ulong)entry.Match!.ResultAmount,
+                        craftCount));
+            })
+            .Where(availability => availability.CraftCount > 0)
+            .GroupBy(availability => availability.Recipe.ResultItemId)
+            .Select(group => group
+                .OrderByDescending(availability => availability.CraftCount)
+                .ThenBy(availability => availability.Recipe.RecipeId)
+                .First())
+            .OrderBy(availability => availability.Recipe.ResultName)
+            .ThenBy(availability => availability.Recipe.RecipeId)
+            .ToList();
+
+        this.fileLog.Info(
+            "Recipes",
+            $"Stock check found {available.Count} craftable result(s) from {ownedItems.Count} owned item type(s).");
+        return available;
+    }
+
+    private uint GetMaximumCraftCount(
+        Recipe recipe,
+        IReadOnlyDictionary<uint, Recipe> recipesByResult,
+        IReadOnlyDictionary<uint, OwnedInventoryItem> ownedItems)
+    {
+        if (!this.CanCraftFromOwnedItems(recipe, 1, recipesByResult, ownedItems))
+            return 0;
+
+        uint lower = 1;
+        uint upper = 2;
+        while (this.CanCraftFromOwnedItems(recipe, upper, recipesByResult, ownedItems))
+        {
+            lower = upper;
+            if (upper == uint.MaxValue)
+                return upper;
+
+            upper = upper > uint.MaxValue / 2
+                ? uint.MaxValue
+                : upper * 2;
+        }
+
+        while ((ulong)lower + 1 < upper)
+        {
+            var middle = (uint)(((ulong)lower + upper) / 2);
+            if (this.CanCraftFromOwnedItems(recipe, middle, recipesByResult, ownedItems))
+                lower = middle;
+            else
+                upper = middle;
+        }
+
+        return lower;
     }
 
     public RecipeDetails? GetDetails(
@@ -245,6 +322,108 @@ public sealed class RecipeService
         }
 
         return recipesByResult;
+    }
+
+    private bool CanCraftFromOwnedItems(
+        Recipe recipe,
+        ulong craftCount,
+        IReadOnlyDictionary<uint, Recipe> recipesByResult,
+        IReadOnlyDictionary<uint, OwnedInventoryItem> ownedItems)
+    {
+        var stock = new Dictionary<uint, ulong>();
+        var recipePath = new HashSet<uint>();
+        var resultItemId = this.ReadItemId(recipe, "ItemResult");
+        if (resultItemId != 0)
+            recipePath.Add(resultItemId);
+
+        return this.TryConsumeRecipeIngredients(
+            recipe,
+            craftCount,
+            stock,
+            recipesByResult,
+            ownedItems,
+            recipePath);
+    }
+
+    private bool TryConsumeRecipeIngredients(
+        Recipe recipe,
+        ulong craftCount,
+        IDictionary<uint, ulong> stock,
+        IReadOnlyDictionary<uint, Recipe> recipesByResult,
+        IReadOnlyDictionary<uint, OwnedInventoryItem> ownedItems,
+        ISet<uint> recipePath)
+    {
+        foreach (var ingredient in this.ReadIngredients(recipe)
+                     .GroupBy(item => item.ItemId)
+                     .Select(group => (
+                         ItemId: group.Key,
+                         Amount: group.Aggregate(
+                             0UL,
+                             (total, item) => total + item.Amount))))
+        {
+            var required = MultiplySaturating(ingredient.Amount, craftCount);
+            if (!this.TryConsumeItem(
+                    ingredient.ItemId,
+                    required,
+                    stock,
+                    recipesByResult,
+                    ownedItems,
+                    recipePath))
+                return false;
+        }
+
+        return true;
+    }
+
+    private bool TryConsumeItem(
+        uint itemId,
+        ulong required,
+        IDictionary<uint, ulong> stock,
+        IReadOnlyDictionary<uint, Recipe> recipesByResult,
+        IReadOnlyDictionary<uint, OwnedInventoryItem> ownedItems,
+        ISet<uint> recipePath)
+    {
+        if (!stock.TryGetValue(itemId, out var owned))
+        {
+            owned = ownedItems.TryGetValue(itemId, out var ownedItem)
+                ? ownedItem.Quantity
+                : 0;
+        }
+
+        var consumed = Math.Min(owned, required);
+        stock[itemId] = owned - consumed;
+        var missing = required - consumed;
+        if (missing == 0)
+            return true;
+
+        if (recipePath.Contains(itemId) ||
+            !recipesByResult.TryGetValue(itemId, out var ingredientRecipe))
+            return false;
+
+        var resultAmount = Math.Max(1U, this.ReadUInt(ingredientRecipe, "AmountResult"));
+        var ingredientCrafts =
+            (missing / resultAmount) +
+            (missing % resultAmount == 0 ? 0UL : 1UL);
+        recipePath.Add(itemId);
+        var canCraft = this.TryConsumeRecipeIngredients(
+            ingredientRecipe,
+            ingredientCrafts,
+            stock,
+            recipesByResult,
+            ownedItems,
+            recipePath);
+        recipePath.Remove(itemId);
+        if (!canCraft)
+            return false;
+
+        var produced = MultiplySaturating((ulong)resultAmount, ingredientCrafts);
+        if (produced > missing)
+        {
+            stock.TryGetValue(itemId, out var remaining);
+            stock[itemId] = AddSaturating(remaining, produced - missing);
+        }
+
+        return true;
     }
 
     private IReadOnlyList<IngredientNeed> AddRawCraftAvailability(
@@ -558,4 +737,16 @@ public sealed class RecipeService
     {
         return (uint)Math.Min((ulong)value * multiplier, uint.MaxValue);
     }
+
+    private static ulong MultiplySaturating(ulong value, ulong multiplier)
+    {
+        if (value == 0 || multiplier == 0)
+            return 0;
+        return value > ulong.MaxValue / multiplier
+            ? ulong.MaxValue
+            : value * multiplier;
+    }
+
+    private static ulong AddSaturating(ulong left, ulong right) =>
+        ulong.MaxValue - left < right ? ulong.MaxValue : left + right;
 }
