@@ -320,6 +320,20 @@ Recipe Helper searches FFXIV recipes, calculates the materials required for a ch
 - Verification for the saved-plan safeguard and icon fix: Debug and clean Release builds both succeeded with zero warnings and zero errors, and both generated manifests contain the v1.1.1 version and public icon URL.
 - Published Recipe Helper v1.1.1 on GitHub and marked it as the latest release.
 - Verified the release asset and custom-repository update path; the v1.1.1 ZIP SHA-256 digest is `2210851FEEBFCB3CB75518041BCA1305D10773F0A25B49B8494299042C03701F`.
+- Started the v1.1.2 update with redundant saved-plan persistence. Saved plans remain in the standard Dalamud configuration and are also mirrored atomically to `saved-recipe-plans.json` in the stable plugin configuration directory.
+- On startup, Recipe Helper now restores plans from the separate backup if the main configuration contains none, then writes them back into Dalamud's configuration. Intentional saves, updates, and deletions refresh the backup so removed plans do not reappear.
+- Verification after adding saved-plan backup and recovery: Debug and clean Release builds both succeeded with zero warnings and zero errors, and the packaged manifest reports version 1.1.2 with the icon metadata retained.
+- Added a `Can craft` inventory-discovery view. It checks every recipe independently against combined live inventory, crystals, saddlebags, and saved retainer snapshots, recursively consuming owned intermediate items or crafting them from other owned materials.
+- Craftable results remain available for multi-selection and refresh when inventory changes. The view explicitly treats availability as a materials check and does not claim that the current character has the required job level or recipe unlock.
+- Verification after adding craftable-recipe discovery: Debug and clean Release builds both succeeded with zero warnings and zero errors.
+- Extended `Can craft` results with an exact maximum craft count found by exponential and binary stock simulation, plus the resulting total item output after applying each recipe's yield.
+- Verification after adding maximum craft and output totals: Debug and clean Release builds both succeeded with zero warnings and zero errors.
+- Made the recipe search/results panel horizontally adjustable with a visible draggable divider, resize cursor, and hover guidance. The preferred width is saved in plugin configuration and constrained so the recipe details panel remains usable.
+- Verification after adding the adjustable search-panel width: Debug and clean Release builds both succeeded with zero warnings and zero errors.
+- Removed the fixed 40-result recipe-search limit so every matching recipe can be displayed.
+- Added saved-plan duplication with automatic unique copy names and a rename dialog that rejects blank or duplicate names. Both operations immediately refresh the redundant saved-plan backup.
+- Saving or updating a plan now clears the selected recipe workspace and resets the plan-name field, while keeping the brief confirmation visible in the empty-plan view.
+- Verification for the complete v1.1.2 feature set: Debug and clean Release builds succeeded with zero warnings and zero errors; the packaged manifest reports version 1.1.2 and retains the public icon URL.
 
 ## Continuation checklist
 
