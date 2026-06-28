@@ -277,6 +277,8 @@ Recipe Helper searches FFXIV recipes, calculates the materials required for a ch
 - Completed an initial publication-readiness audit. The API 15 Release build and packaged ZIP succeeded with zero warnings and zero errors, and the 500×500 icon meets the official size requirements. Publication remains pending a public source repository/commit, confirmed repository metadata, a licence, refreshed user documentation, personal in-game release testing, and the required AI-use disclosure.
 - Prepared the first public GitHub release: changed the version to `1.0.0.0`, set the repository URL to `CherryFairy78/Recipe-Helper`, added an MIT licence and source-control exclusions, replaced the starter README with public installation/features/privacy documentation, and refreshed installer metadata.
 - Verification for GitHub release v1.0.0: clean API 15 Release packaging succeeded in `artifacts\Release` with zero warnings and zero errors.
+- Styled the Missing Items Overlay `Teleport` buttons with the same configured accent, hover, and active colours as the main window.
+- Verification after synchronising overlay Teleport button colours: build succeeded with zero warnings and zero errors.
 
 ## Continuation checklist
 
