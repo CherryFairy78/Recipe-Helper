@@ -303,6 +303,7 @@ Recipe Helper searches FFXIV recipes, calculates the materials required for a ch
 - Verification after the Gather label, auto-height correction, and Raphael hand-off: build succeeded with zero warnings and zero errors.
 - Added a GitHub-hosted custom Dalamud repository manifest at `repo.json`, pointing installation and update downloads to the v1.0.0 GitHub Release asset and using the repository icon.
 - Replaced manual ZIP installation instructions with the custom-repository URL workflow; end users can now install and update Recipe Helper through Dalamud's Plugin Installer without handling the ZIP directly.
+- Corrected the public author and copyright name from `Meghan` to `Meghann` in the project, plugin, custom repository, and MIT licence metadata.
 
 ## Continuation checklist
 
