@@ -37,6 +37,7 @@ public sealed class RecipeWindow : Window, IDisposable
     private bool travelPopupRequested;
     private string integrationMessage = string.Empty;
     private bool integrationError;
+    private uint observedCraftAllCompletionCount;
     private bool inventoryRefreshRequested;
     private string planName = string.Empty;
     private string planMessage = string.Empty;
@@ -65,6 +66,8 @@ public sealed class RecipeWindow : Window, IDisposable
         this.inventoryService = inventoryService;
         this.travelService = travelService;
         this.pluginIntegrationService = pluginIntegrationService;
+        this.observedCraftAllCompletionCount =
+            pluginIntegrationService.CraftAllCompletionCount;
         this.aetherialReductionService = aetherialReductionService;
         this.configuration = configuration;
         this.openSettings = openSettings;
@@ -99,6 +102,15 @@ public sealed class RecipeWindow : Window, IDisposable
 
     public override void Draw()
     {
+        if (this.observedCraftAllCompletionCount !=
+            this.pluginIntegrationService.CraftAllCompletionCount)
+        {
+            this.observedCraftAllCompletionCount =
+                this.pluginIntegrationService.CraftAllCompletionCount;
+            this.integrationMessage = string.Empty;
+            this.integrationError = false;
+        }
+
         if (this.inventoryRefreshRequested)
         {
             this.inventoryRefreshRequested = false;
@@ -485,6 +497,7 @@ public sealed class RecipeWindow : Window, IDisposable
                 this.integrationError =
                     !this.pluginIntegrationService.CraftAllWithArtisan(
                         this.artisanCraftQueue,
+                        0,
                         out this.integrationMessage);
             }
 
@@ -977,6 +990,7 @@ public sealed class RecipeWindow : Window, IDisposable
         this.integrationError =
             !this.pluginIntegrationService.CraftAllWithArtisan(
                 this.artisanCraftQueue,
+                plans.Count,
                 out this.integrationMessage);
     }
 
