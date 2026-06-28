@@ -71,6 +71,7 @@ Recipe Helper searches FFXIV recipes, calculates the materials required for a ch
 
 - Artisan:
   - `Craft with Artisan` sends the selected recipe ID and calculated craft count through `Artisan.CraftItem` IPC.
+  - `Craft all with Artisan` appears for multi-recipe plans when every combined direct ingredient is owned and dispatches each recipe sequentially after Artisan reports that the previous craft is no longer busy.
   - Artisan does not expose its recipe database or crafting-list contents through stable IPC, so Recipe Helper continues to use Lumina as the canonical recipe source.
 - Teamcraft:
   - `Open in Teamcraft` creates a Teamcraft import URL from the selected result item and desired amount.
@@ -86,6 +87,10 @@ Recipe Helper searches FFXIV recipes, calculates the materials required for a ch
 - `Missing Items Overlay` opens a separate compact panel for the selected recipe plan.
 - It lists only missing raw materials that can be gathered.
 - Each row includes the missing quantity, live timed-node availability where known, and a `Teleport` button.
+- Rows with currently active timed nodes use the configured sufficient-row green highlight until their node window closes.
+- Materials are rendered with compact cell padding and the window automatically adjusts its height when the Materials section is expanded or collapsed.
+- Hovering the selected-recipe count lists every recipe represented by the combined overlay requirements.
+- Successful GatherBuddy hand-offs remain silent to keep the overlay tidy; errors are still shown.
 - Aetherial-reduction rows send the preferred reducible collectible to GatherBuddy.
 - Teleport and map behavior follows the user's GatherBuddy configuration.
 
@@ -109,6 +114,7 @@ Recipe Helper searches FFXIV recipes, calculates the materials required for a ch
 
 - The main window and Dalamud plugin configuration entry open a dedicated settings window.
 - Users can customise the title bar, window background, main text, interface accent, sufficient-row, success, missing/error, warning, and `Ready to craft` button colours.
+- Users can enable and adjust background opacity for the Missing Items Overlay independently of every other plugin window.
 - Disabled and secondary text is derived from the chosen main text colour, allowing dark text to remain readable on white backgrounds.
 - Title and background colours apply consistently to the main window, settings, raw-material overlay, child panels, and popups.
 - Colour changes are applied live and saved automatically in the standard Dalamud plugin configuration.
@@ -154,6 +160,7 @@ Recipe Helper searches FFXIV recipes, calculates the materials required for a ch
 - Artisan must be loaded and idle enough to accept the crafting request.
 - Teamcraft opening depends on the system browser being available.
 - Built-in map flags remain less reliable than GatherBuddy for gathering nodes whose exact coordinates live outside standard Excel rows.
+- Raphael HQ outcome percentages are not displayed because Raphael does not expose a supported Dalamud IPC contract for recipe solutions or predicted HQ results. Artisan exposes solver selection through IPC but not Raphael's simulation outcome.
 - Public source repository: `https://github.com/CherryFairy78/Recipe-Helper`.
 - The project is licensed under the MIT Licence.
 - Before sharing a release broadly, personally test the packaged build in game and clearly disclose substantial AI-assisted development where the repository or community requires it.
@@ -279,6 +286,13 @@ Recipe Helper searches FFXIV recipes, calculates the materials required for a ch
 - Verification for GitHub release v1.0.0: clean API 15 Release packaging succeeded in `artifacts\Release` with zero warnings and zero errors.
 - Styled the Missing Items Overlay `Teleport` buttons with the same configured accent, hover, and active colours as the main window.
 - Verification after synchronising overlay Teleport button colours: build succeeded with zero warnings and zero errors.
+- Added active-node green highlighting to the Missing Items Overlay and kept it live until each timed window ends.
+- Removed the duplicated overlay heading and successful `GatherBuddy is finding...` status text, retained actionable errors, reduced table cell padding, and made the overlay height follow the expanded/collapsed Materials section.
+- Added a hover tooltip to the overlay's selected-recipe count listing every recipe in the combined plan.
+- Added an overlay-only transparency toggle and opacity slider in Settings.
+- Added a conditional `Craft all with Artisan` button and a sequential queue driven by Artisan's public `CraftItem` and `IsBusy` IPC endpoints.
+- Assessed Raphael integration and deferred HQ prediction because neither Raphael nor Artisan exposes a supported IPC result containing Raphael's simulated HQ outcome.
+- Verification after the overlay, transparency, tooltip, and Craft All changes: build succeeded with zero warnings and zero errors.
 
 ## Continuation checklist
 
