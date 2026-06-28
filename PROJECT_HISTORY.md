@@ -76,9 +76,6 @@ Recipe Helper searches FFXIV recipes, calculates the materials required for a ch
 - Teamcraft:
   - `Open in Teamcraft` creates a Teamcraft import URL from the selected result item and desired amount.
   - Teamcraft List Maker does not expose a public IPC API and is not required for this hand-off.
-- Raphael:
-  - Each selected recipe has a `Raphael` action that opens the official web solver and copies the exact result name for its recipe search.
-  - Raphael stores its application state locally and does not expose a stable recipe/stat deep-link or Dalamud IPC, so Recipe Helper does not attempt to predict or scrape an HQ outcome.
 - GatherBuddy:
   - Normal gatherable items are sent through `/gather <item name>`.
   - Fish and spearfishing items are sent through `/gatherfish <item name>`.
@@ -163,7 +160,6 @@ Recipe Helper searches FFXIV recipes, calculates the materials required for a ch
 - Artisan must be loaded and idle enough to accept the crafting request.
 - Teamcraft opening depends on the system browser being available.
 - Built-in map flags remain less reliable than GatherBuddy for gathering nodes whose exact coordinates live outside standard Excel rows.
-- Raphael HQ outcome percentages are not displayed inside Recipe Helper because Raphael does not expose a supported Dalamud IPC contract or stable web import/result URL. Selected recipes can instead be handed to the official Raphael website, where the user's saved solver stats and settings remain authoritative.
 - Public source repository: `https://github.com/CherryFairy78/Recipe-Helper`.
 - Custom Dalamud repository URL: `https://raw.githubusercontent.com/CherryFairy78/Recipe-Helper/main/repo.json`.
 - The project is licensed under the MIT Licence.
@@ -304,6 +300,7 @@ Recipe Helper searches FFXIV recipes, calculates the materials required for a ch
 - Added a GitHub-hosted custom Dalamud repository manifest at `repo.json`, pointing installation and update downloads to the v1.0.0 GitHub Release asset and using the repository icon.
 - Replaced manual ZIP installation instructions with the custom-repository URL workflow; end users can now install and update Recipe Helper through Dalamud's Plugin Installer without handling the ZIP directly.
 - Corrected the public author and copyright name from `Meghan` to `Meghann` in the project, plugin, custom repository, and MIT licence metadata.
+- Removed the standalone Raphael website button and hand-off because Raphael solver functionality is already available through Artisan; restored the selected-recipe Actions column to its compact width and removed Raphael from current public metadata.
 
 ## Continuation checklist
 
