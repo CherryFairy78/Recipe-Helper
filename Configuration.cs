@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Numerics;
 using Dalamud.Configuration;
 
@@ -5,7 +6,9 @@ namespace DalamudRecipeHelper;
 
 public sealed class Configuration : IPluginConfiguration
 {
-    public int Version { get; set; } = 1;
+    public int Version { get; set; } = 2;
+
+    public List<SavedRecipePlan> SavedRecipePlans = [];
 
     public Vector4 EnoughRowColor = Defaults.EnoughRow;
 
