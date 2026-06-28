@@ -23,13 +23,18 @@ Recipe Helper is a Dalamud plugin for planning multiple FFXIV recipes and tracki
 
 ## Installation
 
-1. Download `DalamudRecipeHelper.zip` from the latest GitHub release.
-2. Extract it to a permanent folder.
-3. Open Dalamud Settings in FFXIV and enable developer plugins.
-4. Add the extracted `DalamudRecipeHelper.dll` under **Dev Plugin Locations**.
-5. Load **Recipe Helper** and use `/recipehelper`.
+1. Open Dalamud Settings in FFXIV.
+2. Open **Experimental** and find **Custom Plugin Repositories**.
+3. Add this repository URL:
 
-Recipe Helper targets Dalamud API 15. Artisan and GatherBuddy are optional; their related buttons fall back or report when those plugins are unavailable. The Raphael button opens the official solver and copies the exact recipe name for its search.
+   ```text
+   https://raw.githubusercontent.com/CherryFairy78/Recipe-Helper/main/repo.json
+   ```
+
+4. Save the settings, open the Dalamud Plugin Installer, and install **Recipe Helper**.
+5. Use `/recipehelper` to open it.
+
+Recipe Helper is distributed through a third-party custom repository and is not part of the official Dalamud plugin catalogue. It targets Dalamud API 15. Artisan and GatherBuddy are optional; their related buttons fall back or report when those plugins are unavailable. The Raphael button opens the official solver and copies the exact recipe name for its search.
 
 ## Retainer snapshots
 
