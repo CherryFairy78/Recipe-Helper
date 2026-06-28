@@ -9,7 +9,10 @@ namespace DalamudRecipeHelper;
 
 public sealed class Plugin : IDalamudPlugin
 {
-    private const string CommandName = "/recipehelper";
+    private static readonly string[] PublishedMainCommands = ["/recipehelper", "/rchelp"];
+    private static readonly string[] DevelopmentMainCommands = ["/recipehelperdev", "/rchelpdev"];
+    private const string PublishedOverlayCommand = "/rhoverlay";
+    private const string DevelopmentOverlayCommand = "/rhoverlaydev";
 
     [PluginService]
     internal static IDalamudPluginInterface PluginInterface { get; private set; } = null!;
@@ -48,12 +51,26 @@ public sealed class Plugin : IDalamudPlugin
     private readonly PluginIntegrationService pluginIntegrationService;
     private readonly Configuration configuration;
     private readonly FileLogService fileLog;
+    private readonly string[] mainCommands;
+    private readonly string overlayCommand;
 
     public Plugin()
     {
         this.fileLog = new FileLogService(PluginInterface.GetPluginConfigDirectory());
         this.fileLog.Info("Plugin", $"Started. Logs: {this.fileLog.LogDirectory}");
+        this.mainCommands = PluginInterface.IsDev
+            ? DevelopmentMainCommands
+            : PublishedMainCommands;
+        this.overlayCommand = PluginInterface.IsDev
+            ? DevelopmentOverlayCommand
+            : PublishedOverlayCommand;
+        this.fileLog.Info(
+            "Command",
+            PluginInterface.IsDev
+                ? "Loaded as a development plugin; registering development-only commands."
+                : "Loaded as a published plugin; registering published commands.");
         this.configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
+        this.configuration.SavedRecipePlans ??= [];
         this.settingsWindow = new SettingsWindow(this.configuration, this.SaveConfiguration);
         var aetherialReductionService = new AetherialReductionService(DataManager, this.fileLog);
         this.pluginIntegrationService =
@@ -90,14 +107,23 @@ public sealed class Plugin : IDalamudPlugin
             aetherialReductionService,
             this.configuration,
             this.OpenSettings,
+            this.SaveConfiguration,
             this.rawMaterialsOverlayWindow);
         this.windowSystem.AddWindow(this.recipeWindow);
         this.windowSystem.AddWindow(this.settingsWindow);
         this.windowSystem.AddWindow(this.rawMaterialsOverlayWindow);
 
-        CommandManager.AddHandler(CommandName, new CommandInfo(this.OnCommand)
+        foreach (var command in this.mainCommands)
         {
-            HelpMessage = "Open Recipe Helper.",
+            CommandManager.AddHandler(command, new CommandInfo(this.OnCommand)
+            {
+                HelpMessage = "Open Recipe Helper.",
+            });
+        }
+
+        CommandManager.AddHandler(this.overlayCommand, new CommandInfo(this.OnOverlayCommand)
+        {
+            HelpMessage = "Toggle the Recipe Helper Missing Items Overlay.",
         });
 
         PluginInterface.UiBuilder.Draw += this.windowSystem.Draw;
@@ -111,7 +137,9 @@ public sealed class Plugin : IDalamudPlugin
         PluginInterface.UiBuilder.Draw -= this.windowSystem.Draw;
         PluginInterface.UiBuilder.OpenConfigUi -= this.OpenSettings;
         PluginInterface.UiBuilder.OpenMainUi -= this.Open;
-        CommandManager.RemoveHandler(CommandName);
+        foreach (var command in this.mainCommands)
+            CommandManager.RemoveHandler(command);
+        CommandManager.RemoveHandler(this.overlayCommand);
         this.windowSystem.RemoveAllWindows();
         this.pluginIntegrationService.Dispose();
         this.rawMaterialsOverlayWindow.Dispose();
@@ -131,6 +159,17 @@ public sealed class Plugin : IDalamudPlugin
         }
 
         this.Open();
+    }
+
+    private void OnOverlayCommand(string command, string args)
+    {
+        this.rawMaterialsOverlayWindow.IsOpen =
+            !this.rawMaterialsOverlayWindow.IsOpen;
+        this.fileLog.Info(
+            "Command",
+            this.rawMaterialsOverlayWindow.IsOpen
+                ? $"Opened Missing Items Overlay with {command}."
+                : $"Closed Missing Items Overlay with {command}.");
     }
 
     private void Open() => this.recipeWindow.IsOpen = true;
