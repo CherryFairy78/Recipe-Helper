@@ -375,7 +375,7 @@ public sealed class RecipeWindow : Window, IDisposable
             ImGui.TableSetupColumn("Recipe", ImGuiTableColumnFlags.WidthStretch, 1);
             ImGui.TableSetupColumn("Output", ImGuiTableColumnFlags.WidthFixed, 75);
             ImGui.TableSetupColumn("Crafts", ImGuiTableColumnFlags.WidthFixed, 50);
-            ImGui.TableSetupColumn("Actions", ImGuiTableColumnFlags.WidthFixed, 270);
+            ImGui.TableSetupColumn("Actions", ImGuiTableColumnFlags.WidthFixed, 210);
             ImGui.TableHeadersRow();
 
             foreach (var recipe in details.Recipes)
@@ -421,15 +421,6 @@ public sealed class RecipeWindow : Window, IDisposable
                     this.integrationError = !this.pluginIntegrationService.OpenInTeamcraft(
                         recipe.ResultItemId,
                         recipe.DesiredAmount,
-                        out this.integrationMessage);
-                }
-
-                ImGui.SameLine();
-                if (ImGui.SmallButton($"Raphael##plan-raphael-{recipe.RecipeId}"))
-                {
-                    ImGui.SetClipboardText(recipe.ResultName);
-                    this.integrationError = !this.pluginIntegrationService.OpenInRaphael(
-                        recipe.ResultName,
                         out this.integrationMessage);
                 }
 
