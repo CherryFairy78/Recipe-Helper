@@ -20,6 +20,8 @@ public sealed class PluginIntegrationService : IDisposable
     private bool craftAllActive;
     private DateTime nextCraftAllCheck;
 
+    public uint CraftAllCompletionCount { get; private set; }
+
     public PluginIntegrationService(
         IDalamudPluginInterface pluginInterface,
         ICommandManager commandManager,
@@ -92,6 +94,7 @@ public sealed class PluginIntegrationService : IDisposable
 
     public bool CraftAllWithArtisan(
         IReadOnlyList<ArtisanCraftQueueEntry> recipes,
+        int recipePlanCount,
         out string message)
     {
         if (recipes.Count == 0)
@@ -131,12 +134,26 @@ public sealed class PluginIntegrationService : IDisposable
             return false;
         }
 
+        var preCraftCount = recipes
+            .Where(recipe => recipe.IsIntermediate)
+            .Aggregate(
+                0UL,
+                (total, recipe) => total + recipe.CraftCount);
+        var finalRecipeCount = recipes.Count(recipe => !recipe.IsIntermediate);
+        var queuedItemCount = recipePlanCount > 0
+            ? recipePlanCount
+            : finalRecipeCount;
+        var queuedItemName = recipePlanCount > 0
+            ? queuedItemCount == 1 ? "recipe plan" : "recipe plans"
+            : queuedItemCount == 1 ? "recipe" : "recipes";
         this.fileLog.Info(
             "Artisan",
             $"Started Craft All queue with {recipes.Count} batch(es), including " +
-            $"{recipes.Count(recipe => recipe.IsIntermediate)} intermediate batch(es).");
-        message =
-            $"Queued {recipes.Count} crafting batch(es) with Artisan, intermediates first.";
+            $"{recipes.Count(recipe => recipe.IsIntermediate)} pre-craft batch(es).");
+        message = preCraftCount > 0
+            ? $"Queued {queuedItemCount} {queuedItemName} with " +
+              $"{preCraftCount:N0} pre-craft{(preCraftCount == 1 ? string.Empty : "s")} in Artisan."
+            : $"Queued {queuedItemCount} {queuedItemName} with Artisan.";
         return true;
     }
 
@@ -187,6 +204,7 @@ public sealed class PluginIntegrationService : IDisposable
         if (this.craftAllQueue.Count == 0)
         {
             this.craftAllActive = false;
+            this.CraftAllCompletionCount++;
             this.fileLog.Info("Artisan", "Craft All queue completed.");
             return;
         }
