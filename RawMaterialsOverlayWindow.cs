@@ -42,7 +42,7 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
         this.SizeConstraints = new WindowSizeConstraints
         {
             MinimumSize = new Vector2(330, 72),
-            MaximumSize = new Vector2(620, 650),
+            MaximumSize = new Vector2(620, float.MaxValue),
         };
     }
 
@@ -169,19 +169,19 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
                     ImGui.TextDisabled("Any time");
 
                 ImGui.TableNextColumn();
-                var teleportButtonWidth = ImGui.CalcTextSize("Teleport").X + 14;
+                var gatherButtonWidth = ImGui.CalcTextSize("Gather").X + 14;
                 var travelColumnWidth = ImGui.GetContentRegionAvail().X;
                 ImGui.SetCursorPosX(
                     ImGui.GetCursorPosX() +
-                    MathF.Max(0, (travelColumnWidth - teleportButtonWidth) / 2));
+                    MathF.Max(0, (travelColumnWidth - gatherButtonWidth) / 2));
                 var accent = this.configuration.AccentColor;
                 ImGui.PushStyleColor(ImGuiCol.Button, WithAlpha(accent, 0.72f));
                 ImGui.PushStyleColor(ImGuiCol.ButtonHovered, AdjustColor(accent, 0.10f));
                 ImGui.PushStyleColor(ImGuiCol.ButtonActive, AdjustColor(accent, -0.08f));
-                var teleportClicked =
-                    ImGui.SmallButton($"Teleport##raw-overlay-{material.ItemId}");
+                var gatherClicked =
+                    ImGui.SmallButton($"Gather##raw-overlay-{material.ItemId}");
                 ImGui.PopStyleColor(3);
-                if (teleportClicked)
+                if (gatherClicked)
                 {
                     var gathered = this.pluginIntegrationService.GatherWithGatherBuddy(
                         reductionSource?.Name ?? material.Name,
@@ -238,22 +238,48 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
     private float CalculateOverlayHeight()
     {
         var materialCount = this.GetGatherableMaterials().Count;
-        var selectedRecipeHeight = this.selectedRecipeNames.Count > 0 ? 23f : 0f;
+        var style = ImGui.GetStyle();
+        var titleBarHeight = ImGui.GetFrameHeight() + 6f;
+        var windowPadding = style.WindowPadding.Y * 2;
+        var selectedRecipeHeight = this.selectedRecipeNames.Count > 0
+            ? ImGui.GetTextLineHeight() + style.ItemSpacing.Y
+            : 0f;
+        var collapsedHeaderHeight = ImGui.GetFrameHeight() + style.ItemSpacing.Y;
+        var fixedHeight =
+            titleBarHeight +
+            windowPadding +
+            selectedRecipeHeight +
+            collapsedHeaderHeight +
+            12f;
         if (materialCount == 0)
-            return 72f + selectedRecipeHeight;
+        {
+            return
+                titleBarHeight +
+                windowPadding +
+                selectedRecipeHeight +
+                ImGui.GetTextLineHeight() +
+                12f;
+        }
 
         if (!this.materialsExpanded)
-            return 70f + selectedRecipeHeight;
+            return fixedHeight;
 
-        var tableHeight = 23f * (materialCount + 1);
+        const float tableCellPadding = 4f;
+        var tableHeaderHeight =
+            ImGui.GetTextLineHeight() + tableCellPadding + 2f;
+        var tableRowHeight =
+            ImGui.GetFrameHeight() + tableCellPadding;
+        var tableHeight =
+            tableHeaderHeight +
+            (tableRowHeight * materialCount) +
+            4f;
         var messageHeight =
             this.messageIsError && !string.IsNullOrWhiteSpace(this.message)
-                ? 28f
+                ? ImGui.GetTextLineHeight() + style.ItemSpacing.Y + 8f
                 : 0f;
-        return Math.Clamp(
-            76f + selectedRecipeHeight + tableHeight + messageHeight,
+        return Math.Max(
             96f,
-            650f);
+            fixedHeight + tableHeight + messageHeight);
     }
 
     private static Vector4 WithAlpha(Vector4 color, float alpha) =>
