@@ -368,6 +368,8 @@ Recipe Helper searches FFXIV recipes, calculates the materials required for a ch
 - Added a persistent main-window toggle to show or hide completed raw materials, shards, crystals, and clusters without hiding direct ingredients.
 - Advanced the local development version to 1.1.3.0 while leaving the published custom-repository manifest on v1.1.2 until the next release is explicitly requested.
 - Verification after adding multi-plan crafting and completed-raw-material visibility: Debug and clean Release builds both succeeded with zero warnings and zero errors; the development manifest reports version 1.1.3.0.
+- Published Recipe Helper v1.1.3 as the latest GitHub release with `DalamudRecipeHelper-v1.1.3.zip`. GitHub and the local package report the same SHA-256 digest: `062406B9985DA08B1E7E0E4481ADBA8D7F05D20E94F7506181BBC7073A93A681`.
+- Activated the custom-repository manifest for v1.1.3 only after the matching public release asset was verified.
 
 ## Continuation checklist
 
