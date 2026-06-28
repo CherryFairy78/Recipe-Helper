@@ -5,6 +5,7 @@ Recipe Helper is a Dalamud plugin for planning multiple FFXIV recipes and tracki
 ## Features
 
 - Add multiple recipes to a shared plan and set an individual output quantity for each.
+- Save, name, reload, update, and delete recipe plans with their output quantities preserved.
 - Combine duplicate direct ingredients, raw materials, shards, crystals, and clusters.
 - Compare requirements with NQ/HQ inventory, saddlebags, and saved retainer snapshots.
 - Refresh quantities automatically as inventory changes.
@@ -33,6 +34,15 @@ Recipe Helper is a Dalamud plugin for planning multiple FFXIV recipes and tracki
 
 4. Save the settings, open the Dalamud Plugin Installer, and install **Recipe Helper**.
 5. Use `/recipehelper` to open it.
+
+## Commands
+
+Published builds use:
+
+- `/recipehelper` or `/rchelp` — open Recipe Helper.
+- `/rhoverlay` — toggle the Missing Items Overlay open or closed.
+
+Plugins loaded through Dalamud's **Dev Plugins** screen use `/recipehelperdev`, `/rchelpdev`, and `/rhoverlaydev` instead, preventing command conflicts when development and published copies are loaded together.
 
 Recipe Helper is distributed through a third-party custom repository and is not part of the official Dalamud plugin catalogue. It targets Dalamud API 15. Artisan and GatherBuddy are optional; their related buttons fall back or report when those plugins are unavailable.
 
