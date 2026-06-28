@@ -165,6 +165,7 @@ Recipe Helper searches FFXIV recipes, calculates the materials required for a ch
 - Built-in map flags remain less reliable than GatherBuddy for gathering nodes whose exact coordinates live outside standard Excel rows.
 - Raphael HQ outcome percentages are not displayed inside Recipe Helper because Raphael does not expose a supported Dalamud IPC contract or stable web import/result URL. Selected recipes can instead be handed to the official Raphael website, where the user's saved solver stats and settings remain authoritative.
 - Public source repository: `https://github.com/CherryFairy78/Recipe-Helper`.
+- Custom Dalamud repository URL: `https://raw.githubusercontent.com/CherryFairy78/Recipe-Helper/main/repo.json`.
 - The project is licensed under the MIT Licence.
 - Before sharing a release broadly, personally test the packaged build in game and clearly disclose substantial AI-assisted development where the repository or community requires it.
 
@@ -300,6 +301,8 @@ Recipe Helper searches FFXIV recipes, calculates the materials required for a ch
 - Reworked overlay auto-height using the actual title, window padding, frame, header, row, and message heights; removed the previous 650-pixel maximum so the expanded Materials table can fit all rendered rows.
 - Added a `Raphael` action to each selected recipe. It opens `raphael-xiv.com` and copies the exact recipe name because Raphael currently has no stable URL import or Dalamud IPC for preloading recipes, character stats, or HQ outcomes.
 - Verification after the Gather label, auto-height correction, and Raphael hand-off: build succeeded with zero warnings and zero errors.
+- Added a GitHub-hosted custom Dalamud repository manifest at `repo.json`, pointing installation and update downloads to the v1.0.0 GitHub Release asset and using the repository icon.
+- Replaced manual ZIP installation instructions with the custom-repository URL workflow; end users can now install and update Recipe Helper through Dalamud's Plugin Installer without handling the ZIP directly.
 
 ## Continuation checklist
 
