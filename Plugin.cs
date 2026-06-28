@@ -45,6 +45,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly RecipeWindow recipeWindow;
     private readonly SettingsWindow settingsWindow;
     private readonly RawMaterialsOverlayWindow rawMaterialsOverlayWindow;
+    private readonly PluginIntegrationService pluginIntegrationService;
     private readonly Configuration configuration;
     private readonly FileLogService fileLog;
 
@@ -55,8 +56,12 @@ public sealed class Plugin : IDalamudPlugin
         this.configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
         this.settingsWindow = new SettingsWindow(this.configuration, this.SaveConfiguration);
         var aetherialReductionService = new AetherialReductionService(DataManager, this.fileLog);
-        var pluginIntegrationService =
-            new PluginIntegrationService(PluginInterface, CommandManager, this.fileLog);
+        this.pluginIntegrationService =
+            new PluginIntegrationService(
+                PluginInterface,
+                CommandManager,
+                Framework,
+                this.fileLog);
         var retainerSnapshotService = new RetainerSnapshotService(
             Framework,
             PlayerState,
@@ -71,7 +76,7 @@ public sealed class Plugin : IDalamudPlugin
             this.fileLog,
             aetherialReductionService);
         this.rawMaterialsOverlayWindow = new RawMaterialsOverlayWindow(
-            pluginIntegrationService,
+            this.pluginIntegrationService,
             aetherialReductionService,
             inventoryService,
             recipeService,
@@ -81,7 +86,7 @@ public sealed class Plugin : IDalamudPlugin
             recipeService,
             inventoryService,
             new TravelService(DataManager, AetheryteList, Framework, Condition, this.fileLog),
-            pluginIntegrationService,
+            this.pluginIntegrationService,
             aetherialReductionService,
             this.configuration,
             this.OpenSettings,
@@ -108,6 +113,7 @@ public sealed class Plugin : IDalamudPlugin
         PluginInterface.UiBuilder.OpenMainUi -= this.Open;
         CommandManager.RemoveHandler(CommandName);
         this.windowSystem.RemoveAllWindows();
+        this.pluginIntegrationService.Dispose();
         this.rawMaterialsOverlayWindow.Dispose();
         this.recipeWindow.Dispose();
     }
