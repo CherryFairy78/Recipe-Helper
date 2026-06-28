@@ -8,6 +8,26 @@ public sealed record RecipeMatch(uint RecipeId, uint ResultItemId, string Result
 
 public sealed record RecipePlanSelection(RecipeMatch Recipe, uint DesiredAmount);
 
+public sealed class SavedRecipePlan
+{
+    public string Name { get; set; } = string.Empty;
+
+    public List<SavedRecipePlanEntry> Recipes { get; set; } = [];
+}
+
+public sealed class SavedRecipePlanEntry
+{
+    public uint RecipeId { get; set; }
+
+    public uint ResultItemId { get; set; }
+
+    public string ResultName { get; set; } = string.Empty;
+
+    public uint ResultAmount { get; set; }
+
+    public uint DesiredAmount { get; set; }
+}
+
 public sealed record MaterialRecipeUsage(
     uint RecipeId,
     string ResultName,
