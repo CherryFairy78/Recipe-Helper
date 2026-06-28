@@ -438,7 +438,19 @@ public sealed class RecipeWindow : Window, IDisposable
                     planToLoad = savedPlan;
                 ImGui.SameLine();
                 if (ImGui.SmallButton($"Delete##saved-plan-{savedPlan.Name}"))
-                    planToDelete = savedPlan;
+                {
+                    if (ImGui.GetIO().KeyCtrl)
+                        planToDelete = savedPlan;
+                    else
+                        this.ShowPlanMessage("Hold Ctrl while clicking Delete to remove a saved plan.", true);
+                }
+
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.BeginTooltip();
+                    ImGui.TextUnformatted("Hold Ctrl and click to delete this saved plan.");
+                    ImGui.EndTooltip();
+                }
             }
 
             ImGui.EndTable();
