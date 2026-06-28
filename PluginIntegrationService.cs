@@ -158,6 +158,33 @@ public sealed class PluginIntegrationService : IDisposable
         }
     }
 
+    public bool OpenInRaphael(string recipeName, out string message)
+    {
+        try
+        {
+            Util.OpenLink("https://www.raphael-xiv.com/");
+            this.fileLog.Info(
+                "Raphael",
+                $"Opened Raphael for recipe '{recipeName}'.");
+            message =
+                $"Opened Raphael. The recipe name '{recipeName}' was copied for its recipe search.";
+            return true;
+        }
+        catch (Exception exception)
+        {
+            Plugin.Log.Warning(
+                exception,
+                "Could not open Raphael for recipe {RecipeName}.",
+                recipeName);
+            this.fileLog.Error(
+                "Raphael",
+                $"Could not open Raphael for recipe '{recipeName}'.",
+                exception);
+            message = "Raphael could not be opened in your browser.";
+            return false;
+        }
+    }
+
     private void OnFrameworkUpdate(IFramework framework)
     {
         if (!this.craftAllActive || DateTime.UtcNow < this.nextCraftAllCheck)
