@@ -222,7 +222,7 @@ public sealed class RecipeWindow : Window, IDisposable
         if (this.selectedRecipes.Count == 0)
         {
             this.recipePlanDetails = null;
-            this.rawMaterialsOverlayWindow.SetMaterials(string.Empty, []);
+            this.rawMaterialsOverlayWindow.SetMaterials([], []);
             return;
         }
 
@@ -234,10 +234,9 @@ public sealed class RecipeWindow : Window, IDisposable
             this.ownedItems);
         if (this.recipePlanDetails is { } details)
         {
-            var overlayName = details.Recipes.Count == 1
-                ? details.Recipes[0].ResultName
-                : $"{details.Recipes.Count} selected recipes";
-            this.rawMaterialsOverlayWindow.SetMaterials(overlayName, details.RawMaterials);
+            this.rawMaterialsOverlayWindow.SetMaterials(
+                details.Recipes.Select(recipe => recipe.ResultName).ToList(),
+                details.RawMaterials);
         }
     }
 
@@ -268,6 +267,27 @@ public sealed class RecipeWindow : Window, IDisposable
             this.DrawSelectedRecipes(details);
 
         ImGui.Spacing();
+        var canCraftAll =
+            details.Recipes.Count > 1 &&
+            details.Ingredients.Count > 0 &&
+            details.Ingredients.All(ingredient => ingredient.HasEnough);
+        if (canCraftAll)
+        {
+            ImGui.PushStyleColor(
+                ImGuiCol.Button,
+                this.configuration.ReadyButtonColor);
+            var craftAllClicked = ImGui.Button("Craft all with Artisan");
+            ImGui.PopStyleColor();
+            if (craftAllClicked)
+            {
+                this.integrationError =
+                    !this.pluginIntegrationService.CraftAllWithArtisan(
+                        details.Recipes,
+                        out this.integrationMessage);
+            }
+
+            ImGui.SameLine();
+        }
 
         if (ImGui.Button("Missing Items Overlay"))
             this.rawMaterialsOverlayWindow.IsOpen = true;
