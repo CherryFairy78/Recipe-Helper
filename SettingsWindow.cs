@@ -45,6 +45,22 @@ public sealed class SettingsWindow : Window
         changed |= DrawColor("Warning text", ref this.configuration.WarningTextColor);
         changed |= DrawColor("Ready to craft button", ref this.configuration.ReadyButtonColor);
 
+        ImGui.Spacing();
+        ImGui.TextColored(this.configuration.AccentColor, "Missing Items Overlay");
+        changed |= ImGui.Checkbox(
+            "Use transparent overlay background",
+            ref this.configuration.UseTransparentOverlayBackground);
+        if (this.configuration.UseTransparentOverlayBackground)
+        {
+            ImGui.SetNextItemWidth(180);
+            changed |= ImGui.SliderFloat(
+                "Overlay opacity",
+                ref this.configuration.OverlayBackgroundOpacity,
+                0.20f,
+                1f,
+                "%.2f");
+        }
+
         if (changed)
             this.save();
 
