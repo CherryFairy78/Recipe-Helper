@@ -362,6 +362,8 @@ Recipe Helper searches FFXIV recipes, calculates the materials required for a ch
 - Verification after updating plan-name submission: Debug and clean Release builds both succeeded with zero warnings and zero errors.
 - Published Recipe Helper v1.1.2 as the latest public GitHub release with `DalamudRecipeHelper-v1.1.2.zip`. GitHub and the local package report the same SHA-256 digest: `89327F6A92D9C5AFA19F7EC6131A53ED1F9EC1B3D8120963FE4639B37F53833F`.
 - Updated the public custom-repository manifest to advertise v1.1.2 only after the matching release asset was available.
+- Repaired a GitHub web-editor synchronization issue that had appended previous content to updated text files. GitHub's contents API then confirmed that every file on the current `main` branch exactly matches the local project, and the public `repo.json` parses as one valid v1.1.2 entry.
+- The v1.1.2 Dalamud install ZIP and custom-repository feed are verified and unaffected. GitHub's automatically generated v1.1.2 source archives were created from the tag before the web-editor repair; use the current `main` branch for the corrected v1.1.2 source.
 
 ## Continuation checklist
 
