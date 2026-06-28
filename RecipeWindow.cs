@@ -16,6 +16,7 @@ public sealed class RecipeWindow : Window, IDisposable
     private readonly AetherialReductionService aetherialReductionService;
     private readonly Configuration configuration;
     private readonly Action openSettings;
+    private readonly Action saveConfiguration;
     private readonly RawMaterialsOverlayWindow rawMaterialsOverlayWindow;
     private IReadOnlyList<RecipeMatch> searchResults = [];
     private readonly List<RecipePlanSelection> selectedRecipes = [];
@@ -30,6 +31,10 @@ public sealed class RecipeWindow : Window, IDisposable
     private string integrationMessage = string.Empty;
     private bool integrationError;
     private bool inventoryRefreshRequested;
+    private string planName = string.Empty;
+    private string planMessage = string.Empty;
+    private bool planMessageIsError;
+    private DateTime planMessageExpiresAt;
 
     public RecipeWindow(
         RecipeService recipeService,
@@ -39,6 +44,7 @@ public sealed class RecipeWindow : Window, IDisposable
         AetherialReductionService aetherialReductionService,
         Configuration configuration,
         Action openSettings,
+        Action saveConfiguration,
         RawMaterialsOverlayWindow rawMaterialsOverlayWindow)
         : base("Recipe Helper###DalamudRecipeHelper")
     {
@@ -49,6 +55,7 @@ public sealed class RecipeWindow : Window, IDisposable
         this.aetherialReductionService = aetherialReductionService;
         this.configuration = configuration;
         this.openSettings = openSettings;
+        this.saveConfiguration = saveConfiguration;
         this.rawMaterialsOverlayWindow = rawMaterialsOverlayWindow;
         this.inventoryService.InventoryChanged += this.OnInventoryChanged;
         this.Size = new Vector2(760, 540);
@@ -247,6 +254,12 @@ public sealed class RecipeWindow : Window, IDisposable
             ImGui.Dummy(new Vector2(0, 24));
             ImGui.TextColored(this.configuration.AccentColor, "No recipes selected");
             ImGui.TextDisabled("Choose one or more recipes from the list to build a combined plan.");
+            if (this.configuration.SavedRecipePlans.Count > 0 &&
+                this.DrawCollapsibleSection(
+                    "SAVED PLANS",
+                    "Load or delete a named recipe plan",
+                    "saved-plans-empty-section"))
+                this.DrawSavedPlans();
             return;
         }
 
@@ -254,6 +267,14 @@ public sealed class RecipeWindow : Window, IDisposable
         ImGui.TextColored(this.configuration.AccentColor, "RECIPE PLAN");
         ImGui.SameLine();
         ImGui.TextDisabled($"{details.Recipes.Count} selected");
+        this.DrawSavePlanControls();
+        if (this.configuration.SavedRecipePlans.Count > 0 &&
+            this.DrawCollapsibleSection(
+                "SAVED PLANS",
+                "Load or delete a named recipe plan",
+                "saved-plans-section"))
+            this.DrawSavedPlans();
+
         if (this.DrawCollapsibleSection(
                 "PLAN SUMMARY",
                 "Combined recipe, craft, and raw-item totals",
@@ -360,6 +381,155 @@ public sealed class RecipeWindow : Window, IDisposable
         this.DrawTravelPopup();
     }
 
+    private void DrawSavePlanControls()
+    {
+        ImGui.SetNextItemWidth(190);
+        ImGui.InputTextWithHint(
+            "##recipe-plan-name",
+            "Plan name",
+            ref this.planName,
+            80);
+        ImGui.SameLine();
+        if (ImGui.Button("Save plan"))
+            this.SaveCurrentPlan();
+
+        if (!string.IsNullOrWhiteSpace(this.planMessage) &&
+            DateTime.UtcNow < this.planMessageExpiresAt)
+        {
+            ImGui.TextColored(
+                this.planMessageIsError
+                    ? this.configuration.MissingTextColor
+                    : this.configuration.SuccessTextColor,
+                this.planMessage);
+        }
+        else
+        {
+            this.planMessage = string.Empty;
+        }
+    }
+
+    private void DrawSavedPlans()
+    {
+        SavedRecipePlan? planToLoad = null;
+        SavedRecipePlan? planToDelete = null;
+        if (ImGui.BeginTable(
+                "saved-recipe-plans",
+                3,
+                ImGuiTableFlags.RowBg |
+                ImGuiTableFlags.BordersInnerH |
+                ImGuiTableFlags.SizingStretchProp))
+        {
+            ImGui.TableSetupColumn("Plan", ImGuiTableColumnFlags.WidthStretch, 1);
+            ImGui.TableSetupColumn("Recipes", ImGuiTableColumnFlags.WidthFixed, 60);
+            ImGui.TableSetupColumn("Actions", ImGuiTableColumnFlags.WidthFixed, 105);
+            ImGui.TableHeadersRow();
+
+            foreach (var savedPlan in this.configuration.SavedRecipePlans
+                         .OrderBy(plan => plan.Name)
+                         .ToList())
+            {
+                ImGui.TableNextRow();
+                ImGui.TableNextColumn();
+                ImGui.TextUnformatted(savedPlan.Name);
+                ImGui.TableNextColumn();
+                ImGui.TextUnformatted(savedPlan.Recipes.Count.ToString());
+                ImGui.TableNextColumn();
+                if (ImGui.SmallButton($"Load##saved-plan-{savedPlan.Name}"))
+                    planToLoad = savedPlan;
+                ImGui.SameLine();
+                if (ImGui.SmallButton($"Delete##saved-plan-{savedPlan.Name}"))
+                    planToDelete = savedPlan;
+            }
+
+            ImGui.EndTable();
+        }
+
+        if (planToLoad is not null)
+            this.LoadSavedPlan(planToLoad);
+
+        if (planToDelete is not null)
+        {
+            this.configuration.SavedRecipePlans.Remove(planToDelete);
+            this.saveConfiguration();
+            this.ShowPlanMessage($"Deleted plan '{planToDelete.Name}'.", false);
+        }
+    }
+
+    private void SaveCurrentPlan()
+    {
+        var cleanName = this.planName.Trim();
+        if (cleanName.Length == 0)
+        {
+            this.ShowPlanMessage("Enter a name before saving the plan.", true);
+            return;
+        }
+
+        if (this.selectedRecipes.Count == 0)
+        {
+            this.ShowPlanMessage("Add at least one recipe before saving.", true);
+            return;
+        }
+
+        var savedPlan = new SavedRecipePlan
+        {
+            Name = cleanName,
+            Recipes = this.selectedRecipes.Select(selection =>
+                new SavedRecipePlanEntry
+                {
+                    RecipeId = selection.Recipe.RecipeId,
+                    ResultItemId = selection.Recipe.ResultItemId,
+                    ResultName = selection.Recipe.ResultName,
+                    ResultAmount = selection.Recipe.ResultAmount,
+                    DesiredAmount = selection.DesiredAmount,
+                }).ToList(),
+        };
+        var existingIndex = this.configuration.SavedRecipePlans.FindIndex(plan =>
+            string.Equals(
+                plan.Name,
+                cleanName,
+                StringComparison.OrdinalIgnoreCase));
+        if (existingIndex >= 0)
+            this.configuration.SavedRecipePlans[existingIndex] = savedPlan;
+        else
+            this.configuration.SavedRecipePlans.Add(savedPlan);
+
+        this.planName = cleanName;
+        this.saveConfiguration();
+        this.ShowPlanMessage(
+            existingIndex >= 0
+                ? $"Updated plan '{cleanName}'."
+                : $"Saved plan '{cleanName}'.",
+            false);
+    }
+
+    private void LoadSavedPlan(SavedRecipePlan savedPlan)
+    {
+        this.selectedRecipes.Clear();
+        foreach (var savedRecipe in savedPlan.Recipes)
+        {
+            this.selectedRecipes.Add(new RecipePlanSelection(
+                new RecipeMatch(
+                    savedRecipe.RecipeId,
+                    savedRecipe.ResultItemId,
+                    savedRecipe.ResultName,
+                    Math.Max(1, savedRecipe.ResultAmount)),
+                Math.Max(1, savedRecipe.DesiredAmount)));
+        }
+
+        this.planName = savedPlan.Name;
+        this.ShowPlanMessage($"Loaded plan '{savedPlan.Name}'.", false);
+        this.searchText = string.Empty;
+        this.searchResults = [];
+        this.RefreshDetails(true);
+    }
+
+    private void ShowPlanMessage(string message, bool isError)
+    {
+        this.planMessage = message;
+        this.planMessageIsError = isError;
+        this.planMessageExpiresAt = DateTime.UtcNow.AddSeconds(3);
+    }
+
     private void DrawSelectedRecipes(RecipePlanDetails details)
     {
         var refreshPlan = false;
@@ -407,7 +577,7 @@ public sealed class RecipeWindow : Window, IDisposable
                 ImGui.TextUnformatted(recipe.CraftCount.ToString());
 
                 ImGui.TableNextColumn();
-                if (ImGui.SmallButton($"Artisan##plan-artisan-{recipe.RecipeId}"))
+                if (ImGui.SmallButton($"Craft Items##plan-artisan-{recipe.RecipeId}"))
                 {
                     this.integrationError = !this.pluginIntegrationService.CraftWithArtisan(
                         recipe.RecipeId,
