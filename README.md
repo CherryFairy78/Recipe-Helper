@@ -15,7 +15,7 @@ Recipe Helper is a Dalamud plugin for planning multiple FFXIV recipes and tracki
 - Highlight overlay rows while their timed gathering node is currently active.
 - Automatically resize and compact the overlay when its Materials section is expanded or collapsed.
 - Hover the selected-recipe count in the overlay to see every recipe in the current plan.
-- Send recipes to Artisan, lists to Teamcraft, gathering targets to GatherBuddy, and selected recipes to the Raphael quality solver.
+- Send recipes to Artisan, lists to Teamcraft, and gathering targets to GatherBuddy.
 - Queue every selected recipe with Artisan when all combined direct ingredients are available.
 - Customise interface, text, highlight, title-bar, and background colours.
 - Apply optional transparency to the Missing Items Overlay without changing other windows.
@@ -34,7 +34,7 @@ Recipe Helper is a Dalamud plugin for planning multiple FFXIV recipes and tracki
 4. Save the settings, open the Dalamud Plugin Installer, and install **Recipe Helper**.
 5. Use `/recipehelper` to open it.
 
-Recipe Helper is distributed through a third-party custom repository and is not part of the official Dalamud plugin catalogue. It targets Dalamud API 15. Artisan and GatherBuddy are optional; their related buttons fall back or report when those plugins are unavailable. The Raphael button opens the official solver and copies the exact recipe name for its search.
+Recipe Helper is distributed through a third-party custom repository and is not part of the official Dalamud plugin catalogue. It targets Dalamud API 15. Artisan and GatherBuddy are optional; their related buttons fall back or report when those plugins are unavailable.
 
 ## Retainer snapshots
 
