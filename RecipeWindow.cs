@@ -19,6 +19,9 @@ public sealed class RecipeWindow : Window, IDisposable
     private readonly Action saveConfiguration;
     private readonly RawMaterialsOverlayWindow rawMaterialsOverlayWindow;
     private IReadOnlyList<RecipeMatch> searchResults = [];
+    private IReadOnlyDictionary<uint, CraftableRecipeAvailability> craftableAvailability =
+        new Dictionary<uint, CraftableRecipeAvailability>();
+    private bool showingCraftableRecipes;
     private readonly List<RecipePlanSelection> selectedRecipes = [];
     private string searchText = string.Empty;
     private RecipePlanDetails? recipePlanDetails;
@@ -35,6 +38,12 @@ public sealed class RecipeWindow : Window, IDisposable
     private string planMessage = string.Empty;
     private bool planMessageIsError;
     private DateTime planMessageExpiresAt;
+    private bool wasResizingSearchPane;
+    private SavedRecipePlan? renamingPlan;
+    private string renamePlanName = string.Empty;
+    private string renamePlanError = string.Empty;
+    private bool renamePlanPopupRequested;
+    private bool isRenamePlanPopupOpen;
 
     public RecipeWindow(
         RecipeService recipeService,
@@ -97,10 +106,21 @@ public sealed class RecipeWindow : Window, IDisposable
         {
             this.DrawHeader();
 
-            var leftWidth = Math.Clamp(ImGui.GetContentRegionAvail().X * 0.24f, 150, 210);
+            var paneArea = ImGui.GetContentRegionAvail();
+            const float splitterWidth = 5f;
+            var paneSpacing = ImGui.GetStyle().ItemSpacing.X;
+            var maximumSearchWidth = Math.Max(
+                150f,
+                paneArea.X - splitterWidth - (paneSpacing * 2) - 260f);
+            var leftWidth = Math.Clamp(
+                this.configuration.SearchPaneWidth,
+                150f,
+                maximumSearchWidth);
             if (ImGui.BeginChild("results", new Vector2(leftWidth, 0), true))
             {
-                ImGui.TextColored(this.configuration.AccentColor, "RECIPES");
+                ImGui.TextColored(
+                    this.configuration.AccentColor,
+                    this.showingCraftableRecipes ? "CRAFTABLE NOW" : "RECIPES");
                 ImGui.SameLine();
                 ImGui.TextDisabled($"  {this.searchResults.Count}");
                 ImGui.Spacing();
@@ -109,17 +129,30 @@ public sealed class RecipeWindow : Window, IDisposable
 
                 if (this.searchResults.Count == 0)
                 {
-                    ImGui.TextDisabled("Search for a crafted item");
-                    ImGui.TextDisabled("to begin planning.");
+                    if (this.showingCraftableRecipes)
+                    {
+                        ImGui.TextDisabled("No recipes can currently");
+                        ImGui.TextDisabled("be made from stored items.");
+                    }
+                    else
+                    {
+                        ImGui.TextDisabled("Search for a crafted item");
+                        ImGui.TextDisabled("to begin planning.");
+                    }
                 }
 
                 foreach (var result in this.searchResults)
                 {
                     var isSelected = this.selectedRecipes.Any(
                         selection => selection.Recipe.RecipeId == result.RecipeId);
-                    var subtitle = isSelected
-                        ? "Added to plan"
-                        : $"Click to add  •  Yield {result.ResultAmount}";
+                    var subtitle = this.showingCraftableRecipes &&
+                                   this.craftableAvailability.TryGetValue(
+                                       result.RecipeId,
+                                       out var availability)
+                        ? $"{availability.CraftCount:N0} crafts  •  {availability.OutputAmount:N0} items"
+                        : isSelected
+                            ? "Added to plan"
+                            : $"Click to add  •  Yield {result.ResultAmount}";
                     var label = $"{result.ResultName}\n{subtitle}##{result.RecipeId}";
                     if (ImGui.Selectable(
                             label,
@@ -131,6 +164,38 @@ public sealed class RecipeWindow : Window, IDisposable
             }
 
             ImGui.EndChild();
+            ImGui.SameLine();
+            ImGui.PushStyleColor(
+                ImGuiCol.Button,
+                WithAlpha(this.configuration.AccentColor, 0.22f));
+            ImGui.PushStyleColor(
+                ImGuiCol.ButtonHovered,
+                WithAlpha(this.configuration.AccentColor, 0.55f));
+            ImGui.PushStyleColor(
+                ImGuiCol.ButtonActive,
+                WithAlpha(this.configuration.AccentColor, 0.78f));
+            ImGui.Button(
+                "##recipe-search-pane-splitter",
+                new Vector2(splitterWidth, Math.Max(1f, paneArea.Y)));
+            ImGui.PopStyleColor(3);
+
+            var isResizingSearchPane = ImGui.IsItemActive();
+            if (ImGui.IsItemHovered() || isResizingSearchPane)
+                ImGui.SetMouseCursor(ImGuiMouseCursor.ResizeEw);
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip("Drag to resize the recipe search area.");
+            if (isResizingSearchPane)
+            {
+                this.configuration.SearchPaneWidth = Math.Clamp(
+                    leftWidth + ImGui.GetIO().MouseDelta.X,
+                    150f,
+                    maximumSearchWidth);
+            }
+
+            if (this.wasResizingSearchPane && !isResizingSearchPane)
+                this.saveConfiguration();
+            this.wasResizingSearchPane = isResizingSearchPane;
+
             ImGui.SameLine();
 
             if (ImGui.BeginChild("details", Vector2.Zero, true))
@@ -152,10 +217,15 @@ public sealed class RecipeWindow : Window, IDisposable
         ImGui.TextDisabled("Plan  •  Check  •  Craft");
 
         var searchButtonWidth = ImGui.CalcTextSize("Search").X + 20;
+        var craftableButtonWidth = ImGui.CalcTextSize("Can craft").X + 20;
         var settingsButtonWidth = ImGui.CalcTextSize("Settings").X + 20;
         var searchWidth = MathF.Max(
             150,
-            ImGui.GetContentRegionAvail().X - searchButtonWidth - settingsButtonWidth - 16);
+            ImGui.GetContentRegionAvail().X -
+            searchButtonWidth -
+            craftableButtonWidth -
+            settingsButtonWidth -
+            24);
 
         ImGui.SetNextItemWidth(searchWidth);
         var searchChanged = ImGui.InputTextWithHint(
@@ -167,6 +237,10 @@ public sealed class RecipeWindow : Window, IDisposable
         if (ImGui.Button("Search", new Vector2(searchButtonWidth, 0)) ||
             searchChanged && this.searchText.Length >= 3)
             this.RefreshSearch();
+
+        ImGui.SameLine();
+        if (ImGui.Button("Can craft", new Vector2(craftableButtonWidth, 0)))
+            this.RefreshCraftableRecipes(true);
 
         ImGui.SameLine();
         if (ImGui.Button("Settings", new Vector2(settingsButtonWidth, 0)))
@@ -207,7 +281,25 @@ public sealed class RecipeWindow : Window, IDisposable
 
     public void RefreshSearch()
     {
+        this.showingCraftableRecipes = false;
+        this.craftableAvailability =
+            new Dictionary<uint, CraftableRecipeAvailability>();
         this.searchResults = this.recipeService.Search(this.searchText);
+    }
+
+    private void RefreshCraftableRecipes(bool scanInventory)
+    {
+        if (scanInventory)
+            this.ownedItems = this.inventoryService.GetOwnedItems();
+
+        this.showingCraftableRecipes = true;
+        this.searchText = string.Empty;
+        var available = this.recipeService.GetCraftableRecipes(this.ownedItems);
+        this.craftableAvailability = available.ToDictionary(
+            entry => entry.Recipe.RecipeId);
+        this.searchResults = available
+            .Select(entry => entry.Recipe)
+            .ToList();
     }
 
     private void AddRecipe(RecipeMatch recipe)
@@ -219,22 +311,29 @@ public sealed class RecipeWindow : Window, IDisposable
         this.selectedRecipes.Add(new RecipePlanSelection(
             recipe,
             Math.Max(1, recipe.ResultAmount)));
-        this.searchText = string.Empty;
-        this.searchResults = [];
+        if (!this.showingCraftableRecipes)
+        {
+            this.searchText = string.Empty;
+            this.searchResults = [];
+        }
         this.RefreshDetails(true);
     }
 
     private void RefreshDetails(bool scanInventory)
     {
+        if (scanInventory)
+        {
+            this.ownedItems = this.inventoryService.GetOwnedItems();
+            if (this.showingCraftableRecipes)
+                this.RefreshCraftableRecipes(false);
+        }
+
         if (this.selectedRecipes.Count == 0)
         {
             this.recipePlanDetails = null;
             this.rawMaterialsOverlayWindow.SetMaterials([], []);
             return;
         }
-
-        if (scanInventory)
-            this.ownedItems = this.inventoryService.GetOwnedItems();
 
         this.recipePlanDetails = this.recipeService.GetPlanDetails(
             this.selectedRecipes,
@@ -252,12 +351,20 @@ public sealed class RecipeWindow : Window, IDisposable
         if (this.recipePlanDetails is null)
         {
             ImGui.Dummy(new Vector2(0, 24));
-            ImGui.TextColored(this.configuration.AccentColor, "No recipes selected");
-            ImGui.TextDisabled("Choose one or more recipes from the list to build a combined plan.");
+            ImGui.TextColored(
+                this.configuration.AccentColor,
+                this.showingCraftableRecipes
+                    ? $"{this.searchResults.Count} recipes craftable from current stock"
+                    : "No recipes selected");
+            ImGui.TextDisabled(
+                this.showingCraftableRecipes
+                    ? "Select a recipe from the list. Materials only; job level and recipe unlocks are not checked."
+                    : "Choose one or more recipes from the list to build a combined plan.");
+            this.DrawPlanMessage();
             if (this.configuration.SavedRecipePlans.Count > 0 &&
                 this.DrawCollapsibleSection(
                     "SAVED PLANS",
-                    "Load or delete a named recipe plan",
+                    "Load, duplicate, rename, or delete a named recipe plan",
                     "saved-plans-empty-section"))
                 this.DrawSavedPlans();
             return;
@@ -271,7 +378,7 @@ public sealed class RecipeWindow : Window, IDisposable
         if (this.configuration.SavedRecipePlans.Count > 0 &&
             this.DrawCollapsibleSection(
                 "SAVED PLANS",
-                "Load or delete a named recipe plan",
+                "Load, duplicate, rename, or delete a named recipe plan",
                 "saved-plans-section"))
             this.DrawSavedPlans();
 
@@ -393,6 +500,11 @@ public sealed class RecipeWindow : Window, IDisposable
         if (ImGui.Button("Save plan"))
             this.SaveCurrentPlan();
 
+        this.DrawPlanMessage();
+    }
+
+    private void DrawPlanMessage()
+    {
         if (!string.IsNullOrWhiteSpace(this.planMessage) &&
             DateTime.UtcNow < this.planMessageExpiresAt)
         {
@@ -411,6 +523,8 @@ public sealed class RecipeWindow : Window, IDisposable
     private void DrawSavedPlans()
     {
         SavedRecipePlan? planToLoad = null;
+        SavedRecipePlan? planToDuplicate = null;
+        SavedRecipePlan? planToRename = null;
         SavedRecipePlan? planToDelete = null;
         if (ImGui.BeginTable(
                 "saved-recipe-plans",
@@ -421,23 +535,31 @@ public sealed class RecipeWindow : Window, IDisposable
         {
             ImGui.TableSetupColumn("Plan", ImGuiTableColumnFlags.WidthStretch, 1);
             ImGui.TableSetupColumn("Recipes", ImGuiTableColumnFlags.WidthFixed, 60);
-            ImGui.TableSetupColumn("Actions", ImGuiTableColumnFlags.WidthFixed, 105);
+            ImGui.TableSetupColumn("Actions", ImGuiTableColumnFlags.WidthFixed, 135);
             ImGui.TableHeadersRow();
 
-            foreach (var savedPlan in this.configuration.SavedRecipePlans
-                         .OrderBy(plan => plan.Name)
-                         .ToList())
+            var displayedPlans = this.configuration.SavedRecipePlans
+                .OrderBy(plan => plan.Name)
+                .ToList();
+            for (var planIndex = 0; planIndex < displayedPlans.Count; planIndex++)
             {
+                var savedPlan = displayedPlans[planIndex];
+                ImGui.PushID($"saved-plan-{planIndex}");
                 ImGui.TableNextRow();
                 ImGui.TableNextColumn();
                 ImGui.TextUnformatted(savedPlan.Name);
                 ImGui.TableNextColumn();
                 ImGui.TextUnformatted(savedPlan.Recipes.Count.ToString());
                 ImGui.TableNextColumn();
-                if (ImGui.SmallButton($"Load##saved-plan-{savedPlan.Name}"))
+                if (ImGui.SmallButton("Load"))
                     planToLoad = savedPlan;
                 ImGui.SameLine();
-                if (ImGui.SmallButton($"Delete##saved-plan-{savedPlan.Name}"))
+                if (ImGui.SmallButton("Duplicate"))
+                    planToDuplicate = savedPlan;
+                if (ImGui.SmallButton("Rename"))
+                    planToRename = savedPlan;
+                ImGui.SameLine();
+                if (ImGui.SmallButton("Delete"))
                 {
                     if (ImGui.GetIO().KeyCtrl)
                         planToDelete = savedPlan;
@@ -451,6 +573,8 @@ public sealed class RecipeWindow : Window, IDisposable
                     ImGui.TextUnformatted("Hold Ctrl and click to delete this saved plan.");
                     ImGui.EndTooltip();
                 }
+
+                ImGui.PopID();
             }
 
             ImGui.EndTable();
@@ -459,13 +583,124 @@ public sealed class RecipeWindow : Window, IDisposable
         if (planToLoad is not null)
             this.LoadSavedPlan(planToLoad);
 
+        if (planToDuplicate is not null)
+            this.DuplicateSavedPlan(planToDuplicate);
+
+        if (planToRename is not null)
+        {
+            this.renamingPlan = planToRename;
+            this.renamePlanName = planToRename.Name;
+            this.renamePlanError = string.Empty;
+            this.isRenamePlanPopupOpen = true;
+            this.renamePlanPopupRequested = true;
+        }
+
         if (planToDelete is not null)
         {
             this.configuration.SavedRecipePlans.Remove(planToDelete);
             this.saveConfiguration();
             this.ShowPlanMessage($"Deleted plan '{planToDelete.Name}'.", false);
         }
+
+        this.DrawRenamePlanPopup();
     }
+
+    private void DuplicateSavedPlan(SavedRecipePlan source)
+    {
+        var baseName = $"{source.Name} Copy";
+        var newName = baseName;
+        var suffix = 2;
+        while (this.configuration.SavedRecipePlans.Any(plan =>
+                   string.Equals(plan.Name, newName, StringComparison.OrdinalIgnoreCase)))
+            newName = $"{baseName} {suffix++}";
+
+        this.configuration.SavedRecipePlans.Add(new SavedRecipePlan
+        {
+            Name = newName,
+            Recipes = source.Recipes.Select(CloneSavedRecipe).ToList(),
+        });
+        this.saveConfiguration();
+        this.ShowPlanMessage($"Duplicated plan as '{newName}'.", false);
+    }
+
+    private void DrawRenamePlanPopup()
+    {
+        if (this.renamePlanPopupRequested)
+        {
+            ImGui.OpenPopup("Rename saved plan");
+            this.renamePlanPopupRequested = false;
+        }
+
+        if (!ImGui.BeginPopupModal(
+                "Rename saved plan",
+                ref this.isRenamePlanPopupOpen,
+                ImGuiWindowFlags.AlwaysAutoResize))
+            return;
+
+        ImGui.SetNextItemWidth(280);
+        var submitted = ImGui.InputText(
+            "New name",
+            ref this.renamePlanName,
+            80,
+            ImGuiInputTextFlags.EnterReturnsTrue);
+
+        if (!string.IsNullOrWhiteSpace(this.renamePlanError))
+            ImGui.TextColored(this.configuration.MissingTextColor, this.renamePlanError);
+
+        if (ImGui.Button("Rename") || submitted)
+            this.TryRenameSavedPlan();
+
+        ImGui.SameLine();
+        if (ImGui.Button("Cancel"))
+        {
+            this.isRenamePlanPopupOpen = false;
+            this.renamingPlan = null;
+            this.renamePlanError = string.Empty;
+            ImGui.CloseCurrentPopup();
+        }
+
+        ImGui.EndPopup();
+    }
+
+    private void TryRenameSavedPlan()
+    {
+        if (this.renamingPlan is null)
+            return;
+
+        var cleanName = this.renamePlanName.Trim();
+        if (cleanName.Length == 0)
+        {
+            this.renamePlanError = "Enter a name for this plan.";
+            return;
+        }
+
+        if (this.configuration.SavedRecipePlans.Any(plan =>
+                !ReferenceEquals(plan, this.renamingPlan) &&
+                string.Equals(plan.Name, cleanName, StringComparison.OrdinalIgnoreCase)))
+        {
+            this.renamePlanError = "A saved plan already uses that name.";
+            return;
+        }
+
+        var oldName = this.renamingPlan.Name;
+        this.renamingPlan.Name = cleanName;
+        this.saveConfiguration();
+        this.ShowPlanMessage($"Renamed plan '{oldName}' to '{cleanName}'.", false);
+        this.isRenamePlanPopupOpen = false;
+        this.renamingPlan = null;
+        this.renamePlanError = string.Empty;
+        ImGui.CloseCurrentPopup();
+    }
+
+    private static SavedRecipePlanEntry CloneSavedRecipe(SavedRecipePlanEntry recipe) =>
+        new()
+        {
+            RecipeId = recipe.RecipeId,
+            ResultItemId = recipe.ResultItemId,
+            ResultName = recipe.ResultName,
+            ResultAmount = recipe.ResultAmount,
+            DesiredAmount = recipe.DesiredAmount,
+        };
 
     private void SaveCurrentPlan()
     {
@@ -505,13 +740,16 @@ public sealed class RecipeWindow : Window, IDisposable
         else
             this.configuration.SavedRecipePlans.Add(savedPlan);
 
-        this.planName = cleanName;
         this.saveConfiguration();
         this.ShowPlanMessage(
             existingIndex >= 0
                 ? $"Updated plan '{cleanName}'."
                 : $"Saved plan '{cleanName}'.",
             false);
+        this.planName = string.Empty;
+        this.selectedRecipes.Clear();
+        this.integrationMessage = string.Empty;
+        this.RefreshDetails(false);
     }
 
     private void LoadSavedPlan(SavedRecipePlan savedPlan)
