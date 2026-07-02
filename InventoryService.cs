@@ -54,12 +54,26 @@ public sealed unsafe class InventoryService : IDisposable
         this.retainerSnapshotService.Dispose();
     }
 
-    public IReadOnlyDictionary<uint, OwnedInventoryItem> GetOwnedItems()
+    public IReadOnlyDictionary<uint, OwnedInventoryItem> GetOwnedItems() =>
+        this.GetOwnedItems(includeStoredRetainers: true, updateStats: true);
+
+    public IReadOnlyDictionary<uint, OwnedInventoryItem> GetLiveOwnedItems() =>
+        this.GetOwnedItems(includeStoredRetainers: false, updateStats: false);
+
+    public IReadOnlyList<StoredRetainerInventory> GetStoredRetainers() =>
+        this.retainerSnapshotService.GetSnapshots();
+
+    private IReadOnlyDictionary<uint, OwnedInventoryItem> GetOwnedItems(
+        bool includeStoredRetainers,
+        bool updateStats)
     {
-        this.LastScannedContainers = 0;
-        this.LastScannedSlots = 0;
-        this.LastItemStacks = 0;
-        this.LastStoredRetainers = 0;
+        if (updateStats)
+        {
+            this.LastScannedContainers = 0;
+            this.LastScannedSlots = 0;
+            this.LastItemStacks = 0;
+            this.LastStoredRetainers = 0;
+        }
 
         var nqQuantities = new Dictionary<uint, uint>();
         var hqQuantities = new Dictionary<uint, uint>();
@@ -78,11 +92,13 @@ public sealed unsafe class InventoryService : IDisposable
             if (container is null || !container->IsLoaded)
                 continue;
 
-            this.LastScannedContainers++;
+            if (updateStats)
+                this.LastScannedContainers++;
 
             for (var i = 0; i < container->Size; i++)
             {
-                this.LastScannedSlots++;
+                if (updateStats)
+                    this.LastScannedSlots++;
 
                 var slot = container->GetInventorySlot(i);
                 if (slot is null || slot->Quantity == 0)
@@ -95,7 +111,8 @@ public sealed unsafe class InventoryService : IDisposable
                 if (itemId == 0)
                     continue;
 
-                this.LastItemStacks++;
+                if (updateStats)
+                    this.LastItemStacks++;
                 var isHighQuality = slot->IsHighQuality();
                 var quantities = isHighQuality ? hqQuantities : nqQuantities;
                 var locations = isHighQuality ? hqLocations : nqLocations;
@@ -114,30 +131,36 @@ public sealed unsafe class InventoryService : IDisposable
             }
         }
 
-        var storedRetainers = this.retainerSnapshotService.GetSnapshots();
-        this.LastStoredRetainers = storedRetainers.Count;
-        foreach (var retainer in storedRetainers)
+        if (includeStoredRetainers)
         {
-            foreach (var (itemId, item) in retainer.Items)
+            var storedRetainers = this.retainerSnapshotService.GetSnapshots();
+            if (updateStats)
+                this.LastStoredRetainers = storedRetainers.Count;
+            foreach (var retainer in storedRetainers)
             {
-                var retainerLocation =
-                    $"{retainer.Name} ({AddSaturating(item.NqQuantity, item.HqQuantity)})";
-                if (item.NqQuantity > 0)
+                foreach (var (itemId, item) in retainer.Items)
                 {
-                    nqQuantities[itemId] = AddSaturating(
-                        nqQuantities.GetValueOrDefault(itemId),
-                        item.NqQuantity);
-                    AddLocation(nqLocations, itemId, retainerLocation);
-                    this.LastItemStacks++;
-                }
+                    var retainerLocation =
+                        $"{retainer.Name} ({AddSaturating(item.NqQuantity, item.HqQuantity)})";
+                    if (item.NqQuantity > 0)
+                    {
+                        nqQuantities[itemId] = AddSaturating(
+                            nqQuantities.GetValueOrDefault(itemId),
+                            item.NqQuantity);
+                        AddLocation(nqLocations, itemId, retainerLocation);
+                        if (updateStats)
+                            this.LastItemStacks++;
+                    }
 
-                if (item.HqQuantity > 0)
-                {
-                    hqQuantities[itemId] = AddSaturating(
-                        hqQuantities.GetValueOrDefault(itemId),
-                        item.HqQuantity);
-                    AddLocation(hqLocations, itemId, retainerLocation);
-                    this.LastItemStacks++;
+                    if (item.HqQuantity > 0)
+                    {
+                        hqQuantities[itemId] = AddSaturating(
+                            hqQuantities.GetValueOrDefault(itemId),
+                            item.HqQuantity);
+                        AddLocation(hqLocations, itemId, retainerLocation);
+                        if (updateStats)
+                            this.LastItemStacks++;
+                    }
                 }
             }
         }
@@ -152,9 +175,13 @@ public sealed unsafe class InventoryService : IDisposable
                 hqLocations.TryGetValue(itemId, out var hqItemLocations) ? [.. hqItemLocations] : []);
         }
 
-        this.fileLog.Info(
-            "Inventory",
-            $"Scanned {this.LastScannedContainers} live container(s), {this.LastScannedSlots} slot(s), {this.LastStoredRetainers} stored retainer(s), {this.LastItemStacks} occupied or stored stack(s), {owned.Count} unique item(s).");
+        if (updateStats)
+        {
+            this.fileLog.Info(
+                "Inventory",
+                $"Scanned {this.LastScannedContainers} live container(s), {this.LastScannedSlots} slot(s), {this.LastStoredRetainers} stored retainer(s), {this.LastItemStacks} occupied or stored stack(s), {owned.Count} unique item(s).");
+        }
+
         return owned;
     }
 

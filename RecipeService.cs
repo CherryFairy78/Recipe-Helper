@@ -236,6 +236,100 @@ public sealed class RecipeService
         return new RecipePlanDetails(recipeDetails, ingredients, rawMaterials);
     }
 
+    public bool TryBuildDreamTargets(
+        RecipePlanDetails details,
+        IReadOnlyDictionary<uint, OwnedInventoryItem> liveOwnedItems,
+        IReadOnlyList<StoredRetainerInventory> storedRetainers,
+        out IReadOnlyList<RetainerWithdrawalTarget> targets,
+        out string error)
+    {
+        targets = [];
+        error = string.Empty;
+
+        var recipes = this.dataManager.GetExcelSheet<Recipe>();
+        if (recipes is null)
+        {
+            error = "Recipe data is not available.";
+            return false;
+        }
+
+        var recipesByResult = this.BuildRecipesByResult(recipes);
+        var liveStock = liveOwnedItems.ToDictionary(
+            entry => entry.Key,
+            entry => (ulong)entry.Value.Quantity);
+        var retainerStates = storedRetainers
+            .Select(retainer => new RetainerStockState(retainer))
+            .ToList();
+        var plannedTargets = new List<RetainerWithdrawalTarget>();
+        foreach (var ingredient in details.Ingredients
+                     .GroupBy(ingredient => ingredient.ItemId)
+                     .Select(group => group.First()))
+            this.PlanRetainerWithdrawalsForNeed(ingredient, liveStock, retainerStates, plannedTargets);
+
+        foreach (var finalRecipe in details.Recipes)
+        {
+            var recipe = recipes.GetRowOrDefault(finalRecipe.RecipeId);
+            if (recipe is not { } recipeRow)
+            {
+                error = $"Recipe data for {finalRecipe.ResultName} is not available.";
+                targets = [];
+                return false;
+            }
+
+            if (!this.TryPlanDreamRecipe(
+                    recipeRow,
+                    finalRecipe.CraftCount,
+                    liveStock,
+                    recipesByResult,
+                    retainerStates,
+                    plannedTargets,
+                    new HashSet<uint>(),
+                    out error))
+            {
+                targets = [];
+                return false;
+            }
+        }
+
+        targets = plannedTargets;
+        return true;
+    }
+
+    private void PlanRetainerWithdrawalsForNeed(
+        IngredientNeed need,
+        IDictionary<uint, ulong> liveStock,
+        IList<RetainerStockState> retainerStates,
+        IList<RetainerWithdrawalTarget> targets)
+    {
+        liveStock.TryGetValue(need.ItemId, out var liveOwned);
+        var missing = need.Required > liveOwned
+            ? need.Required - liveOwned
+            : 0u;
+        if (missing == 0)
+            return;
+
+        foreach (var retainer in retainerStates)
+        {
+            if (!retainer.TryWithdraw(need.ItemId, missing, out var withdrawn, out var snapshotQuantity))
+                continue;
+
+            AddOrMergeDreamTarget(
+                targets,
+                new RetainerWithdrawalTarget(
+                    retainer.RetainerId,
+                    retainer.Name,
+                    need.ItemId,
+                    need.Name,
+                    withdrawn,
+                    snapshotQuantity));
+            liveOwned = AddSaturating(liveOwned, withdrawn);
+            liveStock[need.ItemId] = liveOwned;
+            missing -= withdrawn;
+            if (missing == 0)
+                break;
+        }
+    }
+
     public bool TryBuildArtisanCraftQueue(
         IReadOnlyList<RecipeDetails> finalRecipes,
         IReadOnlyDictionary<uint, OwnedInventoryItem> ownedItems,
@@ -281,6 +375,139 @@ public sealed class RecipeService
         }
 
         queue = plannedQueue;
+        error = string.Empty;
+        return true;
+    }
+
+    private bool TryPlanDreamRecipe(
+        Recipe recipe,
+        ulong craftCount,
+        IDictionary<uint, ulong> liveStock,
+        IReadOnlyDictionary<uint, Recipe> recipesByResult,
+        IList<RetainerStockState> retainerStates,
+        IList<RetainerWithdrawalTarget> targets,
+        ISet<uint> recipePath,
+        out string error)
+    {
+        if (craftCount == 0)
+        {
+            error = string.Empty;
+            return true;
+        }
+
+        var resultItemId = this.ReadItemId(recipe, "ItemResult");
+        if (resultItemId == 0 || !recipePath.Add(resultItemId))
+        {
+            error = "A circular or invalid intermediate recipe was found.";
+            return false;
+        }
+
+        foreach (var ingredient in this.ReadIngredients(recipe)
+                     .GroupBy(item => item.ItemId)
+                     .Select(group => (
+                         ItemId: group.Key,
+                         Amount: group.Aggregate(
+                             0UL,
+                             (total, item) => AddSaturating(total, item.Amount)))))
+        {
+            var required = MultiplySaturating(ingredient.Amount, craftCount);
+            if (!this.TryPlanDreamItem(
+                    ingredient.ItemId,
+                    required,
+                    liveStock,
+                    recipesByResult,
+                    retainerStates,
+                    targets,
+                    recipePath,
+                    out error))
+            {
+                recipePath.Remove(resultItemId);
+                return false;
+            }
+        }
+
+        recipePath.Remove(resultItemId);
+        liveStock.TryGetValue(resultItemId, out var currentStock);
+        var resultAmount = Math.Max(1U, this.ReadUInt(recipe, "AmountResult"));
+        liveStock[resultItemId] = AddSaturating(
+            currentStock,
+            MultiplySaturating((ulong)resultAmount, craftCount));
+        error = string.Empty;
+        return true;
+    }
+
+    private bool TryPlanDreamItem(
+        uint itemId,
+        ulong required,
+        IDictionary<uint, ulong> liveStock,
+        IReadOnlyDictionary<uint, Recipe> recipesByResult,
+        IList<RetainerStockState> retainerStates,
+        IList<RetainerWithdrawalTarget> targets,
+        ISet<uint> recipePath,
+        out string error)
+    {
+        liveStock.TryGetValue(itemId, out var available);
+        var consumed = Math.Min(available, required);
+        liveStock[itemId] = available - consumed;
+        var missing = required - consumed;
+        if (missing == 0)
+        {
+            error = string.Empty;
+            return true;
+        }
+
+        foreach (var retainer in retainerStates)
+        {
+            if (!retainer.TryWithdraw(itemId, missing, out var withdrawn, out var snapshotQuantity))
+                continue;
+
+            AddOrMergeDreamTarget(
+                targets,
+                new RetainerWithdrawalTarget(
+                    retainer.RetainerId,
+                    retainer.Name,
+                    itemId,
+                    this.GetItemName(itemId),
+                    withdrawn,
+                    snapshotQuantity));
+            missing -= withdrawn;
+            if (missing == 0)
+            {
+                error = string.Empty;
+                return true;
+            }
+        }
+
+        if (recipePath.Contains(itemId) ||
+            !recipesByResult.TryGetValue(itemId, out var ingredientRecipe))
+        {
+            error = $"Missing materials remain for {this.GetItemName(itemId)}.";
+            return false;
+        }
+
+        var resultAmount = Math.Max(1U, this.ReadUInt(ingredientRecipe, "AmountResult"));
+        var ingredientCrafts =
+            (missing / resultAmount) +
+            (missing % resultAmount == 0 ? 0UL : 1UL);
+        var canPlan = this.TryPlanDreamRecipe(
+            ingredientRecipe,
+            ingredientCrafts,
+            liveStock,
+            recipesByResult,
+            retainerStates,
+            targets,
+            recipePath,
+            out error);
+        if (!canPlan)
+            return false;
+
+        var produced = MultiplySaturating((ulong)resultAmount, ingredientCrafts);
+        if (produced > missing)
+        {
+            liveStock.TryGetValue(itemId, out var remaining);
+            liveStock[itemId] = AddSaturating(remaining, produced - missing);
+        }
+
         error = string.Empty;
         return true;
     }
@@ -919,4 +1146,64 @@ public sealed class RecipeService
 
     private static ulong AddSaturating(ulong left, ulong right) =>
         ulong.MaxValue - left < right ? ulong.MaxValue : left + right;
+
+    private static uint AddSaturating(uint left, uint right) =>
+        uint.MaxValue - left < right ? uint.MaxValue : left + right;
+
+    private static void AddOrMergeDreamTarget(
+        IList<RetainerWithdrawalTarget> targets,
+        RetainerWithdrawalTarget target)
+    {
+        for (var i = 0; i < targets.Count; i++)
+        {
+            var existing = targets[i];
+            if (existing.RetainerId != target.RetainerId || existing.ItemId != target.ItemId)
+                continue;
+
+            targets[i] = existing with
+            {
+                WithdrawQuantity = AddSaturating(existing.WithdrawQuantity, target.WithdrawQuantity),
+            };
+            return;
+        }
+
+        targets.Add(target);
+    }
+
+    private sealed class RetainerStockState
+    {
+        private readonly Dictionary<uint, ulong> remainingQuantities;
+        private readonly Dictionary<uint, uint> snapshotQuantities;
+
+        public RetainerStockState(StoredRetainerInventory retainer)
+        {
+            this.RetainerId = retainer.RetainerId;
+            this.Name = retainer.Name;
+            this.remainingQuantities = retainer.Items.ToDictionary(
+                entry => entry.Key,
+                entry => (ulong)entry.Value.NqQuantity + entry.Value.HqQuantity);
+            this.snapshotQuantities = retainer.Items.ToDictionary(
+                entry => entry.Key,
+                entry => AddSaturating(entry.Value.NqQuantity, entry.Value.HqQuantity));
+        }
+
+        public ulong RetainerId { get; }
+
+        public string Name { get; }
+
+        public bool TryWithdraw(uint itemId, ulong requested, out uint withdrawn, out uint snapshotQuantity)
+        {
+            snapshotQuantity = this.snapshotQuantities.GetValueOrDefault(itemId);
+            if (!this.remainingQuantities.TryGetValue(itemId, out var available) || available == 0 || requested == 0)
+            {
+                withdrawn = 0;
+                return false;
+            }
+
+            var taken = Math.Min(available, requested);
+            this.remainingQuantities[itemId] = available - taken;
+            withdrawn = (uint)Math.Min(taken, uint.MaxValue);
+            return withdrawn > 0;
+        }
+    }
 }

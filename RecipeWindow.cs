@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
+using System.Runtime.InteropServices;
+using System.Text.Json;
 using Dalamud.Interface.Windowing;
 using Dalamud.Bindings.ImGui;
 
@@ -9,15 +11,19 @@ namespace DalamudRecipeHelper;
 
 public sealed class RecipeWindow : Window, IDisposable
 {
+    private readonly FileLogService fileLog;
+    private readonly MarketboardPriceService marketboardPriceService;
     private readonly RecipeService recipeService;
     private readonly InventoryService inventoryService;
     private readonly TravelService travelService;
     private readonly PluginIntegrationService pluginIntegrationService;
+    private readonly GwenDreamService gwenDreamService;
     private readonly AetherialReductionService aetherialReductionService;
     private readonly Configuration configuration;
     private readonly Action openSettings;
     private readonly Action saveConfiguration;
     private readonly RawMaterialsOverlayWindow rawMaterialsOverlayWindow;
+    private readonly string versionText;
     private IReadOnlyList<RecipeMatch> searchResults = [];
     private IReadOnlyDictionary<uint, CraftableRecipeAvailability> craftableAvailability =
         new Dictionary<uint, CraftableRecipeAvailability>();
@@ -38,8 +44,12 @@ public sealed class RecipeWindow : Window, IDisposable
     private string integrationMessage = string.Empty;
     private bool integrationError;
     private uint observedCraftAllCompletionCount;
+    private uint observedDreamCompletionSequence;
+    private bool dreamCraftPending;
     private bool inventoryRefreshRequested;
     private string planName = string.Empty;
+    private string planFolderName = string.Empty;
+    private int planInputNonce;
     private string planMessage = string.Empty;
     private bool planMessageIsError;
     private DateTime planMessageExpiresAt;
@@ -49,27 +59,48 @@ public sealed class RecipeWindow : Window, IDisposable
     private string renamePlanError = string.Empty;
     private bool renamePlanPopupRequested;
     private bool isRenamePlanPopupOpen;
+    private SavedRecipePlan? movingPlan;
+    private IReadOnlyList<SavedRecipePlan> movingSelectedPlans = [];
+    private string movePlanFolderName = string.Empty;
+    private bool movePlanPopupRequested;
+    private bool isMovePlanPopupOpen;
+    private bool moveSelectedPlansPopupRequested;
+    private bool isMoveSelectedPlansPopupOpen;
+    private string renamingFolderSource = string.Empty;
+    private string renameFolderName = string.Empty;
+    private string renameFolderError = string.Empty;
+    private bool renameFolderPopupRequested;
+    private bool isRenameFolderPopupOpen;
 
     public RecipeWindow(
+        FileLogService fileLog,
+        MarketboardPriceService marketboardPriceService,
         RecipeService recipeService,
         InventoryService inventoryService,
         TravelService travelService,
         PluginIntegrationService pluginIntegrationService,
+        GwenDreamService gwenDreamService,
         AetherialReductionService aetherialReductionService,
         Configuration configuration,
         Action openSettings,
         Action saveConfiguration,
         RawMaterialsOverlayWindow rawMaterialsOverlayWindow)
-        : base("Recipe Helper###DalamudRecipeHelper")
+        : base($"Recipe Helper v{typeof(RecipeWindow).Assembly.GetName().Version?.ToString(3) ?? "1.0.0"}###DalamudRecipeHelper")
     {
+        this.fileLog = fileLog;
+        this.marketboardPriceService = marketboardPriceService;
         this.recipeService = recipeService;
         this.inventoryService = inventoryService;
         this.travelService = travelService;
         this.pluginIntegrationService = pluginIntegrationService;
+        this.gwenDreamService = gwenDreamService;
         this.observedCraftAllCompletionCount =
             pluginIntegrationService.CraftAllCompletionCount;
+        this.observedDreamCompletionSequence =
+            gwenDreamService.CompletionSequence;
         this.aetherialReductionService = aetherialReductionService;
         this.configuration = configuration;
+        this.versionText = typeof(RecipeWindow).Assembly.GetName().Version?.ToString(3) ?? "1.0.0";
         this.openSettings = openSettings;
         this.saveConfiguration = saveConfiguration;
         this.rawMaterialsOverlayWindow = rawMaterialsOverlayWindow;
@@ -109,6 +140,19 @@ public sealed class RecipeWindow : Window, IDisposable
                 this.pluginIntegrationService.CraftAllCompletionCount;
             this.integrationMessage = string.Empty;
             this.integrationError = false;
+        }
+
+        if (this.observedDreamCompletionSequence !=
+            this.gwenDreamService.CompletionSequence)
+        {
+            this.observedDreamCompletionSequence =
+                this.gwenDreamService.CompletionSequence;
+            if (this.dreamCraftPending)
+            {
+                this.dreamCraftPending = false;
+                if (this.gwenDreamService.LastRunSucceeded)
+                    this.TryStartDreamCraftAll();
+            }
         }
 
         if (this.inventoryRefreshRequested)
@@ -161,13 +205,15 @@ public sealed class RecipeWindow : Window, IDisposable
                         "Filter these results",
                         ref this.resultFilter,
                         128);
-                    if (ImGui.SmallButton("Clear search"))
+                    if (ImGui.Button("Clear search", new Vector2(96, 0)))
                         this.ClearSearch();
+                    DrawTooltipIfHovered("Clear the current search results and search text.");
                     if (!string.IsNullOrWhiteSpace(this.resultFilter))
                     {
                         ImGui.SameLine();
-                        if (ImGui.SmallButton("Clear filter"))
+                        if (ImGui.Button("Clear filter", new Vector2(92, 0)))
                             this.resultFilter = string.Empty;
+                        DrawTooltipIfHovered("Clear the result filter only.");
                     }
 
                     ImGui.Spacing();
@@ -196,25 +242,76 @@ public sealed class RecipeWindow : Window, IDisposable
                     ImGui.PushID((int)result.RecipeId);
                     var isSelected = this.selectedRecipes.Any(
                         selection => selection.Recipe.RecipeId == result.RecipeId);
-                    var shouldBeSelected = isSelected;
-                    if (ImGui.Checkbox("##selected-recipe", ref shouldBeSelected))
-                        this.SetRecipeSelected(result, shouldBeSelected);
-                    ImGui.SameLine();
                     var subtitle = this.showingCraftableRecipes &&
                                    this.craftableAvailability.TryGetValue(
                                        result.RecipeId,
                                        out var availability)
-                        ? $"{availability.CraftCount:N0} crafts  •  {availability.OutputAmount:N0} items"
+                        ? $"{availability.CraftCount:N0} crafts | {availability.OutputAmount:N0} items"
                         : isSelected
                             ? "Added to plan"
-                            : $"Click to add  •  Yield {result.ResultAmount}";
-                    var label = $"{result.ResultName}\n{subtitle}";
-                    if (ImGui.Selectable(
-                            label,
-                            isSelected,
-                            ImGuiSelectableFlags.None,
-                            new Vector2(0, 34)))
+                            : $"Click to add | Yield {result.ResultAmount}";
+
+                    var rowWidth = Math.Max(1f, ImGui.GetContentRegionAvail().X);
+                    const float rowHeight = 48f;
+                    var checkboxSize = 16f;
+                    var textWidth = rowWidth - 14f - checkboxSize - 10f - 14f;
+                    var title = WrapTextToWidth(result.ResultName, textWidth);
+                    var subtitleText = TrimDisplayTextToWidth(subtitle, textWidth);
+                    var titleSize = ImGui.CalcTextSize(title);
+                    var subtitleSize = ImGui.CalcTextSize(subtitleText);
+                    var renderRowHeight = Math.Max(rowHeight, titleSize.Y + subtitleSize.Y + 14f);
+                    var rowPos = ImGui.GetCursorScreenPos();
+                    var rowColor = isSelected
+                        ? WithAlpha(this.configuration.AccentColor, 0.18f)
+                        : AdjustColor(this.configuration.WindowBackgroundColor, 0.08f);
+                    var drawList = ImGui.GetWindowDrawList();
+                    drawList.AddRectFilled(
+                        rowPos,
+                        rowPos + new Vector2(rowWidth, renderRowHeight),
+                        ImGui.GetColorU32(rowColor),
+                        14f);
+
+                    if (ImGui.InvisibleButton("##recipe-result-row", new Vector2(rowWidth, renderRowHeight)))
                         this.SetRecipeSelected(result, !isSelected);
+
+                    var checkboxPos = new Vector2(rowPos.X + 14f, rowPos.Y + ((renderRowHeight - checkboxSize) / 2f));
+                    var checkboxColor = isSelected
+                        ? this.configuration.AccentColor
+                        : WithAlpha(this.configuration.TextColor, 0.18f);
+                    drawList.AddRectFilled(
+                        checkboxPos,
+                        checkboxPos + new Vector2(checkboxSize, checkboxSize),
+                        ImGui.GetColorU32(checkboxColor),
+                        5f);
+                    drawList.AddRect(
+                        checkboxPos,
+                        checkboxPos + new Vector2(checkboxSize, checkboxSize),
+                        ImGui.GetColorU32(WithAlpha(this.configuration.TextColor, 0.24f)),
+                        5f);
+                    if (isSelected)
+                    {
+                        drawList.AddText(
+                            checkboxPos + new Vector2(3f, -1f),
+                            ImGui.GetColorU32(this.configuration.WindowBackgroundColor),
+                            "✓");
+                    }
+
+                    var textLeft = checkboxPos.X + checkboxSize + 10f;
+                    var textRight = rowPos.X + rowWidth - 14f;
+                    drawList.PushClipRect(rowPos, rowPos + new Vector2(rowWidth, renderRowHeight), true);
+                    DrawStackedTextBlock(
+                        drawList,
+                        new Vector2(textLeft, rowPos.Y),
+                        new Vector2(textRight - textLeft, renderRowHeight),
+                        title,
+                        subtitleText,
+                        ImGui.GetColorU32(ImGuiCol.Text),
+                        ImGui.GetColorU32(ImGuiCol.TextDisabled),
+                        2f,
+                        6f,
+                        false);
+                    drawList.PopClipRect();
+
                     ImGui.PopID();
                 }
             }
@@ -261,7 +358,7 @@ public sealed class RecipeWindow : Window, IDisposable
         }
         finally
         {
-            ImGui.PopStyleColor(7);
+            ImGui.PopStyleColor(10);
             ImGui.PopStyleVar(5);
         }
     }
@@ -270,18 +367,35 @@ public sealed class RecipeWindow : Window, IDisposable
     {
         ImGui.TextColored(this.configuration.AccentColor, "RECIPE HELPER");
         ImGui.SameLine();
-        ImGui.TextDisabled("Plan  •  Check  •  Craft");
+        ImGui.TextDisabled($"Plan | Check | Craft | v{this.versionText}");
+        var inventoryStatus =
+            $"{this.inventoryService.LastItemStacks} stacks  |  " +
+            $"{this.inventoryService.LastScannedContainers} live containers  |  " +
+            $"{this.inventoryService.LastStoredRetainers} retainers saved";
+        var statusWidth = ImGui.CalcTextSize(inventoryStatus).X;
+        var targetX = ImGui.GetWindowContentRegionMax().X - statusWidth;
+        ImGui.SameLine();
+        ImGui.SetCursorPosX(Math.Max(ImGui.GetCursorPosX(), targetX));
+        ImGui.TextDisabled(inventoryStatus);
+        ImGui.Spacing();
 
         var searchButtonWidth = ImGui.CalcTextSize("Search").X + 20;
         var craftableButtonWidth = ImGui.CalcTextSize("Can craft").X + 20;
+        var showDreamButton = this.gwenDreamService.IsAutoRetainerAvailable;
+        var dreamButtonWidth = ImGui.CalcTextSize("Gwen's Dream").X + 20;
+        var overlayButtonWidth = ImGui.CalcTextSize("Missing Items Overlay").X + 20;
+        var refreshButtonWidth = ImGui.CalcTextSize("Refresh Inventory").X + 20;
         var settingsButtonWidth = ImGui.CalcTextSize("Settings").X + 20;
         var searchWidth = MathF.Max(
             150,
             ImGui.GetContentRegionAvail().X -
             searchButtonWidth -
             craftableButtonWidth -
+            (showDreamButton ? dreamButtonWidth : 0) -
+            overlayButtonWidth -
+            refreshButtonWidth -
             settingsButtonWidth -
-            24);
+            36);
 
         ImGui.SetNextItemWidth(searchWidth);
         var searchChanged = ImGui.InputTextWithHint(
@@ -293,14 +407,48 @@ public sealed class RecipeWindow : Window, IDisposable
         if (ImGui.Button("Search", new Vector2(searchButtonWidth, 0)) ||
             searchChanged && this.searchText.Length >= 3)
             this.RefreshSearch();
+        DrawTooltipIfHovered("Search recipes by crafted item name or item ID.");
 
         ImGui.SameLine();
         if (ImGui.Button("Can craft", new Vector2(craftableButtonWidth, 0)))
             this.RefreshCraftableRecipes(true);
+        DrawTooltipIfHovered("Show recipes you can make from your current stored materials.");
+
+        if (showDreamButton)
+        {
+            ImGui.SameLine();
+            if (ImGui.Button("Gwen's Dream", new Vector2(dreamButtonWidth, 0)))
+            {
+                if (this.gwenDreamService.TryStart(this.recipePlanDetails))
+                    this.dreamCraftPending = true;
+            }
+            DrawTooltipIfHovered("Will automatically withdraw all materials from retainers and craft all pre-crafts and recipes - ultimate laziness!");
+        }
+
+        ImGui.SameLine();
+        if (ImGui.Button("Missing Items Overlay", new Vector2(overlayButtonWidth, 0)))
+            this.rawMaterialsOverlayWindow.IsOpen = true;
+        DrawTooltipIfHovered("Open the compact overlay for missing gatherable materials.");
+
+        ImGui.SameLine();
+        if (ImGui.Button("Refresh Inventory", new Vector2(refreshButtonWidth, 0)))
+            this.RefreshDetails(true);
+        DrawTooltipIfHovered("Rescan inventory, saddlebags, and saved retainer stock.");
 
         ImGui.SameLine();
         if (ImGui.Button("Settings", new Vector2(settingsButtonWidth, 0)))
             this.openSettings();
+        DrawTooltipIfHovered("Open Recipe Helper settings.");
+
+        if (showDreamButton &&
+            !string.IsNullOrWhiteSpace(this.gwenDreamService.StatusMessage))
+        {
+            ImGui.TextColored(
+                this.gwenDreamService.StatusIsError
+                    ? this.configuration.MissingTextColor
+                    : this.configuration.SuccessTextColor,
+                this.gwenDreamService.StatusMessage);
+        }
 
         ImGui.Spacing();
         ImGui.Separator();
@@ -310,19 +458,23 @@ public sealed class RecipeWindow : Window, IDisposable
     private void PushModernStyle()
     {
         var accent = this.configuration.AccentColor;
+        var buttonColor = this.configuration.ButtonColor;
         ImGui.PushStyleVar(ImGuiStyleVar.FrameRounding, 5);
         ImGui.PushStyleVar(ImGuiStyleVar.ChildRounding, 6);
         ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, new Vector2(7, 4));
         ImGui.PushStyleVar(ImGuiStyleVar.ItemSpacing, new Vector2(6, 5));
         ImGui.PushStyleVar(ImGuiStyleVar.CellPadding, new Vector2(6, 4));
 
-        ImGui.PushStyleColor(ImGuiCol.Button, WithAlpha(accent, 0.72f));
-        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, AdjustColor(accent, 0.10f));
-        ImGui.PushStyleColor(ImGuiCol.ButtonActive, AdjustColor(accent, -0.08f));
+        ImGui.PushStyleColor(ImGuiCol.Button, WithAlpha(buttonColor, 0.72f));
+        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, AdjustColor(buttonColor, 0.10f));
+        ImGui.PushStyleColor(ImGuiCol.ButtonActive, AdjustColor(buttonColor, -0.08f));
         ImGui.PushStyleColor(ImGuiCol.Header, WithAlpha(accent, 0.30f));
         ImGui.PushStyleColor(ImGuiCol.HeaderHovered, WithAlpha(accent, 0.48f));
         ImGui.PushStyleColor(ImGuiCol.HeaderActive, WithAlpha(accent, 0.62f));
         ImGui.PushStyleColor(ImGuiCol.TableHeaderBg, WithAlpha(accent, 0.22f));
+        ImGui.PushStyleColor(ImGuiCol.FrameBg, this.configuration.InputCardColor);
+        ImGui.PushStyleColor(ImGuiCol.FrameBgHovered, AdjustColor(this.configuration.InputCardColor, 0.06f));
+        ImGui.PushStyleColor(ImGuiCol.FrameBgActive, AdjustColor(this.configuration.InputCardColor, 0.10f));
     }
 
     private static Vector4 WithAlpha(Vector4 color, float alpha) =>
@@ -469,63 +621,62 @@ public sealed class RecipeWindow : Window, IDisposable
             this.DrawSavedPlans();
 
         if (this.DrawCollapsibleSection(
-                "PLAN SUMMARY",
-                "Combined recipe, craft, and raw-item totals",
-                "plan-summary-section"))
-            this.DrawSummary(details);
-
-        if (this.DrawCollapsibleSection(
                 "SELECTED RECIPES",
-                "Output quantities and recipe actions",
-                "selected-recipes-section"))
+                "Combined totals, quantities, and recipe actions",
+                "selected-recipes-section",
+                this.selectedRecipes.Count > 0 ? "Clear selected" : null,
+                this.selectedRecipes.Count > 0
+                    ? () =>
+                    {
+                        this.selectedRecipes.Clear();
+                        this.planName = string.Empty;
+                        this.planFolderName = string.Empty;
+                        this.planInputNonce++;
+                        this.RefreshDetails(false);
+                    }
+                    : null))
+        {
+            this.DrawSummary(details);
+            ImGui.Spacing();
             this.DrawSelectedRecipes(details);
+        }
 
-        ImGui.Spacing();
         var canCraftAll =
             this.artisanCraftQueue.Count > 0 &&
             (details.Recipes.Count > 1 ||
              this.artisanCraftQueue.Any(recipe => recipe.IsIntermediate));
-        if (canCraftAll)
+        if (canCraftAll || !string.IsNullOrWhiteSpace(this.integrationMessage))
         {
-            ImGui.PushStyleColor(
-                ImGuiCol.Button,
-                this.configuration.ReadyButtonColor);
-            var craftAllClicked = ImGui.Button("Craft all with Artisan");
-            ImGui.PopStyleColor();
-            if (craftAllClicked)
+            ImGui.Spacing();
+            if (canCraftAll)
             {
-                this.integrationError =
-                    !this.pluginIntegrationService.CraftAllWithArtisan(
-                        this.artisanCraftQueue,
-                        0,
-                        out this.integrationMessage);
+                ImGui.PushStyleColor(
+                    ImGuiCol.Button,
+                    this.configuration.ReadyButtonColor);
+                var craftAllClicked = ImGui.Button("Craft all with Artisan", new Vector2(160, 0));
+                ImGui.PopStyleColor();
+                if (craftAllClicked)
+                {
+                    this.integrationError =
+                        !this.pluginIntegrationService.CraftAllWithArtisan(
+                            this.artisanCraftQueue,
+                            0,
+                            out this.integrationMessage);
+                }
+                DrawTooltipIfHovered("Queue every selected recipe in Artisan, including required pre-crafts.");
+
+                ImGui.SameLine();
             }
 
-            ImGui.SameLine();
+            if (!string.IsNullOrWhiteSpace(this.integrationMessage))
+            {
+                ImGui.TextColored(
+                    this.integrationError
+                        ? this.configuration.MissingTextColor
+                        : this.configuration.SuccessTextColor,
+                    this.integrationMessage);
+            }
         }
-
-        if (ImGui.Button("Missing Items Overlay"))
-            this.rawMaterialsOverlayWindow.IsOpen = true;
-
-        if (!string.IsNullOrWhiteSpace(this.integrationMessage))
-        {
-            ImGui.TextColored(
-                this.integrationError
-                    ? this.configuration.MissingTextColor
-                    : this.configuration.SuccessTextColor,
-                this.integrationMessage);
-        }
-
-        if (ImGui.Button("Refresh inventory"))
-            this.RefreshDetails(true);
-
-        ImGui.SameLine();
-        ImGui.TextDisabled(
-            $"{this.inventoryService.LastItemStacks} stacks  •  " +
-            $"{this.inventoryService.LastScannedContainers} live containers  •  " +
-            $"{this.inventoryService.LastStoredRetainers} retainers saved");
-
-        ImGui.Spacing();
 
         if (details.Ingredients.Count == 0)
         {
@@ -553,19 +704,6 @@ public sealed class RecipeWindow : Window, IDisposable
         var obtainedRawCount =
             allRawMaterials.Count(material => material.HasEnough) +
             allElementalCatalysts.Count(material => material.HasEnough);
-        if (obtainedRawCount > 0)
-        {
-            var obtainedToggleLabel = this.configuration.ShowObtainedRawMaterials
-                ? $"Hide obtained raw & crystals ({obtainedRawCount})"
-                : $"Show obtained raw & crystals ({obtainedRawCount})";
-            if (ImGui.SmallButton(obtainedToggleLabel))
-            {
-                this.configuration.ShowObtainedRawMaterials =
-                    !this.configuration.ShowObtainedRawMaterials;
-                this.saveConfiguration();
-            }
-        }
-
         var rawMaterials = allRawMaterials
             .Where(material =>
                 this.configuration.ShowObtainedRawMaterials ||
@@ -588,14 +726,30 @@ public sealed class RecipeWindow : Window, IDisposable
             this.DrawCollapsibleSection(
                 "RAW MATERIALS",
                 "Combined requirements from scratch",
-                "raw-materials-section"))
+                "raw-materials-section",
+                obtainedRawCount > 0
+                    ? this.configuration.ShowObtainedRawMaterials
+                        ? $"Hide obtained ({allRawMaterials.Count(material => material.HasEnough)})"
+                        : $"Show obtained ({allRawMaterials.Count(material => material.HasEnough)})"
+                    : null,
+                obtainedRawCount > 0
+                    ? ToggleObtainedRawMaterials
+                    : null))
             this.DrawMaterialsTable("raw-materials", rawMaterials);
 
         if (elementalCatalysts.Count > 0 &&
             this.DrawCollapsibleSection(
                 "SHARDS, CRYSTALS & CLUSTERS",
                 "Combined elemental catalyst requirements",
-                "elemental-catalysts-section"))
+                "elemental-catalysts-section",
+                obtainedRawCount > 0
+                    ? this.configuration.ShowObtainedRawMaterials
+                        ? $"Hide obtained ({allElementalCatalysts.Count(material => material.HasEnough)})"
+                        : $"Show obtained ({allElementalCatalysts.Count(material => material.HasEnough)})"
+                    : null,
+                obtainedRawCount > 0
+                    ? ToggleObtainedRawMaterials
+                    : null))
             this.DrawMaterialsTable("elemental-catalysts", elementalCatalysts);
 
         this.DrawTravelPopup();
@@ -603,18 +757,46 @@ public sealed class RecipeWindow : Window, IDisposable
 
     private void DrawSavePlanControls()
     {
-        ImGui.SetNextItemWidth(190);
+        ImGui.SetNextItemWidth(260);
         var submitted = ImGui.InputTextWithHint(
-            "##recipe-plan-name",
+            $"##recipe-plan-name-{this.planInputNonce}",
             "Plan name",
             ref this.planName,
             80,
             ImGuiInputTextFlags.EnterReturnsTrue);
+        DrawTooltipIfHovered("Enter a name to save or update this recipe plan.");
         ImGui.SameLine();
         if (ImGui.Button("Save plan") || submitted)
             this.SaveCurrentPlan();
+        DrawTooltipIfHovered("Save the current selected recipes as a named plan.");
+
+        ImGui.SetNextItemWidth(220);
+        ImGui.InputTextWithHint(
+            $"##recipe-plan-folder-{this.planInputNonce}",
+            "Folder (optional)",
+            ref this.planFolderName,
+            80);
+        DrawTooltipIfHovered("Optional folder name for this saved plan.");
 
         this.DrawPlanMessage();
+    }
+
+    private void TryStartDreamCraftAll()
+    {
+        if (this.artisanCraftQueue.Count == 0)
+        {
+            this.integrationError = true;
+            this.integrationMessage = string.IsNullOrWhiteSpace(this.artisanCraftQueueError)
+                ? "Gwen's Dream finished, but there are no recipes ready to send to Artisan."
+                : this.artisanCraftQueueError;
+            return;
+        }
+
+        this.integrationError =
+            !this.pluginIntegrationService.CraftAllWithArtisan(
+                this.artisanCraftQueue,
+                this.recipePlanDetails?.Recipes.Count ?? 0,
+                out this.integrationMessage);
     }
 
     private void DrawPlanMessage()
@@ -640,82 +822,127 @@ public sealed class RecipeWindow : Window, IDisposable
         SavedRecipePlan? planToDuplicate = null;
         SavedRecipePlan? planToRename = null;
         SavedRecipePlan? planToDelete = null;
+        SavedRecipePlan? planToMove = null;
+        string? folderToRename = null;
         var loadSelectedPlans = false;
         var craftSelectedPlans = false;
+        var moveSelectedPlans = false;
         this.selectedSavedPlans.RemoveWhere(plan =>
             !this.configuration.SavedRecipePlans.Contains(plan));
-        if (ImGui.BeginTable(
-                "saved-recipe-plans",
-                4,
-                ImGuiTableFlags.RowBg |
-                ImGuiTableFlags.BordersInnerH |
-                ImGuiTableFlags.BordersInnerV |
-                ImGuiTableFlags.Resizable |
-                ImGuiTableFlags.SizingStretchProp))
+        var displayedPlans = this.configuration.SavedRecipePlans
+            .OrderBy(plan => NormalizeFolderName(plan.FolderName))
+            .ThenBy(plan => plan.Name)
+            .ToList();
+        foreach (var folderGroup in displayedPlans.GroupBy(plan => NormalizeFolderName(plan.FolderName)))
         {
-            ImGui.TableSetupColumn("Select", ImGuiTableColumnFlags.WidthFixed, 54);
-            ImGui.TableSetupColumn("Plan", ImGuiTableColumnFlags.WidthStretch, 1);
-            ImGui.TableSetupColumn("Recipes", ImGuiTableColumnFlags.WidthFixed, 60);
-            ImGui.TableSetupColumn("Actions", ImGuiTableColumnFlags.WidthFixed, 220);
-            ImGui.TableHeadersRow();
-
-            var displayedPlans = this.configuration.SavedRecipePlans
-                .OrderBy(plan => plan.Name)
-                .ToList();
-            for (var planIndex = 0; planIndex < displayedPlans.Count; planIndex++)
+            var folderName = folderGroup.Key;
+            ImGui.PushID($"saved-folder-{folderName}");
+            var folderHeaderColor = this.configuration.UseAccentForFolderHeaders
+                ? this.configuration.AccentColor
+                : this.configuration.FolderHeaderColor;
+            ImGui.PushStyleColor(ImGuiCol.Header, folderHeaderColor);
+            ImGui.PushStyleColor(ImGuiCol.HeaderHovered, AdjustColor(folderHeaderColor, 0.06f));
+            ImGui.PushStyleColor(ImGuiCol.HeaderActive, AdjustColor(folderHeaderColor, -0.04f));
+            ImGui.PushStyleColor(
+                ImGuiCol.Text,
+                this.configuration.UseAccentForFolderHeaders
+                    ? this.configuration.TextColor
+                    : this.configuration.FolderHeaderTextColor);
+            var isFolderOpen = ImGui.CollapsingHeader(
+                $"{GetFolderDisplayName(folderName)} ({folderGroup.Count()})##folder-group",
+                ImGuiTreeNodeFlags.DefaultOpen);
+            ImGui.PopStyleColor(4);
+            if (!string.IsNullOrWhiteSpace(folderName))
             {
-                var savedPlan = displayedPlans[planIndex];
-                ImGui.PushID($"saved-plan-{planIndex}");
-                ImGui.TableNextRow();
-                ImGui.TableNextColumn();
-                var isSelected = this.selectedSavedPlans.Contains(savedPlan);
-                if (ImGui.Checkbox("##select-saved-plan", ref isSelected))
-                {
-                    if (isSelected)
-                        this.selectedSavedPlans.Add(savedPlan);
-                    else
-                        this.selectedSavedPlans.Remove(savedPlan);
-                }
-
-                ImGui.TableNextColumn();
-                ImGui.TextUnformatted(savedPlan.Name);
-                ImGui.TableNextColumn();
-                ImGui.TextUnformatted(savedPlan.Recipes.Count.ToString());
-                ImGui.TableNextColumn();
-                if (ImGui.SmallButton("Load"))
-                    planToLoad = savedPlan;
+                var buttonWidth = ImGui.CalcTextSize("Rename folder").X +
+                    (ImGui.GetStyle().FramePadding.X * 2f);
+                var targetX = ImGui.GetWindowContentRegionMax().X - buttonWidth;
                 ImGui.SameLine();
-                if (ImGui.SmallButton("Duplicate"))
-                    planToDuplicate = savedPlan;
-                ImGui.SameLine();
-                if (ImGui.SmallButton("Rename"))
-                    planToRename = savedPlan;
-                ImGui.SameLine();
-                if (ImGui.SmallButton("Delete"))
-                {
-                    if (ImGui.GetIO().KeyCtrl)
-                        planToDelete = savedPlan;
-                    else
-                        this.ShowPlanMessage("Hold Ctrl while clicking Delete to remove a saved plan.", true);
-                }
-
-                if (ImGui.IsItemHovered())
-                {
-                    ImGui.BeginTooltip();
-                    ImGui.TextUnformatted("Hold Ctrl and click to delete this saved plan.");
-                    ImGui.EndTooltip();
-                }
-
-                ImGui.PopID();
+                ImGui.SetCursorPosX(Math.Max(ImGui.GetCursorPosX(), targetX));
+                if (ImGui.SmallButton("Rename folder"))
+                    folderToRename = folderName;
+                DrawTooltipIfHovered("Rename this folder and keep all plans inside it.");
             }
+            if (isFolderOpen)
+            {
+                foreach (var savedPlan in folderGroup)
+                {
+                    ImGui.PushID($"saved-plan-{savedPlan.Name}");
+                    var rowWidth = Math.Max(1f, ImGui.GetContentRegionAvail().X);
+                    var rowHeight = 52f;
+                    var rowPos = ImGui.GetCursorScreenPos();
+                    var rowColor = this.selectedSavedPlans.Contains(savedPlan)
+                        ? WithAlpha(this.configuration.AccentColor, 0.18f)
+                        : AdjustColor(this.configuration.WindowBackgroundColor, 0.08f);
+                    ImGui.GetWindowDrawList().AddRectFilled(
+                        rowPos,
+                        rowPos + new Vector2(rowWidth, rowHeight),
+                        ImGui.GetColorU32(rowColor),
+                        14f);
+                    ImGui.Dummy(new Vector2(rowWidth, rowHeight));
 
-            ImGui.EndTable();
+                    var cursor = ImGui.GetCursorPos();
+                    ImGui.SetCursorScreenPos(rowPos + new Vector2(14f, 14f));
+                    var isSelected = this.selectedSavedPlans.Contains(savedPlan);
+                    if (ImGui.Checkbox("##select-saved-plan", ref isSelected))
+                    {
+                        if (isSelected)
+                            this.selectedSavedPlans.Add(savedPlan);
+                        else
+                            this.selectedSavedPlans.Remove(savedPlan);
+                    }
+
+                    ImGui.SetCursorScreenPos(rowPos + new Vector2(44f, 8f));
+                    ImGui.TextUnformatted(savedPlan.Name);
+                    ImGui.SetCursorScreenPos(rowPos + new Vector2(44f, 25f));
+                    ImGui.TextDisabled($"{savedPlan.Recipes.Count} recipes");
+
+                    var actionX = rowPos.X + rowWidth - 314f;
+                    ImGui.SetCursorScreenPos(new Vector2(actionX, rowPos.Y + 12f));
+                    if (ImGui.Button("Load", new Vector2(48, 0)))
+                        planToLoad = savedPlan;
+                    DrawTooltipIfHovered("Load this saved plan into the current recipe list.");
+                    ImGui.SameLine();
+                    if (ImGui.Button("Move", new Vector2(48, 0)))
+                        planToMove = savedPlan;
+                    DrawTooltipIfHovered("Move this saved plan to another folder.");
+                    ImGui.SameLine();
+                    if (ImGui.Button("Duplicate", new Vector2(72, 0)))
+                        planToDuplicate = savedPlan;
+                    DrawTooltipIfHovered("Create a copy of this saved plan.");
+                    ImGui.SameLine();
+                    if (ImGui.Button("Rename", new Vector2(62, 0)))
+                        planToRename = savedPlan;
+                    DrawTooltipIfHovered("Rename this saved plan.");
+                    ImGui.SameLine();
+                    if (ImGui.Button("Delete", new Vector2(54, 0)))
+                    {
+                        if (ImGui.GetIO().KeyCtrl)
+                            planToDelete = savedPlan;
+                        else
+                            this.ShowPlanMessage("Hold Ctrl while clicking Delete to remove a saved plan.", true);
+                    }
+
+                    if (ImGui.IsItemHovered())
+                    {
+                        ImGui.BeginTooltip();
+                        ImGui.TextUnformatted("Hold Ctrl and click to delete this saved plan.");
+                        ImGui.EndTooltip();
+                    }
+
+                    ImGui.SetCursorPos(cursor);
+                    ImGui.Spacing();
+                    ImGui.PopID();
+                }
+            }
+            ImGui.PopID();
         }
 
         if (this.selectedSavedPlans.Count > 0)
         {
             if (ImGui.Button($"Load selected plans ({this.selectedSavedPlans.Count})"))
                 loadSelectedPlans = true;
+            DrawTooltipIfHovered("Load all checked plans into one combined recipe list.");
 
             ImGui.SameLine();
             ImGui.PushStyleColor(
@@ -724,6 +951,31 @@ public sealed class RecipeWindow : Window, IDisposable
             craftSelectedPlans =
                 ImGui.Button($"Craft selected plans ({this.selectedSavedPlans.Count})");
             ImGui.PopStyleColor();
+            DrawTooltipIfHovered("Queue all checked plans in Artisan, including required pre-crafts.");
+
+            ImGui.SameLine();
+            if (ImGui.Button($"Move selected ({this.selectedSavedPlans.Count})"))
+                moveSelectedPlans = true;
+            DrawTooltipIfHovered("Move all checked plans into a folder.");
+
+            ImGui.SameLine();
+            if (ImGui.Button($"Export selected ({this.selectedSavedPlans.Count})"))
+                this.ExportSavedPlansToClipboard(this.selectedSavedPlans);
+            DrawTooltipIfHovered("Copy the checked saved plans to the clipboard, including folder names.");
+        }
+        else if (this.configuration.SavedRecipePlans.Count > 0)
+        {
+            if (ImGui.Button("Export all saved plans"))
+                this.ExportSavedPlansToClipboard(this.configuration.SavedRecipePlans);
+            DrawTooltipIfHovered("Copy every saved plan to the clipboard.");
+        }
+
+        if (this.configuration.SavedRecipePlans.Count > 0)
+        {
+            ImGui.SameLine();
+            if (ImGui.Button("Import plans from clipboard"))
+                this.ImportSavedPlansFromClipboard();
+            DrawTooltipIfHovered("Import saved plans from copied Recipe Helper plan data.");
         }
 
         if (planToLoad is not null)
@@ -741,6 +993,33 @@ public sealed class RecipeWindow : Window, IDisposable
             this.renamePlanPopupRequested = true;
         }
 
+        if (planToMove is not null)
+        {
+            this.movingPlan = planToMove;
+            this.movePlanFolderName = planToMove.FolderName;
+            this.isMovePlanPopupOpen = true;
+            this.movePlanPopupRequested = true;
+        }
+
+        if (moveSelectedPlans)
+        {
+            this.movingSelectedPlans = this.selectedSavedPlans
+                .Where(plan => this.configuration.SavedRecipePlans.Contains(plan))
+                .ToList();
+            this.movePlanFolderName = string.Empty;
+            this.isMoveSelectedPlansPopupOpen = true;
+            this.moveSelectedPlansPopupRequested = true;
+        }
+
+        if (folderToRename is not null)
+        {
+            this.renamingFolderSource = folderToRename;
+            this.renameFolderName = folderToRename;
+            this.renameFolderError = string.Empty;
+            this.isRenameFolderPopupOpen = true;
+            this.renameFolderPopupRequested = true;
+        }
+
         if (planToDelete is not null)
         {
             this.selectedSavedPlans.Remove(planToDelete);
@@ -755,6 +1034,9 @@ public sealed class RecipeWindow : Window, IDisposable
             this.LoadSavedPlans(this.selectedSavedPlans, true);
 
         this.DrawRenamePlanPopup();
+        this.DrawMovePlanPopup();
+        this.DrawMoveSelectedPlansPopup();
+        this.DrawRenameFolderPopup();
     }
 
     private void DuplicateSavedPlan(SavedRecipePlan source)
@@ -769,10 +1051,154 @@ public sealed class RecipeWindow : Window, IDisposable
         this.configuration.SavedRecipePlans.Add(new SavedRecipePlan
         {
             Name = newName,
+            FolderName = source.FolderName,
             Recipes = source.Recipes.Select(CloneSavedRecipe).ToList(),
         });
         this.saveConfiguration();
         this.ShowPlanMessage($"Duplicated plan as '{newName}'.", false);
+    }
+
+    private void DrawMovePlanPopup()
+    {
+        if (this.movePlanPopupRequested)
+        {
+            ImGui.OpenPopup("Move saved plan");
+            this.movePlanPopupRequested = false;
+        }
+
+        if (!ImGui.BeginPopupModal(
+                "Move saved plan",
+                ref this.isMovePlanPopupOpen,
+                ImGuiWindowFlags.AlwaysAutoResize))
+            return;
+
+        this.DrawFolderSelectionControls();
+        ImGui.SetNextItemWidth(280);
+        var submitted = ImGui.InputText(
+            "Folder",
+            ref this.movePlanFolderName,
+            80,
+            ImGuiInputTextFlags.EnterReturnsTrue);
+        ImGui.TextDisabled("Leave blank to keep the plan unfiled.");
+
+        if (ImGui.Button("Move") || submitted)
+            this.TryMoveSavedPlan();
+
+        ImGui.SameLine();
+        if (ImGui.Button("Cancel"))
+        {
+            this.isMovePlanPopupOpen = false;
+            this.movingPlan = null;
+            ImGui.CloseCurrentPopup();
+        }
+
+        ImGui.EndPopup();
+    }
+
+    private void DrawMoveSelectedPlansPopup()
+    {
+        if (this.moveSelectedPlansPopupRequested)
+        {
+            ImGui.OpenPopup("Move selected plans");
+            this.moveSelectedPlansPopupRequested = false;
+        }
+
+        if (!ImGui.BeginPopupModal(
+                "Move selected plans",
+                ref this.isMoveSelectedPlansPopupOpen,
+                ImGuiWindowFlags.AlwaysAutoResize))
+            return;
+
+        this.DrawFolderSelectionControls();
+        ImGui.SetNextItemWidth(280);
+        var submitted = ImGui.InputText(
+            "Folder",
+            ref this.movePlanFolderName,
+            80,
+            ImGuiInputTextFlags.EnterReturnsTrue);
+        ImGui.TextDisabled($"Move {this.movingSelectedPlans.Count} selected plan{(this.movingSelectedPlans.Count == 1 ? string.Empty : "s")} into this folder.");
+
+        if (ImGui.Button("Move all") || submitted)
+            this.TryMoveSelectedPlans();
+
+        ImGui.SameLine();
+        if (ImGui.Button("Cancel"))
+        {
+            this.isMoveSelectedPlansPopupOpen = false;
+            this.movingSelectedPlans = [];
+            ImGui.CloseCurrentPopup();
+        }
+
+        ImGui.EndPopup();
+    }
+
+    private void DrawFolderSelectionControls()
+    {
+        var folders = GetSavedPlanFolders(this.configuration.SavedRecipePlans);
+        if (folders.Count == 0)
+            return;
+
+        var selectedFolder = NormalizeFolderName(this.movePlanFolderName);
+        var selectedIndex = folders.FindIndex(folder =>
+            string.Equals(folder, selectedFolder, StringComparison.OrdinalIgnoreCase));
+        var preview = selectedIndex >= 0 ? GetFolderDisplayName(folders[selectedIndex]) : "Choose existing folder";
+
+        ImGui.SetNextItemWidth(280);
+        if (!ImGui.BeginCombo("Existing folders", preview))
+            return;
+
+        var useUnfiled = string.IsNullOrWhiteSpace(selectedFolder);
+        if (ImGui.Selectable("Unfiled", useUnfiled))
+            this.movePlanFolderName = string.Empty;
+
+        foreach (var folder in folders)
+        {
+            var isSelected = string.Equals(folder, selectedFolder, StringComparison.OrdinalIgnoreCase);
+            if (ImGui.Selectable(folder, isSelected))
+                this.movePlanFolderName = folder;
+        }
+
+        ImGui.EndCombo();
+        ImGui.TextDisabled("Choose an existing folder or type a new one below.");
+    }
+
+    private void TryMoveSavedPlan()
+    {
+        if (this.movingPlan is null)
+            return;
+
+        this.selectedSavedPlans.Remove(this.movingPlan);
+        this.movingPlan.FolderName = this.movePlanFolderName.Trim();
+        this.saveConfiguration();
+        this.ShowPlanMessage($"Moved plan '{this.movingPlan.Name}'.", false);
+        this.isMovePlanPopupOpen = false;
+        this.movingPlan = null;
+        ImGui.CloseCurrentPopup();
+    }
+
+    private void TryMoveSelectedPlans()
+    {
+        var folderName = this.movePlanFolderName.Trim();
+        var plans = this.movingSelectedPlans
+            .Where(plan => this.configuration.SavedRecipePlans.Contains(plan))
+            .ToList();
+        if (plans.Count == 0)
+        {
+            this.ShowPlanMessage("Select at least one saved plan.", true);
+            return;
+        }
+
+        foreach (var plan in plans)
+        {
+            plan.FolderName = folderName;
+            this.selectedSavedPlans.Remove(plan);
+        }
+
+        this.saveConfiguration();
+        this.ShowPlanMessage($"Moved {plans.Count} saved plan{(plans.Count == 1 ? string.Empty : "s")}.", false);
+        this.isMoveSelectedPlansPopupOpen = false;
+        this.movingSelectedPlans = [];
+        ImGui.CloseCurrentPopup();
     }
 
     private void DrawRenamePlanPopup()
@@ -814,6 +1240,45 @@ public sealed class RecipeWindow : Window, IDisposable
         ImGui.EndPopup();
     }
 
+    private void DrawRenameFolderPopup()
+    {
+        if (this.renameFolderPopupRequested)
+        {
+            ImGui.OpenPopup("Rename folder");
+            this.renameFolderPopupRequested = false;
+        }
+
+        if (!ImGui.BeginPopupModal(
+                "Rename folder",
+                ref this.isRenameFolderPopupOpen,
+                ImGuiWindowFlags.AlwaysAutoResize))
+            return;
+
+        ImGui.SetNextItemWidth(280);
+        var submitted = ImGui.InputText(
+            "New folder name",
+            ref this.renameFolderName,
+            80,
+            ImGuiInputTextFlags.EnterReturnsTrue);
+
+        if (!string.IsNullOrWhiteSpace(this.renameFolderError))
+            ImGui.TextColored(this.configuration.MissingTextColor, this.renameFolderError);
+
+        if (ImGui.Button("Rename") || submitted)
+            this.TryRenameFolder();
+
+        ImGui.SameLine();
+        if (ImGui.Button("Cancel"))
+        {
+            this.isRenameFolderPopupOpen = false;
+            this.renamingFolderSource = string.Empty;
+            this.renameFolderError = string.Empty;
+            ImGui.CloseCurrentPopup();
+        }
+
+        ImGui.EndPopup();
+    }
+
     private void TryRenameSavedPlan()
     {
         if (this.renamingPlan is null)
@@ -844,6 +1309,41 @@ public sealed class RecipeWindow : Window, IDisposable
         ImGui.CloseCurrentPopup();
     }
 
+    private void TryRenameFolder()
+    {
+        var cleanName = this.renameFolderName.Trim();
+        if (cleanName.Length == 0)
+        {
+            this.renameFolderError = "Enter a folder name.";
+            return;
+        }
+
+        if (string.Equals(cleanName, this.renamingFolderSource, StringComparison.OrdinalIgnoreCase))
+        {
+            this.isRenameFolderPopupOpen = false;
+            this.renamingFolderSource = string.Empty;
+            this.renameFolderError = string.Empty;
+            ImGui.CloseCurrentPopup();
+            return;
+        }
+
+        foreach (var plan in this.configuration.SavedRecipePlans
+                     .Where(plan => string.Equals(
+                         NormalizeFolderName(plan.FolderName),
+                         NormalizeFolderName(this.renamingFolderSource),
+                         StringComparison.OrdinalIgnoreCase)))
+        {
+            plan.FolderName = cleanName;
+        }
+
+        this.saveConfiguration();
+        this.ShowPlanMessage($"Renamed folder to '{cleanName}'.", false);
+        this.isRenameFolderPopupOpen = false;
+        this.renamingFolderSource = string.Empty;
+        this.renameFolderError = string.Empty;
+        ImGui.CloseCurrentPopup();
+    }
+
     private static SavedRecipePlanEntry CloneSavedRecipe(SavedRecipePlanEntry recipe) =>
         new()
         {
@@ -853,6 +1353,19 @@ public sealed class RecipeWindow : Window, IDisposable
             ResultAmount = recipe.ResultAmount,
             DesiredAmount = recipe.DesiredAmount,
         };
+
+    private static string NormalizeFolderName(string? folderName) =>
+        string.IsNullOrWhiteSpace(folderName) ? string.Empty : folderName.Trim();
+
+    private static List<string> GetSavedPlanFolders(IEnumerable<SavedRecipePlan> plans) =>
+        plans.Select(plan => NormalizeFolderName(plan.FolderName))
+            .Where(folderName => !string.IsNullOrWhiteSpace(folderName))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(folderName => folderName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    private static string GetFolderDisplayName(string folderName) =>
+        string.IsNullOrWhiteSpace(folderName) ? "Unfiled" : folderName;
 
     private void SaveCurrentPlan()
     {
@@ -872,6 +1385,7 @@ public sealed class RecipeWindow : Window, IDisposable
         var savedPlan = new SavedRecipePlan
         {
             Name = cleanName,
+            FolderName = this.planFolderName.Trim(),
             Recipes = this.selectedRecipes.Select(selection =>
                 new SavedRecipePlanEntry
                 {
@@ -899,9 +1413,72 @@ public sealed class RecipeWindow : Window, IDisposable
                 : $"Saved plan '{cleanName}'.",
             false);
         this.planName = string.Empty;
+        this.planFolderName = string.Empty;
+        this.planInputNonce++;
         this.selectedRecipes.Clear();
         this.integrationMessage = string.Empty;
         this.RefreshDetails(false);
+    }
+
+    private void ExportSavedPlansToClipboard(IEnumerable<SavedRecipePlan> plans)
+    {
+        var exportPlans = plans
+            .Where(plan => this.configuration.SavedRecipePlans.Contains(plan))
+            .Select(plan => new SavedRecipePlan
+            {
+                Name = plan.Name,
+                FolderName = plan.FolderName,
+                Recipes = plan.Recipes.Select(CloneSavedRecipe).ToList(),
+            })
+            .ToList();
+        if (exportPlans.Count == 0)
+        {
+            this.ShowPlanMessage("Select at least one saved plan to export.", true);
+            return;
+        }
+
+        ImGui.SetClipboardText(JsonSerializer.Serialize(exportPlans, new JsonSerializerOptions
+        {
+            WriteIndented = true,
+        }));
+        this.ShowPlanMessage($"Copied {exportPlans.Count} saved plan{(exportPlans.Count == 1 ? string.Empty : "s")} to the clipboard.", false);
+    }
+
+    private void ImportSavedPlansFromClipboard()
+    {
+        var clipboard = ImGui.GetClipboardText();
+        if (string.IsNullOrWhiteSpace(clipboard))
+        {
+            this.ShowPlanMessage("Clipboard is empty.", true);
+            return;
+        }
+
+        try
+        {
+            var importedPlans = JsonSerializer.Deserialize<List<SavedRecipePlan>>(clipboard) ?? [];
+            if (importedPlans.Count == 0)
+            {
+                this.ShowPlanMessage("No Recipe Helper plans were found in the clipboard.", true);
+                return;
+            }
+
+            foreach (var importedPlan in importedPlans.Where(plan => !string.IsNullOrWhiteSpace(plan.Name)))
+            {
+                var existingIndex = this.configuration.SavedRecipePlans.FindIndex(existing =>
+                    string.Equals(existing.Name, importedPlan.Name, StringComparison.OrdinalIgnoreCase));
+                if (existingIndex >= 0)
+                    this.configuration.SavedRecipePlans[existingIndex] = importedPlan;
+                else
+                    this.configuration.SavedRecipePlans.Add(importedPlan);
+            }
+
+            this.saveConfiguration();
+            this.ShowPlanMessage($"Imported {importedPlans.Count} saved plan{(importedPlans.Count == 1 ? string.Empty : "s")}.", false);
+        }
+        catch
+        {
+            this.ShowPlanMessage("Clipboard data is not valid Recipe Helper plan data.", true);
+        }
     }
 
     private void LoadSavedPlan(SavedRecipePlan savedPlan)
@@ -918,7 +1495,9 @@ public sealed class RecipeWindow : Window, IDisposable
                 Math.Max(1, savedRecipe.DesiredAmount)));
         }
 
-        this.planName = savedPlan.Name;
+        this.planName = string.Empty;
+        this.planFolderName = string.Empty;
+        this.planInputNonce++;
         this.ShowPlanMessage($"Loaded plan '{savedPlan.Name}'.", false);
         this.searchText = string.Empty;
         this.searchResults = [];
@@ -967,7 +1546,9 @@ public sealed class RecipeWindow : Window, IDisposable
 
         this.selectedRecipes.Clear();
         this.selectedRecipes.AddRange(combinedRecipes);
-        this.planName = plans.Count == 1 ? plans[0].Name : string.Empty;
+        this.planName = string.Empty;
+        this.planFolderName = string.Empty;
+        this.planInputNonce++;
         this.searchText = string.Empty;
         this.searchResults = [];
         this.RefreshDetails(true);
@@ -1008,16 +1589,24 @@ public sealed class RecipeWindow : Window, IDisposable
         if (ImGui.BeginTable(
                 "selected-recipes",
                 4,
-                ImGuiTableFlags.RowBg |
-                ImGuiTableFlags.BordersInnerH |
+                ImGuiTableFlags.PadOuterX |
                 ImGuiTableFlags.Resizable |
                 ImGuiTableFlags.SizingStretchProp))
         {
-            ImGui.TableSetupColumn("Recipe", ImGuiTableColumnFlags.WidthStretch, 1);
-            ImGui.TableSetupColumn("Output", ImGuiTableColumnFlags.WidthFixed, 75);
-            ImGui.TableSetupColumn("Crafts", ImGuiTableColumnFlags.WidthFixed, 50);
-            ImGui.TableSetupColumn("Actions", ImGuiTableColumnFlags.WidthFixed, 210);
-            ImGui.TableHeadersRow();
+            ImGui.TableSetupColumn("Recipe", ImGuiTableColumnFlags.WidthFixed, 250);
+            ImGui.TableSetupColumn("Quantity", ImGuiTableColumnFlags.WidthFixed, 100);
+            ImGui.TableSetupColumn("Crafts", ImGuiTableColumnFlags.WidthFixed, 74);
+            ImGui.TableSetupColumn("Actions", ImGuiTableColumnFlags.WidthStretch, 1);
+
+            ImGui.TableNextRow(ImGuiTableRowFlags.None, 36);
+            ImGui.TableNextColumn();
+            this.DrawHeaderCard("Recipe");
+            ImGui.TableNextColumn();
+            this.DrawHeaderCard("Qty");
+            ImGui.TableNextColumn();
+            this.DrawHeaderCard("Crafts");
+            ImGui.TableNextColumn();
+            this.DrawHeaderCard("Actions");
 
             foreach (var recipe in details.Recipes)
             {
@@ -1026,13 +1615,30 @@ public sealed class RecipeWindow : Window, IDisposable
                 if (selectionIndex < 0)
                     continue;
 
-                ImGui.TableNextRow();
+                const float selectedRecipeRowHeight = 36f;
+                ImGui.TableNextRow(ImGuiTableRowFlags.None, 44);
                 ImGui.TableNextColumn();
-                ImGui.TextUnformatted(recipe.ResultName);
-                ImGui.TextDisabled($"Recipe #{recipe.RecipeId}  Yield {recipe.ResultAmount}");
+                this.DrawInfoCard(
+                    $"recipe-name-{recipe.RecipeId}",
+                    new Vector2(-1, selectedRecipeRowHeight),
+                    recipe.ResultName,
+                    $"Yield {recipe.ResultAmount}",
+                    AdjustColor(this.configuration.WindowBackgroundColor, 0.16f),
+                    this.configuration.TextColor);
 
                 ImGui.TableNextColumn();
+                var quantityCursor = ImGui.GetCursorPos();
+                this.DrawDecorativeCardBackground(
+                    new Vector2(-1, selectedRecipeRowHeight),
+                    this.configuration.InputCardColor);
+                var inputHeight = ImGui.GetFrameHeight();
+                ImGui.SetCursorPos(quantityCursor + new Vector2(
+                    10f,
+                    MathF.Max(0f, (selectedRecipeRowHeight - inputHeight) / 2f)));
                 ImGui.SetNextItemWidth(-1);
+                ImGui.PushStyleColor(ImGuiCol.FrameBg, Vector4.Zero);
+                ImGui.PushStyleColor(ImGuiCol.FrameBgHovered, Vector4.Zero);
+                ImGui.PushStyleColor(ImGuiCol.FrameBgActive, Vector4.Zero);
                 var desiredAmount = (int)recipe.DesiredAmount;
                 if (ImGui.InputInt($"##plan-amount-{recipe.RecipeId}", ref desiredAmount))
                 {
@@ -1043,31 +1649,58 @@ public sealed class RecipeWindow : Window, IDisposable
                         };
                     refreshPlan = true;
                 }
+                ImGui.PopStyleColor(3);
 
                 ImGui.TableNextColumn();
-                ImGui.TextUnformatted(recipe.CraftCount.ToString());
+                this.DrawValueCard(
+                    $"recipe-crafts-{recipe.RecipeId}",
+                    new Vector2(-1, selectedRecipeRowHeight),
+                    recipe.CraftCount.ToString(),
+                    WithAlpha(this.configuration.AccentColor, 0.14f),
+                    this.configuration.TextColor);
 
                 ImGui.TableNextColumn();
-                if (ImGui.SmallButton($"Craft Items##plan-artisan-{recipe.RecipeId}"))
+                var actionWidth = Math.Max(212f, ImGui.GetContentRegionAvail().X);
+                var spacing = ImGui.GetStyle().ItemSpacing.X;
+                const float craftButtonWidth = 84f;
+                const float teamcraftButtonWidth = 78f;
+                const float removeButtonWidth = 60f;
+                var totalButtonWidth =
+                    craftButtonWidth +
+                    teamcraftButtonWidth +
+                    removeButtonWidth +
+                    (spacing * 2f);
+                var actionCursor = ImGui.GetCursorPos();
+                this.DrawDecorativeCardBackground(
+                    new Vector2(actionWidth, selectedRecipeRowHeight),
+                    AdjustColor(this.configuration.WindowBackgroundColor, 0.09f));
+                var buttonHeight = ImGui.GetFrameHeight();
+                ImGui.SetCursorPos(new Vector2(
+                    actionCursor.X + MathF.Max(0f, (actionWidth - totalButtonWidth) / 2f),
+                    actionCursor.Y + MathF.Max(0f, (selectedRecipeRowHeight - buttonHeight) / 2f)));
+                if (ImGui.Button($"Craft Items##plan-artisan-{recipe.RecipeId}", new Vector2(craftButtonWidth, 0)))
                 {
                     this.integrationError = !this.pluginIntegrationService.CraftWithArtisan(
                         recipe.RecipeId,
                         recipe.CraftCount,
                         out this.integrationMessage);
                 }
+                DrawTooltipIfHovered("Open this recipe in Artisan with the required craft count.");
 
                 ImGui.SameLine();
-                if (ImGui.SmallButton($"Teamcraft##plan-teamcraft-{recipe.RecipeId}"))
+                if (ImGui.Button($"Teamcraft##plan-teamcraft-{recipe.RecipeId}", new Vector2(teamcraftButtonWidth, 0)))
                 {
                     this.integrationError = !this.pluginIntegrationService.OpenInTeamcraft(
                         recipe.ResultItemId,
                         recipe.DesiredAmount,
                         out this.integrationMessage);
                 }
+                DrawTooltipIfHovered("Open this recipe as a Teamcraft import list.");
 
                 ImGui.SameLine();
-                if (ImGui.SmallButton($"Remove##plan-remove-{recipe.RecipeId}"))
+                if (ImGui.Button($"Remove##plan-remove-{recipe.RecipeId}", new Vector2(removeButtonWidth, 0)))
                     recipeToRemove = recipe.RecipeId;
+                DrawTooltipIfHovered("Remove this recipe from the current plan.");
             }
 
             ImGui.EndTable();
@@ -1088,73 +1721,41 @@ public sealed class RecipeWindow : Window, IDisposable
     {
         var totalCrafts = details.Recipes
             .Aggregate(0UL, (total, recipe) => total + recipe.CraftCount);
-        var queuedCrafts = this.artisanCraftQueue.Count > 0
-            ? this.artisanCraftQueue.Aggregate(
-                0UL,
-                (total, recipe) => total + recipe.CraftCount)
-            : totalCrafts;
-        var intermediateCrafts = queuedCrafts > totalCrafts
-            ? queuedCrafts - totalCrafts
-            : 0;
-        var estimatedSeconds =
-            queuedCrafts *
-            (ulong)Math.Clamp(this.configuration.EstimatedSecondsPerCraft, 5, 120);
-        if (!ImGui.BeginTable(
-                "recipe-summary",
-                4,
-                ImGuiTableFlags.SizingStretchSame |
-                ImGuiTableFlags.BordersInnerV |
-                ImGuiTableFlags.PadOuterX))
-            return;
-
-        ImGui.TableNextColumn();
-        ImGui.TextDisabled("RECIPES");
-        ImGui.TextUnformatted(details.Recipes.Count.ToString());
-        ImGui.TableNextColumn();
-        ImGui.TextDisabled("TOTAL CRAFTS");
-        ImGui.TextUnformatted(totalCrafts.ToString());
-        ImGui.TableNextColumn();
-        ImGui.TextDisabled("EST. CRAFT TIME");
-        ImGui.TextUnformatted(FormatDuration(estimatedSeconds));
-        if (ImGui.IsItemHovered())
-        {
-            ImGui.BeginTooltip();
-            ImGui.TextUnformatted(
-                $"Based on {this.configuration.EstimatedSecondsPerCraft} seconds per craft.");
-            if (intermediateCrafts > 0)
-                ImGui.TextUnformatted(
-                    $"Includes {intermediateCrafts:N0} intermediate craft(s).");
-            ImGui.TextDisabled("Actual Artisan time varies by recipe, solution, and character stats.");
-            ImGui.EndTooltip();
-        }
-        ImGui.TableNextColumn();
-        ImGui.TextDisabled("RAW ITEMS");
-        ImGui.TextUnformatted(details.RawMaterials.Count.ToString());
-        ImGui.EndTable();
+        var cardWidth = Math.Max(92f, (ImGui.GetContentRegionAvail().X - 12f) / 3f);
+        this.DrawSummaryCard("Recipes", details.Recipes.Count.ToString(), cardWidth);
+        ImGui.SameLine();
+        this.DrawSummaryCard("Total Crafts", totalCrafts.ToString(), cardWidth);
+        ImGui.SameLine();
+        this.DrawSummaryCard("Raw Items", details.RawMaterials.Count.ToString(), cardWidth);
     }
 
-    private static string FormatDuration(ulong totalSeconds)
+    private void ToggleObtainedRawMaterials()
     {
-        var hours = totalSeconds / 3600;
-        var minutes = (totalSeconds % 3600) / 60;
-        var seconds = totalSeconds % 60;
-        return hours > 0
-            ? $"{hours}h {minutes}m {seconds}s"
-            : minutes > 0
-                ? $"{minutes}m {seconds}s"
-                : $"{seconds}s";
+        this.configuration.ShowObtainedRawMaterials = !this.configuration.ShowObtainedRawMaterials;
+        this.saveConfiguration();
     }
 
-    private bool DrawCollapsibleSection(string title, string subtitle, string sectionId)
+    private bool DrawCollapsibleSection(
+        string title,
+        string subtitle,
+        string sectionId,
+        string? actionLabel = null,
+        Action? action = null)
     {
         ImGui.Spacing();
         var isOpen = ImGui.CollapsingHeader(
             $"{title}##{sectionId}",
             ImGuiTreeNodeFlags.DefaultOpen);
+
         if (!isOpen)
             return false;
 
         ImGui.TextDisabled(subtitle);
+        if (!string.IsNullOrWhiteSpace(actionLabel) && action is not null)
+        {
+            if (ImGui.SmallButton(actionLabel))
+                action();
+        }
         ImGui.Spacing();
         return true;
     }
@@ -1162,9 +1763,30 @@ public sealed class RecipeWindow : Window, IDisposable
     private static bool IsElementalCatalyst(IngredientNeed material) =>
         material.ItemId is >= 2 and <= 19;
 
+    private IReadOnlyList<IngredientNeed> OrderMaterialsForDisplay(IEnumerable<IngredientNeed> materials) =>
+        materials
+            .Select(material =>
+            {
+                var reductionSource =
+                    this.aetherialReductionService.GetPreferredSource(material.ReductionSources);
+                var availabilityText = GetIngredientAvailabilityText(material, reductionSource, this.aetherialReductionService);
+                var canGather = this.CanGatherIngredient(material, reductionSource, availabilityText);
+                return new
+                {
+                    Material = material,
+                    SortCategory = GetIngredientSortCategory(canGather, availabilityText, IsVendorSource(material)),
+                    WaitSeconds = GetGenericAvailabilityWaitSeconds(availabilityText),
+                };
+            })
+            .OrderBy(entry => entry.SortCategory)
+            .ThenBy(entry => entry.WaitSeconds)
+            .ThenBy(entry => entry.Material.Name, StringComparer.CurrentCultureIgnoreCase)
+            .Select(entry => entry.Material)
+            .ToList();
+
     private void DrawMaterialsTable(string tableId, IReadOnlyList<IngredientNeed> materials)
     {
-        var displayedMaterials = this.aetherialReductionService.OrderByAvailability(
+        var displayedMaterials = this.OrderMaterialsForDisplay(
             materials.Where(material =>
                 material.ItemId != 0 &&
                 material.Required > 0 &&
@@ -1177,38 +1799,33 @@ public sealed class RecipeWindow : Window, IDisposable
         var showAvailable = displayedMaterials.Any(material =>
             material.ReductionSources is { Count: > 0 } ||
             this.aetherialReductionService.GetGatheringTimerText(material.ItemId) is not null);
-        var showNq = displayedMaterials.Any(material => material.OwnedNq > 0);
-        var showHq = displayedMaterials.Any(material => material.OwnedHq > 0);
+        var showStock = displayedMaterials.Any(material => material.OwnedNq > 0 || material.OwnedHq > 0);
         var showFoundIn = displayedMaterials.Any(material => material.Locations.Count > 0);
         var showRawCraftStatus =
             isDirectIngredients &&
             displayedMaterials.Any(material => material.CanCraftMissingFromRaw.HasValue);
         const bool showMissing = true;
         var columnCount =
-            3 +
+            1 +
+            (showMissing ? 1 : 0) +
+            1 +
             (showTravel ? 1 : 0) +
             (showAvailable ? 1 : 0) +
-            (showNq ? 1 : 0) +
-            (showHq ? 1 : 0) +
+            (showStock ? 1 : 0) +
             (showFoundIn ? 1 : 0) +
-            (showRawCraftStatus ? 1 : 0) +
-            (showMissing ? 1 : 0);
+            (showRawCraftStatus ? 1 : 0);
         var tableFlags =
-            ImGuiTableFlags.BordersOuterH |
-            ImGuiTableFlags.BordersInnerH |
-            ImGuiTableFlags.RowBg |
+            ImGuiTableFlags.PadOuterX |
             ImGuiTableFlags.Resizable |
             ImGuiTableFlags.SizingFixedFit;
         var requestedTableWidth =
-            140f +
-            110f +
+            220f +
             45f +
-            (showTravel ? 70f : 0f) +
+            (showTravel ? 68f : 0f) +
             (showAvailable ? 115f : 0f) +
-            (showNq ? 45f : 0f) +
-            (showHq ? 45f : 0f) +
+            (showStock ? 88f : 0f) +
             (showFoundIn ? 150f : 0f) +
-            (showRawCraftStatus ? 110f : 0f) +
+            (showRawCraftStatus ? 96f : 0f) +
             (showMissing ? 75f : 0f) +
             (ImGui.GetStyle().CellPadding.X * 2 * columnCount) +
             2f;
@@ -1221,10 +1838,8 @@ public sealed class RecipeWindow : Window, IDisposable
             ? "raw"
             : showFoundIn
                 ? "found"
-                : showHq
-                    ? "hq"
-                    : showNq
-                        ? "nq"
+                : showStock
+                    ? "stock"
                         : showAvailable
                             ? "available"
                             : showTravel
@@ -1242,7 +1857,8 @@ public sealed class RecipeWindow : Window, IDisposable
         }
 
         var tableHeight =
-            (25f * (displayedMaterials.Count + 1)) +
+            (44f * displayedMaterials.Count) +
+            36f +
             (needsHorizontalScroll ? ImGui.GetStyle().ScrollbarSize : 0f) +
             2f;
         if (ImGui.BeginTable(
@@ -1251,63 +1867,122 @@ public sealed class RecipeWindow : Window, IDisposable
                 tableFlags,
                 new Vector2(Math.Max(1f, availableTableWidth), tableHeight)))
         {
-            SetupColumn("Ingredient", "ingredient", 140);
-            SetupColumn("Source", "source", 110);
+            SetupColumn("Ingredient", "ingredient", 220);
             SetupColumn("Need", "need", 45);
             if (showMissing)
                 SetupColumn("Missing", "missing", 75);
             if (showTravel)
-                SetupColumn("Travel", "travel", 70);
+                SetupColumn("Travel", "travel", 68);
             if (showAvailable)
                 SetupColumn("Available", "available", 115);
-            if (showNq)
-                SetupColumn("NQ", "nq", 45);
-            if (showHq)
-                SetupColumn("HQ", "hq", 45);
+            if (showStock)
+                SetupColumn("Stock", "stock", 88);
             if (showFoundIn)
                 SetupColumn("Found in", "found", 150);
             if (showRawCraftStatus)
-                SetupColumn("From raw", "raw", 110);
-            ImGui.TableHeadersRow();
+                SetupColumn("From raw", "raw", 96);
+            ImGui.TableNextRow(ImGuiTableRowFlags.None, 36);
+            ImGui.TableNextColumn();
+            this.DrawHeaderCard("Ingredient");
+            ImGui.TableNextColumn();
+            this.DrawHeaderCard("Need");
+            if (showMissing)
+            {
+                ImGui.TableNextColumn();
+                this.DrawHeaderCard("Missing");
+            }
+            if (showTravel)
+            {
+                ImGui.TableNextColumn();
+                this.DrawHeaderCard("Travel");
+            }
+            if (showAvailable)
+            {
+                ImGui.TableNextColumn();
+                this.DrawHeaderCard("Available");
+            }
+            if (showStock)
+            {
+                ImGui.TableNextColumn();
+                this.DrawHeaderCard("Stock");
+            }
+            if (showFoundIn)
+            {
+                ImGui.TableNextColumn();
+                this.DrawHeaderCard("Found In");
+            }
+            if (showRawCraftStatus)
+            {
+                ImGui.TableNextColumn();
+                this.DrawHeaderCard("From Raw");
+            }
 
             foreach (var ingredient in displayedMaterials)
             {
-                ImGui.TableNextRow(ImGuiTableRowFlags.None, 25);
+                ImGui.TableNextRow(ImGuiTableRowFlags.None, 44);
                 var hasTimedWindow = this.aetherialReductionService.HasTimedWindow(
                     ingredient.ItemId,
                     ingredient.ReductionSources);
-                var highlightRow =
-                    ingredient.HasEnough ||
-                    (hasTimedWindow &&
-                     this.aetherialReductionService.IsCurrentlyAvailable(
-                        ingredient.ItemId,
-                        ingredient.ReductionSources));
-                if (highlightRow)
-                    ImGui.TableSetBgColor(
-                        ImGuiTableBgTarget.RowBg0,
-                        ImGui.GetColorU32(this.configuration.EnoughRowColor));
+                var rowColor = ingredient.HasEnough
+                    ? this.configuration.EnoughRowColor
+                    : showRawCraftStatus && ingredient.CanCraftMissingFromRaw is true
+                        ? WithAlpha(this.configuration.WarningTextColor, 0.18f)
+                        : WithAlpha(this.configuration.MissingTextColor, 0.18f);
 
                 ImGui.TableNextColumn();
-                ImGui.TextUnformatted(ingredient.Name);
+                this.DrawInfoCard(
+                    $"{tableId}-ingredient-{ingredient.ItemId}",
+                    new Vector2(-1, 36),
+                    ingredient.Name,
+                    ingredient.Source,
+                    rowColor,
+                    this.configuration.TextColor);
                 MaterialUsageTooltip.Draw(
-                    this.recipeService,
+                    this.marketboardPriceService,
                     this.configuration,
                     ingredient);
-                ImGui.TableNextColumn();
-                ImGui.TextUnformatted(ingredient.Source);
 
                 ImGui.TableNextColumn();
-                ImGui.TextUnformatted(ingredient.Required.ToString());
+                var needBackground = ingredient.HasEnough
+                    ? this.configuration.EnoughRowColor
+                    : WithAlpha(this.configuration.AccentColor, 0.14f);
+                this.DrawValueCard(
+                    $"{tableId}-need-{ingredient.ItemId}",
+                    new Vector2(-1, 36),
+                    ingredient.Required.ToString(),
+                    needBackground,
+                    this.configuration.TextColor);
 
                 if (showMissing)
                 {
                     ImGui.TableNextColumn();
                     if (ingredient.HasEnough)
-                        ImGui.TextUnformatted(string.Empty);
+                    {
+                        this.DrawValueCard(
+                            $"{tableId}-missing-{ingredient.ItemId}",
+                            new Vector2(-1, 36),
+                            "Ready",
+                            WithAlpha(this.configuration.SuccessTextColor, 0.18f),
+                            this.configuration.SuccessTextColor);
+                    }
                     else if (showRawCraftStatus && ingredient.CanCraftMissingFromRaw is true)
-                        ImGui.TextUnformatted(string.Empty);
+                    {
+                        this.DrawValueCard(
+                            $"{tableId}-missing-{ingredient.ItemId}",
+                            new Vector2(-1, 36),
+                            "Craftable",
+                            WithAlpha(this.configuration.WarningTextColor, 0.18f),
+                            this.configuration.WarningTextColor);
+                    }
                     else
-                        ImGui.TextColored(this.configuration.MissingTextColor, ingredient.Missing.ToString());
+                    {
+                        this.DrawValueCard(
+                            $"{tableId}-missing-{ingredient.ItemId}",
+                            new Vector2(-1, 36),
+                            ingredient.Missing.ToString(),
+                            WithAlpha(this.configuration.MissingTextColor, 0.18f),
+                            this.configuration.MissingTextColor);
+                    }
                 }
 
                 var reductionSource =
@@ -1315,69 +1990,113 @@ public sealed class RecipeWindow : Window, IDisposable
                 if (showTravel)
                 {
                     ImGui.TableNextColumn();
-                    if (ingredient.IsGatherable &&
-                        !ingredient.HasEnough &&
-                        ImGui.SmallButton($"Gather##{tableId}-{ingredient.ItemId}"))
+                    if (this.CanGatherIngredient(ingredient, reductionSource))
                     {
-                        this.integrationError = !this.pluginIntegrationService.GatherWithGatherBuddy(
-                            reductionSource?.Name ?? ingredient.Name,
-                            reductionSource?.IsFishing ?? ingredient.IsFishing,
-                            out this.integrationMessage);
+                        var buttonWidth = 64f;
+                        var columnWidth = Math.Max(1f, ImGui.GetContentRegionAvail().X);
+                        this.DrawDecorativeCardBackground(
+                            new Vector2(columnWidth, 36),
+                            WithAlpha(this.configuration.AccentColor, 0.12f));
+                        var buttonCursor = ImGui.GetCursorPos();
+                        ImGui.SetCursorPos(new Vector2(
+                            buttonCursor.X + MathF.Max(0f, (columnWidth - buttonWidth) / 2f),
+                            buttonCursor.Y - 34f));
+                        if (ImGui.Button($"Gather##{tableId}-{ingredient.ItemId}", new Vector2(buttonWidth, 0)))
+                        {
+                            this.integrationError = !this.pluginIntegrationService.GatherWithGatherBuddy(
+                                reductionSource?.Name ?? ingredient.Name,
+                                reductionSource?.IsFishing ?? ingredient.IsFishing,
+                                out this.integrationMessage);
 
-                        if (this.integrationError)
-                            this.OpenTravelPopup(ingredient, reductionSource);
-                        else
-                            this.IsOpen = false;
+                            if (this.integrationError)
+                                this.OpenTravelPopup(ingredient, reductionSource);
+                            else
+                                this.IsOpen = false;
+                        }
+
+                        DrawTooltipIfHovered("Teleport to closest Aetheryte");
                     }
-                    else if (!ingredient.IsGatherable || ingredient.HasEnough)
+                    else
                     {
-                        ImGui.TextDisabled("-");
+                        this.DrawValueCard(
+                            $"{tableId}-travel-{ingredient.ItemId}",
+                            new Vector2(-1, 36),
+                            "-",
+                            AdjustColor(this.configuration.WindowBackgroundColor, 0.05f),
+                            AdjustColor(this.configuration.TextColor, -0.30f));
                     }
                 }
 
                 if (showAvailable)
                 {
                     ImGui.TableNextColumn();
-                    if (reductionSource is not null)
-                        ImGui.TextUnformatted(this.aetherialReductionService.GetTimerText(reductionSource));
-                    else if (this.aetherialReductionService.GetGatheringTimerText(ingredient.ItemId) is { } gatheringTimer)
-                        ImGui.TextUnformatted(gatheringTimer);
-                    else
-                        ImGui.TextDisabled("-");
+                    this.DrawAvailabilityCard(tableId, ingredient, reductionSource);
                 }
 
-                if (showNq)
+                if (showStock)
                 {
                     ImGui.TableNextColumn();
-                    ImGui.TextUnformatted(ingredient.OwnedNq.ToString());
-                }
-
-                if (showHq)
-                {
-                    ImGui.TableNextColumn();
-                    ImGui.TextUnformatted(ingredient.OwnedHq.ToString());
+                    this.DrawValueCard(
+                        $"{tableId}-stock-{ingredient.ItemId}",
+                        new Vector2(-1, 36),
+                        FormatStockDisplay(ingredient),
+                        WithAlpha(this.configuration.AccentColor, 0.10f),
+                        this.configuration.TextColor);
                 }
 
                 if (showFoundIn)
                 {
                     ImGui.TableNextColumn();
                     if (ingredient.Locations.Count > 0)
-                        ImGui.TextUnformatted(string.Join(", ", ingredient.Locations));
+                    {
+                        var locationsText = string.Join(", ", ingredient.Locations);
+                        this.DrawValueCard(
+                            $"{tableId}-found-{ingredient.ItemId}",
+                            new Vector2(-1, 36),
+                            TrimDisplayText(locationsText, 42),
+                            AdjustColor(this.configuration.WindowBackgroundColor, 0.07f),
+                            this.configuration.TextColor);
+                        if (locationsText.Length > 42 && ImGui.IsItemHovered())
+                            ImGui.SetTooltip(locationsText);
+                    }
                     else
-                        ImGui.TextDisabled("-");
+                    {
+                        this.DrawValueCard(
+                            $"{tableId}-found-{ingredient.ItemId}",
+                            new Vector2(-1, 36),
+                            "-",
+                            AdjustColor(this.configuration.WindowBackgroundColor, 0.05f),
+                            AdjustColor(this.configuration.TextColor, -0.30f));
+                    }
                 }
 
                 if (showRawCraftStatus)
                 {
                     ImGui.TableNextColumn();
                     if (ingredient.HasEnough)
-                        ImGui.TextDisabled("Owned");
+                    {
+                        this.DrawValueCard(
+                            $"{tableId}-raw-{ingredient.ItemId}",
+                            new Vector2(-1, 36),
+                            "Owned",
+                            WithAlpha(this.configuration.SuccessTextColor, 0.18f),
+                            this.configuration.SuccessTextColor);
+                    }
                     else if (ingredient.CanCraftMissingFromRaw is true &&
                              ingredient.RawCraftRecipeId is { } rawCraftRecipeId)
                     {
+                        var cardSize = ResolveCardSize(new Vector2(-1, 36), 42f);
+                        this.DrawDecorativeCardBackground(
+                            cardSize,
+                            WithAlpha(this.configuration.ReadyButtonColor, 0.16f));
+                        var cardMin = ImGui.GetItemRectMin();
+                        var buttonSize = new Vector2(96f, 26f);
+                        ImGui.SetCursorScreenPos(new Vector2(
+                            cardMin.X + MathF.Max(0f, (cardSize.X - buttonSize.X) / 2f),
+                            cardMin.Y + MathF.Max(0f, (cardSize.Y - buttonSize.Y) / 2f)));
                         ImGui.PushStyleColor(ImGuiCol.Button, this.configuration.ReadyButtonColor);
                         var readyToCraftClicked =
-                            ImGui.SmallButton($"Ready to craft##{tableId}-raw-{ingredient.ItemId}");
+                            ImGui.Button($"Ready to craft##{tableId}-raw-{ingredient.ItemId}", buttonSize);
                         ImGui.PopStyleColor();
                         if (readyToCraftClicked)
                         {
@@ -1386,6 +2105,16 @@ public sealed class RecipeWindow : Window, IDisposable
                                 ingredient.RawCraftCount,
                                 out this.integrationMessage);
                         }
+                        DrawTooltipIfHovered("Open Artisan to craft the missing amount from raw materials.");
+                    }
+                    else
+                    {
+                        this.DrawValueCard(
+                            $"{tableId}-raw-{ingredient.ItemId}",
+                            new Vector2(-1, 36),
+                            "-",
+                            AdjustColor(this.configuration.WindowBackgroundColor, 0.05f),
+                            AdjustColor(this.configuration.TextColor, -0.30f));
                     }
                 }
 
@@ -1393,6 +2122,370 @@ public sealed class RecipeWindow : Window, IDisposable
 
             ImGui.EndTable();
         }
+    }
+
+    private void DrawSummaryCard(string label, string value, float width)
+    {
+        var size = new Vector2(width, 48);
+        var position = ImGui.GetCursorScreenPos();
+        var drawList = ImGui.GetWindowDrawList();
+        var topColor = ImGui.GetColorU32(WithAlpha(AdjustColor(this.configuration.AccentColor, 0.08f), 0.92f));
+        var bottomColor = ImGui.GetColorU32(WithAlpha(AdjustColor(this.configuration.AccentColor, -0.04f), 0.74f));
+        drawList.AddRectFilledMultiColor(
+            position,
+            position + size,
+            topColor,
+            topColor,
+            bottomColor,
+            bottomColor);
+        drawList.AddRectFilled(
+            position,
+            position + size,
+            ImGui.GetColorU32(WithAlpha(this.configuration.WindowBackgroundColor, 0.18f)),
+            14f);
+        var labelSize = ImGui.CalcTextSize(label);
+        var valueSize = ImGui.CalcTextSize(value);
+        drawList.AddText(
+            position + new Vector2((size.X - labelSize.X) / 2f, 7f),
+            ImGui.GetColorU32(AdjustColor(this.configuration.TextColor, -0.12f)),
+            label);
+        drawList.AddText(
+            position + new Vector2((size.X - valueSize.X) / 2f, 23f),
+            ImGui.GetColorU32(this.configuration.TextColor),
+            value);
+        ImGui.Dummy(size);
+    }
+
+    private void DrawHeaderCard(string label)
+    {
+        var size = new Vector2(Math.Max(1f, ImGui.GetContentRegionAvail().X), 28f);
+        var position = ImGui.GetCursorScreenPos();
+        var drawList = ImGui.GetWindowDrawList();
+        drawList.AddRectFilledMultiColor(
+            position,
+            position + size,
+            ImGui.GetColorU32(WithAlpha(AdjustColor(this.configuration.AccentColor, 0.15f), 0.92f)),
+            ImGui.GetColorU32(WithAlpha(AdjustColor(this.configuration.AccentColor, 0.04f), 0.92f)),
+            ImGui.GetColorU32(WithAlpha(AdjustColor(this.configuration.AccentColor, -0.02f), 0.78f)),
+            ImGui.GetColorU32(WithAlpha(AdjustColor(this.configuration.AccentColor, -0.10f), 0.78f)));
+        var textSize = ImGui.CalcTextSize(label);
+        drawList.AddText(
+            position + new Vector2((size.X - textSize.X) / 2f, 7f),
+            ImGui.GetColorU32(this.configuration.TextColor),
+            label);
+        ImGui.Dummy(size);
+    }
+
+    private void DrawInfoCard(
+        string id,
+        Vector2 size,
+        string title,
+        string subtitle,
+        Vector4 backgroundColor,
+        Vector4 textColor)
+    {
+        var resolvedSize = ResolveCardSize(size, 42f);
+        var position = ImGui.GetCursorScreenPos();
+        ImGui.InvisibleButton(id, resolvedSize);
+        var drawList = ImGui.GetWindowDrawList();
+        drawList.AddRectFilled(position, position + resolvedSize, ImGui.GetColorU32(backgroundColor), 12f);
+
+        var safeTitle = TrimDisplayText(title, 34);
+        var safeSubtitle = TrimDisplayText(subtitle, 38);
+        DrawStackedTextBlock(
+            drawList,
+            position + new Vector2(14f, 0f),
+            new Vector2(Math.Max(1f, resolvedSize.X - 28f), resolvedSize.Y),
+            safeTitle,
+            safeSubtitle,
+            ImGui.GetColorU32(textColor),
+            ImGui.GetColorU32(AdjustColor(textColor, -0.24f)),
+            2f,
+            0f,
+            false);
+        if ((title.Length > safeTitle.Length || subtitle.Length > safeSubtitle.Length) && ImGui.IsItemHovered())
+            ImGui.SetTooltip($"{title}\n{subtitle}");
+    }
+
+    private void DrawValueCard(
+        string id,
+        Vector2 size,
+        string value,
+        Vector4 backgroundColor,
+        Vector4 textColor)
+    {
+        var resolvedSize = ResolveCardSize(size, 42f);
+        var position = ImGui.GetCursorScreenPos();
+        ImGui.InvisibleButton(id, resolvedSize);
+        var drawList = ImGui.GetWindowDrawList();
+        drawList.AddRectFilled(position, position + resolvedSize, ImGui.GetColorU32(backgroundColor), 12f);
+
+        var displayValue = TrimDisplayText(value, 28);
+        var valueSize = ImGui.CalcTextSize(displayValue);
+        drawList.AddText(
+            position + new Vector2((resolvedSize.X - valueSize.X) / 2f, (resolvedSize.Y - valueSize.Y) / 2f),
+            ImGui.GetColorU32(textColor),
+            displayValue);
+        if (value.Length > displayValue.Length && ImGui.IsItemHovered())
+            ImGui.SetTooltip(value);
+    }
+
+    private void DrawDecorativeCardBackground(Vector2 size, Vector4 backgroundColor)
+    {
+        var resolvedSize = ResolveCardSize(size, 42f);
+        var position = ImGui.GetCursorScreenPos();
+        ImGui.Dummy(resolvedSize);
+        ImGui.GetWindowDrawList().AddRectFilled(
+            position,
+            position + resolvedSize,
+            ImGui.GetColorU32(backgroundColor),
+            12f);
+    }
+
+    private static Vector2 ResolveCardSize(Vector2 size, float defaultHeight)
+    {
+        var width = size.X <= 0f ? Math.Max(1f, ImGui.GetContentRegionAvail().X) : size.X;
+        var height = size.Y <= 0f ? defaultHeight : size.Y;
+        return new Vector2(width, height);
+    }
+
+    private static string TrimDisplayText(string text, int maxLength) =>
+        string.IsNullOrWhiteSpace(text) || text.Length <= maxLength
+            ? text
+            : $"{text[..Math.Max(0, maxLength - 3)]}...";
+
+    private static string TrimDisplayTextToWidth(string text, float maxWidth)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return text;
+
+        if (ImGui.CalcTextSize(text).X <= maxWidth)
+            return text;
+
+        const string ellipsis = "...";
+        for (var length = text.Length - 1; length > 0; length--)
+        {
+            var trimmed = text[..length].TrimEnd() + ellipsis;
+            if (ImGui.CalcTextSize(trimmed).X <= maxWidth)
+                return trimmed;
+        }
+
+        return ellipsis;
+    }
+
+    private static string WrapTextToWidth(string text, float maxWidth)
+    {
+        if (string.IsNullOrWhiteSpace(text) || ImGui.CalcTextSize(text).X <= maxWidth)
+            return text;
+
+        var words = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (words.Length == 0)
+            return text;
+
+        var lines = new List<string>();
+        var current = words[0];
+        for (var i = 1; i < words.Length; i++)
+        {
+            var candidate = $"{current} {words[i]}";
+            if (ImGui.CalcTextSize(candidate).X <= maxWidth)
+                current = candidate;
+            else
+            {
+                lines.Add(current);
+                current = words[i];
+            }
+        }
+
+        lines.Add(current);
+        return string.Join('\n', lines);
+    }
+
+    private static void DrawStackedTextBlock(
+        ImDrawListPtr drawList,
+        Vector2 position,
+        Vector2 size,
+        string title,
+        string subtitle,
+        uint titleColor,
+        uint subtitleColor,
+        float gap,
+        float minVerticalPadding,
+        bool centeredHorizontally)
+    {
+        var titleSize = ImGui.CalcTextSize(title);
+        var subtitleSize = ImGui.CalcTextSize(subtitle);
+        var totalHeight = titleSize.Y + gap + subtitleSize.Y;
+        var textTop = position.Y + MathF.Max(minVerticalPadding, (size.Y - totalHeight) / 2f);
+        var titleX = centeredHorizontally
+            ? position.X + MathF.Max(0f, (size.X - titleSize.X) / 2f)
+            : position.X;
+        var subtitleX = centeredHorizontally
+            ? position.X + MathF.Max(0f, (size.X - subtitleSize.X) / 2f)
+            : position.X;
+        drawList.AddText(new Vector2(titleX, textTop), titleColor, title);
+        drawList.AddText(new Vector2(subtitleX, textTop + titleSize.Y + gap), subtitleColor, subtitle);
+    }
+
+    private void DrawAvailabilityCard(
+        string tableId,
+        IngredientNeed ingredient,
+        AetherialReductionSource? reductionSource)
+    {
+        var timerText = reductionSource is not null
+            ? this.aetherialReductionService.GetTimerText(reductionSource)
+            : this.aetherialReductionService.GetGatheringTimerText(ingredient.ItemId);
+        if (string.IsNullOrWhiteSpace(timerText))
+        {
+            this.DrawValueCard(
+                $"{tableId}-available-{ingredient.ItemId}",
+                new Vector2(-1, 36),
+                "-",
+                AdjustColor(this.configuration.WindowBackgroundColor, 0.05f),
+                AdjustColor(this.configuration.TextColor, -0.30f));
+            return;
+        }
+
+        var displayText = FormatAvailabilityDisplay(timerText, out var tooltip, out var isAvailableNow);
+        var waitSeconds = GetAvailabilityWaitSeconds(timerText);
+        var isImminent = !isAvailableNow && waitSeconds is >= 0 and <= 60;
+        var size = ResolveCardSize(new Vector2(-1, 36), 36f);
+        var position = ImGui.GetCursorScreenPos();
+        ImGui.InvisibleButton($"{tableId}-available-{ingredient.ItemId}", size);
+        var drawList = ImGui.GetWindowDrawList();
+        var backgroundColor = isAvailableNow
+            ? WithAlpha(this.configuration.SuccessTextColor, 0.20f)
+            : isImminent
+                ? WithAlpha(this.configuration.WarningTextColor, 0.22f)
+                : WithAlpha(this.configuration.AccentColor, 0.16f);
+        var textColor = isAvailableNow
+            ? this.configuration.SuccessTextColor
+            : isImminent
+                ? this.configuration.WarningTextColor
+                : this.configuration.TextColor;
+        drawList.AddRectFilled(position, position + size, ImGui.GetColorU32(backgroundColor), 12f);
+        var displaySize = ImGui.CalcTextSize(displayText);
+        drawList.AddText(
+            position + new Vector2((size.X - displaySize.X) / 2f, (size.Y - displaySize.Y) / 2f),
+            ImGui.GetColorU32(textColor),
+            displayText);
+
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip(tooltip);
+    }
+
+    private static string FormatStockDisplay(IngredientNeed ingredient) => ingredient switch
+    {
+        { OwnedNq: > 0, OwnedHq: > 0 } => $"{ingredient.OwnedNq} | HQ {ingredient.OwnedHq}",
+        { OwnedHq: > 0 } => $"HQ {ingredient.OwnedHq}",
+        _ => ingredient.OwnedNq.ToString(),
+    };
+
+    private static string FormatAvailabilityDisplay(
+        string timerText,
+        out string tooltip,
+        out bool isAvailableNow)
+    {
+        var normalized = timerText.Replace("Â·", "-").Replace("·", "-").Trim();
+        isAvailableNow = normalized.StartsWith("Now", StringComparison.OrdinalIgnoreCase);
+        tooltip = normalized;
+        if (isAvailableNow)
+            return "NOW";
+
+        var durationText = normalized.StartsWith("In ", StringComparison.OrdinalIgnoreCase)
+            ? normalized[3..].Trim()
+            : normalized;
+        var parts = durationText.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var hours = parts.Where(part => part.EndsWith('h')).Select(part => ParseTimePart(part, 'h')).DefaultIfEmpty(0).First();
+        var minutes = parts.Where(part => part.EndsWith('m')).Select(part => ParseTimePart(part, 'm')).DefaultIfEmpty(0).First();
+        var seconds = parts.Where(part => part.EndsWith('s')).Select(part => ParseTimePart(part, 's')).DefaultIfEmpty(0).First();
+        if (hours == 0 && minutes == 0 && seconds == 0)
+            return TrimDisplayText(normalized, 12);
+        return hours > 0
+            ? $"{hours:D2}:{minutes:D2}:{seconds:D2}"
+            : $"{minutes:D2}:{seconds:D2}";
+    }
+
+    private static int GetAvailabilityWaitSeconds(string timerText)
+    {
+        var normalized = timerText.Replace("Ã‚Â·", "-").Replace("Â·", "-").Trim();
+        if (normalized.StartsWith("Now", StringComparison.OrdinalIgnoreCase))
+            return 0;
+        if (!normalized.StartsWith("In ", StringComparison.OrdinalIgnoreCase))
+            return -1;
+
+        var durationText = normalized[3..].Trim();
+        var parts = durationText.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var hours = parts.Where(part => part.EndsWith('h')).Select(part => ParseTimePart(part, 'h')).DefaultIfEmpty(0).First();
+        var minutes = parts.Where(part => part.EndsWith('m')).Select(part => ParseTimePart(part, 'm')).DefaultIfEmpty(0).First();
+        var seconds = parts.Where(part => part.EndsWith('s')).Select(part => ParseTimePart(part, 's')).DefaultIfEmpty(0).First();
+        return (hours * 3600) + (minutes * 60) + seconds;
+    }
+
+    private static int ParseTimePart(string text, char suffix)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return 0;
+
+        var cleaned = text.Replace(suffix.ToString(), string.Empty, StringComparison.OrdinalIgnoreCase).Trim();
+        return int.TryParse(cleaned, out var value) ? value : 0;
+    }
+
+    private bool CanGatherIngredient(
+        IngredientNeed ingredient,
+        AetherialReductionSource? reductionSource,
+        string? availabilityText = null) =>
+        ingredient.IsGatherable ||
+        HasGatherableSourceLabel(ingredient.Source) ||
+        reductionSource is not null ||
+        HasTimedAvailability(availabilityText);
+
+    private static string? GetIngredientAvailabilityText(
+        IngredientNeed ingredient,
+        AetherialReductionSource? reductionSource,
+        AetherialReductionService aetherialReductionService) =>
+        reductionSource is not null
+            ? aetherialReductionService.GetTimerText(reductionSource)
+            : aetherialReductionService.GetGatheringTimerText(ingredient.ItemId);
+
+    private static bool HasTimedAvailability(string? availabilityText) =>
+        !string.IsNullOrWhiteSpace(availabilityText) &&
+        (availabilityText.StartsWith("Now", StringComparison.OrdinalIgnoreCase) ||
+         availabilityText.StartsWith("In ", StringComparison.OrdinalIgnoreCase));
+
+    private static bool IsVendorSource(IngredientNeed ingredient) =>
+        ingredient.Source.Contains("Vendor", StringComparison.OrdinalIgnoreCase);
+
+    private static bool HasGatherableSourceLabel(string source) =>
+        source.Contains("Gatherable", StringComparison.OrdinalIgnoreCase) ||
+        source.Contains("Aetherial reduction", StringComparison.OrdinalIgnoreCase) ||
+        source.Contains("Fishing", StringComparison.OrdinalIgnoreCase);
+
+    private static int GetIngredientSortCategory(bool canGather, string? availabilityText, bool isVendor)
+    {
+        if (canGather && HasTimedAvailability(availabilityText))
+            return 0;
+        if (canGather)
+            return 1;
+        if (isVendor)
+            return 3;
+        return 2;
+    }
+
+    private static int GetGenericAvailabilityWaitSeconds(string? availabilityText)
+    {
+        if (string.IsNullOrWhiteSpace(availabilityText))
+            return int.MaxValue;
+        if (availabilityText.StartsWith("Now", StringComparison.OrdinalIgnoreCase))
+            return 0;
+        if (!availabilityText.StartsWith("In ", StringComparison.OrdinalIgnoreCase))
+            return int.MaxValue;
+
+        var durationText = availabilityText[3..].Trim();
+        var parts = durationText.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var hours = parts.Where(part => part.EndsWith('h')).Select(part => ParseTimePart(part, 'h')).DefaultIfEmpty(0).First();
+        var minutes = parts.Where(part => part.EndsWith('m')).Select(part => ParseTimePart(part, 'm')).DefaultIfEmpty(0).First();
+        var seconds = parts.Where(part => part.EndsWith('s')).Select(part => ParseTimePart(part, 's')).DefaultIfEmpty(0).First();
+        return (hours * 3600) + (minutes * 60) + seconds;
     }
 
     private void OpenTravelPopup(
@@ -1502,4 +2595,14 @@ public sealed class RecipeWindow : Window, IDisposable
     }
 
     private void OnInventoryChanged() => this.inventoryRefreshRequested = true;
+
+    private static void DrawTooltipIfHovered(string text)
+    {
+        if (!ImGui.IsItemHovered())
+            return;
+
+        ImGui.BeginTooltip();
+        ImGui.TextUnformatted(text);
+        ImGui.EndTooltip();
+    }
 }

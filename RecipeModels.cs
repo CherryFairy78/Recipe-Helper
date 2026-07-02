@@ -17,6 +17,8 @@ public sealed class SavedRecipePlan
 {
     public string Name { get; set; } = string.Empty;
 
+    public string FolderName { get; set; } = string.Empty;
+
     public List<SavedRecipePlanEntry> Recipes { get; set; } = [];
 }
 
@@ -125,3 +127,11 @@ public sealed record RecipePlanDetails(
     IReadOnlyList<RecipeDetails> Recipes,
     IReadOnlyList<IngredientNeed> Ingredients,
     IReadOnlyList<IngredientNeed> RawMaterials);
+
+public sealed record RetainerWithdrawalTarget(
+    ulong RetainerId,
+    string RetainerName,
+    uint ItemId,
+    string ItemName,
+    uint WithdrawQuantity,
+    uint SnapshotQuantity);

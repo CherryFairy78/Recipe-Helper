@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project>
+  <PropertyGroup>
+    <RecipeHelperDevPluginDir>$(APPDATA)\XIVLauncher\devPlugins\RecipeHelper\Debug</RecipeHelperDevPluginDir>
+  </PropertyGroup>
+
+  <Target Name="RecipeHelperDalamudPackagerDebug" AfterTargets="Build" Condition="'$(Configuration)' == 'Debug'">
+    <DalamudPackager ProjectDir="$(ProjectDir)"
+                     OutputPath="$(OutputPath)"
+                     AssemblyName="$(AssemblyName)"
+                     MakeZip="false"
+                     Author="$(Author)"
+                     Name="$(Name)"
+                     MinimumDalamudVersion="$(MinimumDalamudVersion)"
+                     Punchline="$(Punchline)"
+                     Description="$(Description)"
+                     ApplicableVersion="$(ApplicableVersion)"
+                     RepoUrl="$(RepoUrl)"
+                     Tags="$(Tags)"
+                     CategoryTags="$(CategoryTags)"
+                     DalamudApiLevel="$(DalamudApiLevel)"
+                     LoadRequiredState="$(LoadRequiredState)"
+                     LoadSync="$(LoadSync)"
+                     CanUnloadAsync="$(CanUnloadAsync)"
+                     LoadPriority="$(LoadPriority)"
+                     ImageUrls="$(ImageUrls)"
+                     IconUrl="$(IconUrl)"
+                     Changelog="$(Changelog)"
+                     AcceptsFeedback="$(AcceptsFeedback)"
+                     FeedbackMessage="$(FeedbackMessage)" />
+  </Target>
+
+  <Target Name="RecipeHelperDeployDebugToDevPlugin"
+          AfterTargets="RecipeHelperDalamudPackagerDebug"
+          Condition="'$(Configuration)' == 'Debug'">
+    <ItemGroup>
+      <RecipeHelperDeployFiles Include="$(OutputPath)$(AssemblyName).dll" />
+      <RecipeHelperDeployFiles Include="$(OutputPath)$(AssemblyName).deps.json" />
+      <RecipeHelperDeployFiles Include="$(OutputPath)$(AssemblyName).json" />
+    </ItemGroup>
+    <MakeDir Directories="$(RecipeHelperDevPluginDir)" />
+    <Copy SourceFiles="@(RecipeHelperDeployFiles)"
+          DestinationFolder="$(RecipeHelperDevPluginDir)"
+          SkipUnchangedFiles="false" />
+  </Target>
+
+  <Target Name="RecipeHelperDalamudPackagerRelease" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
+    <DalamudPackager ProjectDir="$(ProjectDir)"
+                     OutputPath="$(OutputPath)"
+                     AssemblyName="$(AssemblyName)"
+                     MakeZip="false"
+                     Author="$(Author)"
+                     Name="$(Name)"
+                     MinimumDalamudVersion="$(MinimumDalamudVersion)"
+                     Punchline="$(Punchline)"
+                     Description="$(Description)"
+                     ApplicableVersion="$(ApplicableVersion)"
+                     RepoUrl="$(RepoUrl)"
+                     Tags="$(Tags)"
+                     CategoryTags="$(CategoryTags)"
+                     DalamudApiLevel="$(DalamudApiLevel)"
+                     LoadRequiredState="$(LoadRequiredState)"
+                     LoadSync="$(LoadSync)"
+                     CanUnloadAsync="$(CanUnloadAsync)"
+                     LoadPriority="$(LoadPriority)"
+                     ImageUrls="$(ImageUrls)"
+                     IconUrl="$(IconUrl)"
+                     Changelog="$(Changelog)"
+                     AcceptsFeedback="$(AcceptsFeedback)"
+                     FeedbackMessage="$(FeedbackMessage)" />
+  </Target>
+</Project>

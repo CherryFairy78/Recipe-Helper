@@ -4,16 +4,16 @@ This file is the durable hand-off record for Recipe Helper. Read it before makin
 
 ## Project snapshot
 
-- Last updated: 2026-06-28
+- Last updated: 2026-06-29
 - Plugin name: Recipe Helper
 - Internal name: `DalamudRecipeHelper`
-- Version: `1.1.0.0`
+- Version: `1.1.6.0`
 - Framework: Dalamud API 15
 - Target: `.NET 10` on Windows x64
 - Command: `/recipehelper`
 - Build command: `dotnet build .\DalamudRecipeHelper.csproj --no-restore`
 - Debug output: `bin\Debug\DalamudRecipeHelper.dll`
-- Last verified build: 2026-06-28, succeeded with zero warnings and zero errors
+- Last verified build: 2026-06-29, Debug build succeeded with zero warnings and zero errors; Release compilation succeeded, the automated packager hit a locked-directory error under `bin\Release\DalamudRecipeHelper`, and a manual `DalamudRecipeHelper-v1.1.6.zip` was created from the verified Release outputs instead
 
 ## Purpose
 
@@ -373,6 +373,34 @@ Recipe Helper searches FFXIV recipes, calculates the materials required for a ch
 - Updated Artisan queue status text to use `pre-crafts` instead of `intermediates`. The status reports recipe-plan counts for multi-plan crafting or recipe counts for the regular queue, only mentions pre-crafts when they are actually required, and clears automatically after Artisan completes the queue.
 - Advanced the local development and release-candidate version to 1.1.4.0.
 - Verification after updating the Artisan queue status lifecycle: Debug and clean Release builds both succeeded with zero warnings and zero errors.
+
+### 2026-06-29
+
+- Hardened the sequential Artisan `Craft all` queue so the active batch stays tracked until Artisan actually starts and finishes it, reducing the chance of losing the remaining queue after interruptions.
+- Merged the old plan summary into the `Selected Recipes` section, removed the estimated craft-time display, changed `Output` to `Quantity`, removed recipe IDs from the selected-recipe rows, widened the plan-name field, and added the plugin version to the main window title area.
+- Moved `Missing Items Overlay` and `Refresh Inventory` into the top action row and added broader hover help across search, plan, recipe, and gather actions.
+- Normalized button heights and widths across the saved-plan actions, selected-recipe actions, raw-material craft buttons, main gather buttons, and overlay gather buttons for a cleaner release build.
+- Published Recipe Helper v1.1.4 as the latest GitHub release with `DalamudRecipeHelper-v1.1.4.zip`.
+- Repaired the public custom-repository feed after release. The initial live `repo.json` still advertised v1.1.3, then a GitHub web-editor save duplicated old and new JSON in one file. The published `main` branch now serves one valid v1.1.4 entry with the correct release download URLs.
+- Verification after the v1.1.4 release and feed repair: Debug and clean Release builds both succeeded with zero warnings and zero errors, and the live raw `repo.json` now reports `AssemblyVersion` `1.1.4.0` with the v1.1.4 asset links.
+- Prepared Recipe Helper v1.1.5.0 to replace the stale v1.1.4 package that was still loading the older UI in game even though the repository feed advertised v1.1.4.
+- Updated the plugin manifest, project version, and custom-repository feed together so the release metadata, in-game version display, and GitHub asset target all advance in lockstep to v1.1.5.
+- Published Recipe Helper v1.1.5 as the latest GitHub release with `DalamudRecipeHelper-v1.1.5.zip`.
+- Updated the public `repo.json` on `main` to point at the v1.1.5 release asset after publishing, then verified the committed GitHub file and direct raw branch URL both report `AssemblyVersion` `1.1.5.0`.
+- Noted one short raw GitHub cache delay during verification: the legacy `raw.githubusercontent.com` URL briefly continued serving the older v1.1.4 manifest before catching up, after which the user confirmed the live repository feed was working correctly.
+- Replaced the corrupted bullet separator in recipe subtitles with a plain ASCII `|` so `CRAFTABLE NOW` counts and add-to-plan hints render cleanly in game.
+- Prepared Recipe Helper v1.1.6.0 for the next live release.
+- Updated the plugin manifest, project version, and custom-repository feed together so the release metadata, in-game version display, and GitHub asset target all advance in lockstep to v1.1.6.
+- Verification after preparing v1.1.6: Debug build succeeded with zero warnings and zero errors, Release compilation succeeded with the `1.1.6.0` manifest in `bin\Release`, the automated packager could not clean its locked output directory, and the manual upload ZIP `DalamudRecipeHelper-v1.1.6.zip` was created with SHA-256 `CE5AD8BEF190361019C20497F5EF9C64D5CFEDC8EC4D476E1733DE2077F5BE6F`.
+
+### 2026-07-02
+
+- Added marketboard pricing lookups through Universalis so the main planner and Missing Items Overlay can show live Oceania pricing context for materials.
+- Expanded UI customization with button, input-card, and folder-header colors, named theme presets, and an overlay option to keep vendor materials visible when desired.
+- Added saved-plan folders with move and rename flows, plus the `Gwen's Dream` retainer-withdraw workflow.
+- Hardened `Gwen's Dream` by moving dev builds to a stable XIVLauncher `devPlugins\RecipeHelper\Debug` path, fixing the first retainer-list selection gate, and planning withdrawals so retained pre-craft/direct items are used before missing raw materials are withdrawn.
+- Prepared Recipe Helper v1.1.12.0 for the next live release.
+- Verification after preparing v1.1.12: Debug and Release builds both succeeded with zero warnings and zero errors, the Release manifest reports `1.1.12.0`, and the publish ZIP `artifacts\Release\DalamudRecipeHelper-v1.1.12.zip` was created with SHA-256 `207E271E8A046EC44D307ED8D28585D9519387F38DB0E1948E62BAAF58CA80B4`.
 
 ## Continuation checklist
 

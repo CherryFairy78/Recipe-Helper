@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
@@ -6,45 +7,64 @@ namespace DalamudRecipeHelper;
 
 public static class MaterialUsageTooltip
 {
-    private const int MaximumDisplayedRecipes = 18;
-
     public static void Draw(
-        RecipeService recipeService,
+        MarketboardPriceService marketboardPriceService,
         Configuration configuration,
         IngredientNeed material)
     {
         if (!ImGui.IsItemHovered())
             return;
 
-        var usages = recipeService.GetRecipesUsing(material.ItemId);
+        var priceState = marketboardPriceService.GetState(material.ItemId);
         ImGui.SetNextWindowSizeConstraints(
-            new Vector2(300, 0),
-            new Vector2(540, 460));
+            new Vector2(320, 0),
+            new Vector2(520, 420));
         ImGui.BeginTooltip();
 
         ImGui.TextColored(configuration.AccentColor, material.Name);
-        ImGui.TextDisabled($"Used directly in {usages.Count} recipe(s)");
+        ImGui.TextDisabled("Marketboard snapshot via Universalis");
         ImGui.Separator();
 
-        if (usages.Count == 0)
+        if (priceState.Snapshot is not { } snapshot)
         {
-            ImGui.TextDisabled("No direct recipe uses were found.");
+            ImGui.TextDisabled(priceState.IsLoading
+                ? "Loading current prices..."
+                : "No marketboard data is available.");
         }
         else
         {
-            foreach (var usage in usages.Take(MaximumDisplayedRecipes))
+            var lineCount =
+                1 +
+                (snapshot.LastUploadTime is not null ? 1 : 0) +
+                (snapshot.NqWorldPrices.Count > 0 ? snapshot.NqWorldPrices.Count + 1 : 0) +
+                (snapshot.HqWorldPrices.Count > 0 ? snapshot.HqWorldPrices.Count + 1 : 0) +
+                (priceState.IsLoading ? 1 : 0);
+            var childHeight = Math.Min(280f, (lineCount * ImGui.GetTextLineHeightWithSpacing()) + 6f);
+            if (ImGui.BeginChild("##universalis-tooltip-scroll", new Vector2(0, childHeight), false))
             {
-                var yield = usage.ResultAmount > 1 ? $"  |  yields {usage.ResultAmount}" : string.Empty;
-                ImGui.TextUnformatted(
-                    $"- {usage.ResultName}  |  uses {usage.IngredientAmount}{yield}");
-            }
+                if (snapshot.LastUploadTime is { } lastUpload)
+                    ImGui.TextDisabled($"Last upload: {lastUpload:yyyy-MM-dd HH:mm}");
 
-            if (usages.Count > MaximumDisplayedRecipes)
-            {
-                ImGui.Spacing();
-                ImGui.TextDisabled(
-                    $"+ {usages.Count - MaximumDisplayedRecipes} more recipe(s)");
+                if (snapshot.NqWorldPrices.Count > 0)
+                {
+                    ImGui.Spacing();
+                    ImGui.TextColored(configuration.AccentColor, "Cheapest NQ by World");
+                    foreach (var worldPrice in snapshot.NqWorldPrices)
+                        ImGui.TextUnformatted($"- {worldPrice.WorldName}: {worldPrice.PricePerUnit:N0} gil");
+                }
+
+                if (snapshot.HqWorldPrices.Count > 0)
+                {
+                    ImGui.Spacing();
+                    ImGui.TextColored(configuration.AccentColor, "Cheapest HQ by World");
+                    foreach (var worldPrice in snapshot.HqWorldPrices)
+                        ImGui.TextUnformatted($"- {worldPrice.WorldName}: {worldPrice.PricePerUnit:N0} gil");
+                }
+
+                if (priceState.IsLoading)
+                    ImGui.TextDisabled("Refreshing...");
             }
+            ImGui.EndChild();
         }
 
         ImGui.EndTooltip();

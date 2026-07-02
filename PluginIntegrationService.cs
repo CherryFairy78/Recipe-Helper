@@ -17,7 +17,10 @@ public sealed class PluginIntegrationService : IDisposable
     private readonly ICallGateSubscriber<bool> artisanIsBusy;
     private readonly FileLogService fileLog;
     private readonly Queue<(ushort RecipeId, int CraftCount)> craftAllQueue = new();
+    private (ushort RecipeId, int CraftCount)? activeCraftAllEntry;
     private bool craftAllActive;
+    private bool craftAllEntryStarted;
+    private DateTime activeCraftAllDispatchedAt;
     private DateTime nextCraftAllCheck;
 
     public uint CraftAllCompletionCount { get; private set; }
@@ -118,6 +121,8 @@ public sealed class PluginIntegrationService : IDisposable
         }
 
         this.craftAllQueue.Clear();
+        this.activeCraftAllEntry = null;
+        this.craftAllEntryStarted = false;
         foreach (var recipe in recipes)
         {
             this.craftAllQueue.Enqueue((
@@ -130,6 +135,8 @@ public sealed class PluginIntegrationService : IDisposable
         {
             this.craftAllActive = false;
             this.craftAllQueue.Clear();
+            this.activeCraftAllEntry = null;
+            this.craftAllEntryStarted = false;
             message = dispatchError;
             return false;
         }
@@ -182,13 +189,10 @@ public sealed class PluginIntegrationService : IDisposable
         if (!this.craftAllActive || DateTime.UtcNow < this.nextCraftAllCheck)
             return;
 
+        bool artisanBusy;
         try
         {
-            if (this.artisanIsBusy.InvokeFunc())
-            {
-                this.nextCraftAllCheck = DateTime.UtcNow.AddMilliseconds(500);
-                return;
-            }
+            artisanBusy = this.artisanIsBusy.InvokeFunc();
         }
         catch (Exception exception)
         {
@@ -198,37 +202,92 @@ public sealed class PluginIntegrationService : IDisposable
                 exception);
             this.craftAllActive = false;
             this.craftAllQueue.Clear();
+            this.activeCraftAllEntry = null;
+            this.craftAllEntryStarted = false;
             return;
         }
 
-        if (this.craftAllQueue.Count == 0)
+        if (this.activeCraftAllEntry is { } activeEntry)
         {
-            this.craftAllActive = false;
-            this.CraftAllCompletionCount++;
-            this.fileLog.Info("Artisan", "Craft All queue completed.");
+            if (artisanBusy)
+            {
+                this.craftAllEntryStarted = true;
+                this.nextCraftAllCheck = DateTime.UtcNow.AddMilliseconds(500);
+                return;
+            }
+
+            if (!this.craftAllEntryStarted &&
+                DateTime.UtcNow - this.activeCraftAllDispatchedAt < TimeSpan.FromSeconds(8))
+            {
+                this.nextCraftAllCheck = DateTime.UtcNow.AddMilliseconds(500);
+                return;
+            }
+
+            if (!this.craftAllEntryStarted)
+            {
+                this.fileLog.Warning(
+                    "Artisan",
+                    $"Craft All batch {activeEntry.RecipeId} did not start. Retrying.");
+                if (!this.TryDispatchNextCraft(out var retryError))
+                {
+                    this.fileLog.Warning("Artisan", retryError);
+                    this.craftAllActive = false;
+                    this.craftAllQueue.Clear();
+                    this.activeCraftAllEntry = null;
+                    this.craftAllEntryStarted = false;
+                }
+
+                return;
+            }
+
+            this.fileLog.Info(
+                "Artisan",
+                $"Craft All completed recipe {activeEntry.RecipeId}, craft count {activeEntry.CraftCount}.");
+            this.activeCraftAllEntry = null;
+            this.craftAllEntryStarted = false;
+            if (this.craftAllQueue.Count == 0)
+            {
+                this.craftAllActive = false;
+                this.CraftAllCompletionCount++;
+                this.fileLog.Info("Artisan", "Craft All queue completed.");
+                return;
+            }
+
+            if (!this.TryDispatchNextCraft(out var error))
+            {
+                this.fileLog.Warning("Artisan", error);
+                this.craftAllActive = false;
+                this.craftAllQueue.Clear();
+            }
+
             return;
         }
 
-        if (!this.TryDispatchNextCraft(out var error))
-        {
-            this.fileLog.Warning("Artisan", error);
-            this.craftAllActive = false;
-            this.craftAllQueue.Clear();
-        }
+        if (artisanBusy)
+            this.nextCraftAllCheck = DateTime.UtcNow.AddMilliseconds(500);
     }
 
     private bool TryDispatchNextCraft(out string error)
     {
-        if (!this.craftAllQueue.TryDequeue(out var next))
+        if (this.activeCraftAllEntry is null)
         {
-            error = string.Empty;
-            return true;
+            if (!this.craftAllQueue.TryPeek(out var queuedEntry))
+            {
+                error = string.Empty;
+                return true;
+            }
+
+            this.activeCraftAllEntry = queuedEntry;
+            this.craftAllEntryStarted = false;
         }
 
+        var next = this.activeCraftAllEntry.Value;
         try
         {
             this.artisanCraftItem.InvokeAction(next.RecipeId, next.CraftCount);
+            this.activeCraftAllDispatchedAt = DateTime.UtcNow;
             this.nextCraftAllCheck = DateTime.UtcNow.AddSeconds(2);
+            this.craftAllQueue.Dequeue();
             this.fileLog.Info(
                 "Artisan",
                 $"Craft All sent recipe {next.RecipeId}, craft count {next.CraftCount}.");
@@ -246,6 +305,8 @@ public sealed class PluginIntegrationService : IDisposable
                 $"Could not send Craft All recipe {next.RecipeId}.",
                 exception);
             error = "Artisan is not loaded or did not accept the Craft All queue.";
+            this.activeCraftAllEntry = null;
+            this.craftAllEntryStarted = false;
             return false;
         }
     }

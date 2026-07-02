@@ -44,11 +44,21 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService]
     internal static IGameInventory GameInventory { get; private set; } = null!;
 
+    [PluginService]
+    internal static IGameGui GameGui { get; private set; } = null!;
+
+    [PluginService]
+    internal static ITargetManager TargetManager { get; private set; } = null!;
+
+    [PluginService]
+    internal static IObjectTable ObjectTable { get; private set; } = null!;
+
     private readonly WindowSystem windowSystem = new("DalamudRecipeHelper");
     private readonly RecipeWindow recipeWindow;
     private readonly SettingsWindow settingsWindow;
     private readonly RawMaterialsOverlayWindow rawMaterialsOverlayWindow;
     private readonly PluginIntegrationService pluginIntegrationService;
+    private readonly GwenDreamService gwenDreamService;
     private readonly Configuration configuration;
     private readonly FileLogService fileLog;
     private readonly SavedPlanStorageService savedPlanStorage;
@@ -79,6 +89,7 @@ public sealed class Plugin : IDalamudPlugin
             PluginInterface.SavePluginConfig(this.configuration);
         this.settingsWindow = new SettingsWindow(this.configuration, this.SaveConfiguration);
         var aetherialReductionService = new AetherialReductionService(DataManager, this.fileLog);
+        var marketboardPriceService = new MarketboardPriceService(this.fileLog);
         this.pluginIntegrationService =
             new PluginIntegrationService(
                 PluginInterface,
@@ -98,18 +109,31 @@ public sealed class Plugin : IDalamudPlugin
             DataManager,
             this.fileLog,
             aetherialReductionService);
+        this.gwenDreamService = new GwenDreamService(
+            this.fileLog,
+            recipeService,
+            inventoryService,
+            CommandManager,
+            Framework,
+            GameGui,
+            TargetManager,
+            ObjectTable);
         this.rawMaterialsOverlayWindow = new RawMaterialsOverlayWindow(
             this.pluginIntegrationService,
             aetherialReductionService,
+            marketboardPriceService,
             inventoryService,
-            recipeService,
-            this.configuration);
+            this.configuration,
+            this.SaveConfiguration);
 
         this.recipeWindow = new RecipeWindow(
+            this.fileLog,
+            marketboardPriceService,
             recipeService,
             inventoryService,
             new TravelService(DataManager, AetheryteList, Framework, Condition, this.fileLog),
             this.pluginIntegrationService,
+            this.gwenDreamService,
             aetherialReductionService,
             this.configuration,
             this.OpenSettings,
@@ -148,6 +172,7 @@ public sealed class Plugin : IDalamudPlugin
         CommandManager.RemoveHandler(this.overlayCommand);
         this.windowSystem.RemoveAllWindows();
         this.pluginIntegrationService.Dispose();
+        this.gwenDreamService.Dispose();
         this.rawMaterialsOverlayWindow.Dispose();
         this.recipeWindow.Dispose();
     }
