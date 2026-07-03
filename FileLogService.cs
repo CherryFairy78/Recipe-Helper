@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -35,6 +36,61 @@ public sealed class FileLogService
             exception is null
                 ? message
                 : $"{message} | {exception.GetType().Name}: {exception.Message}");
+
+    public string GetLatestLogPath()
+    {
+        try
+        {
+            return new DirectoryInfo(this.logDirectory)
+                .EnumerateFiles("recipe-helper-*.log")
+                .OrderByDescending(file => file.LastWriteTimeUtc)
+                .Select(file => file.FullName)
+                .FirstOrDefault() ?? string.Empty;
+        }
+        catch (Exception exception)
+        {
+            Plugin.Log.Warning(exception, "Recipe Helper could not locate its latest file log.");
+            return string.Empty;
+        }
+    }
+
+    public IReadOnlyList<string> GetRecentLines(int maxLines)
+    {
+        if (maxLines <= 0)
+            return [];
+
+        try
+        {
+            var latestLogPath = this.GetLatestLogPath();
+            if (string.IsNullOrWhiteSpace(latestLogPath) || !File.Exists(latestLogPath))
+                return [];
+
+            return File.ReadLines(latestLogPath)
+                .TakeLast(maxLines)
+                .ToArray();
+        }
+        catch (Exception exception)
+        {
+            Plugin.Log.Warning(exception, "Recipe Helper could not read recent log lines.");
+            return [$"[log-read-failed] {exception.GetType().Name}: {exception.Message}"];
+        }
+    }
+
+    public void ClearLogs()
+    {
+        try
+        {
+            lock (this.writeLock)
+            {
+                foreach (var file in new DirectoryInfo(this.logDirectory).EnumerateFiles("recipe-helper-*.log"))
+                    file.Delete();
+            }
+        }
+        catch (Exception exception)
+        {
+            Plugin.Log.Warning(exception, "Recipe Helper could not clear its file logs.");
+        }
+    }
 
     private void Write(string level, string component, string message)
     {

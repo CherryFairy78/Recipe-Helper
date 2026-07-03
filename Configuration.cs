@@ -6,7 +6,7 @@ namespace DalamudRecipeHelper;
 
 public sealed class Configuration : IPluginConfiguration
 {
-    public int Version { get; set; } = 9;
+    public int Version { get; set; } = 10;
 
     public List<SavedRecipePlan> SavedRecipePlans = [];
 
@@ -49,6 +49,10 @@ public sealed class Configuration : IPluginConfiguration
     public bool ShowObtainedRawMaterials = true;
 
     public bool UseAccentForFolderHeaders = true;
+
+    public int MainWindowScalePercent = 100;
+
+    public int TextScalePercent = 100;
 
     public List<ThemePreset> ThemePresets = [];
 

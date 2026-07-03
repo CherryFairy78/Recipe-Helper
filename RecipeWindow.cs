@@ -11,6 +11,9 @@ namespace DalamudRecipeHelper;
 
 public sealed class RecipeWindow : Window, IDisposable
 {
+    private static readonly Vector2 BaseWindowSize = new(760, 540);
+    private static readonly Vector2 BaseMinimumWindowSize = new(460, 320);
+
     private readonly FileLogService fileLog;
     private readonly MarketboardPriceService marketboardPriceService;
     private readonly RecipeService recipeService;
@@ -71,6 +74,7 @@ public sealed class RecipeWindow : Window, IDisposable
     private string renameFolderError = string.Empty;
     private bool renameFolderPopupRequested;
     private bool isRenameFolderPopupOpen;
+    private int appliedMainWindowScalePercent;
 
     public RecipeWindow(
         FileLogService fileLog,
@@ -105,13 +109,10 @@ public sealed class RecipeWindow : Window, IDisposable
         this.saveConfiguration = saveConfiguration;
         this.rawMaterialsOverlayWindow = rawMaterialsOverlayWindow;
         this.inventoryService.InventoryChanged += this.OnInventoryChanged;
-        this.Size = new Vector2(760, 540);
+        this.appliedMainWindowScalePercent = WindowTheme.GetMainWindowScalePercent(this.configuration);
+        this.Size = this.ScaleMainWindowSize(BaseWindowSize, this.appliedMainWindowScalePercent);
         this.SizeCondition = ImGuiCond.FirstUseEver;
-        this.SizeConstraints = new WindowSizeConstraints
-        {
-            MinimumSize = new Vector2(460, 320),
-            MaximumSize = new Vector2(float.MaxValue, float.MaxValue),
-        };
+        this.ApplyMainWindowConstraints();
     }
 
     public string SearchText
@@ -133,6 +134,9 @@ public sealed class RecipeWindow : Window, IDisposable
 
     public override void Draw()
     {
+        WindowTheme.ApplyTextScale(this.configuration, includeMainWindowScale: true);
+        this.ApplyMainWindowScaleIfNeeded();
+
         if (this.observedCraftAllCompletionCount !=
             this.pluginIntegrationService.CraftAllCompletionCount)
         {
@@ -167,14 +171,14 @@ public sealed class RecipeWindow : Window, IDisposable
             this.DrawHeader();
 
             var paneArea = ImGui.GetContentRegionAvail();
-            const float splitterWidth = 5f;
+            var splitterWidth = this.ScaleUi(5f);
             var paneSpacing = ImGui.GetStyle().ItemSpacing.X;
             var maximumSearchWidth = Math.Max(
-                150f,
-                paneArea.X - splitterWidth - (paneSpacing * 2) - 260f);
+                this.ScaleUi(150f),
+                paneArea.X - splitterWidth - (paneSpacing * 2) - this.ScaleUi(260f));
             var leftWidth = Math.Clamp(
                 this.configuration.SearchPaneWidth,
-                150f,
+                this.ScaleUi(150f),
                 maximumSearchWidth);
             if (ImGui.BeginChild("results", new Vector2(leftWidth, 0), true))
             {
@@ -205,13 +209,13 @@ public sealed class RecipeWindow : Window, IDisposable
                         "Filter these results",
                         ref this.resultFilter,
                         128);
-                    if (ImGui.Button("Clear search", new Vector2(96, 0)))
+                    if (ImGui.Button("Clear search", new Vector2(this.ScaleUi(96f), 0)))
                         this.ClearSearch();
                     DrawTooltipIfHovered("Clear the current search results and search text.");
                     if (!string.IsNullOrWhiteSpace(this.resultFilter))
                     {
                         ImGui.SameLine();
-                        if (ImGui.Button("Clear filter", new Vector2(92, 0)))
+                        if (ImGui.Button("Clear filter", new Vector2(this.ScaleUi(92f), 0)))
                             this.resultFilter = string.Empty;
                         DrawTooltipIfHovered("Clear the result filter only.");
                     }
@@ -252,14 +256,14 @@ public sealed class RecipeWindow : Window, IDisposable
                             : $"Click to add | Yield {result.ResultAmount}";
 
                     var rowWidth = Math.Max(1f, ImGui.GetContentRegionAvail().X);
-                    const float rowHeight = 48f;
-                    var checkboxSize = 16f;
-                    var textWidth = rowWidth - 14f - checkboxSize - 10f - 14f;
+                    var rowHeight = this.ScaleUi(48f);
+                    var checkboxSize = this.ScaleUi(16f);
+                    var textWidth = rowWidth - this.ScaleUi(14f) - checkboxSize - this.ScaleUi(10f) - this.ScaleUi(14f);
                     var title = WrapTextToWidth(result.ResultName, textWidth);
                     var subtitleText = TrimDisplayTextToWidth(subtitle, textWidth);
                     var titleSize = ImGui.CalcTextSize(title);
                     var subtitleSize = ImGui.CalcTextSize(subtitleText);
-                    var renderRowHeight = Math.Max(rowHeight, titleSize.Y + subtitleSize.Y + 14f);
+                    var renderRowHeight = Math.Max(rowHeight, titleSize.Y + subtitleSize.Y + this.ScaleUi(14f));
                     var rowPos = ImGui.GetCursorScreenPos();
                     var rowColor = isSelected
                         ? WithAlpha(this.configuration.AccentColor, 0.18f)
@@ -269,12 +273,12 @@ public sealed class RecipeWindow : Window, IDisposable
                         rowPos,
                         rowPos + new Vector2(rowWidth, renderRowHeight),
                         ImGui.GetColorU32(rowColor),
-                        14f);
+                        this.ScaleUi(14f));
 
                     if (ImGui.InvisibleButton("##recipe-result-row", new Vector2(rowWidth, renderRowHeight)))
                         this.SetRecipeSelected(result, !isSelected);
 
-                    var checkboxPos = new Vector2(rowPos.X + 14f, rowPos.Y + ((renderRowHeight - checkboxSize) / 2f));
+                    var checkboxPos = new Vector2(rowPos.X + this.ScaleUi(14f), rowPos.Y + ((renderRowHeight - checkboxSize) / 2f));
                     var checkboxColor = isSelected
                         ? this.configuration.AccentColor
                         : WithAlpha(this.configuration.TextColor, 0.18f);
@@ -282,22 +286,22 @@ public sealed class RecipeWindow : Window, IDisposable
                         checkboxPos,
                         checkboxPos + new Vector2(checkboxSize, checkboxSize),
                         ImGui.GetColorU32(checkboxColor),
-                        5f);
+                        this.ScaleUi(5f));
                     drawList.AddRect(
                         checkboxPos,
                         checkboxPos + new Vector2(checkboxSize, checkboxSize),
                         ImGui.GetColorU32(WithAlpha(this.configuration.TextColor, 0.24f)),
-                        5f);
+                        this.ScaleUi(5f));
                     if (isSelected)
                     {
                         drawList.AddText(
-                            checkboxPos + new Vector2(3f, -1f),
+                            checkboxPos + this.ScaleUi(new Vector2(3f, -1f)),
                             ImGui.GetColorU32(this.configuration.WindowBackgroundColor),
                             "✓");
                     }
 
-                    var textLeft = checkboxPos.X + checkboxSize + 10f;
-                    var textRight = rowPos.X + rowWidth - 14f;
+                    var textLeft = checkboxPos.X + checkboxSize + this.ScaleUi(10f);
+                    var textRight = rowPos.X + rowWidth - this.ScaleUi(14f);
                     drawList.PushClipRect(rowPos, rowPos + new Vector2(rowWidth, renderRowHeight), true);
                     DrawStackedTextBlock(
                         drawList,
@@ -307,8 +311,8 @@ public sealed class RecipeWindow : Window, IDisposable
                         subtitleText,
                         ImGui.GetColorU32(ImGuiCol.Text),
                         ImGui.GetColorU32(ImGuiCol.TextDisabled),
-                        2f,
-                        6f,
+                        this.ScaleUi(2f),
+                        this.ScaleUi(6f),
                         false);
                     drawList.PopClipRect();
 
@@ -341,7 +345,7 @@ public sealed class RecipeWindow : Window, IDisposable
             {
                 this.configuration.SearchPaneWidth = Math.Clamp(
                     leftWidth + ImGui.GetIO().MouseDelta.X,
-                    150f,
+                    this.ScaleUi(150f),
                     maximumSearchWidth);
             }
 
@@ -379,23 +383,22 @@ public sealed class RecipeWindow : Window, IDisposable
         ImGui.TextDisabled(inventoryStatus);
         ImGui.Spacing();
 
-        var searchButtonWidth = ImGui.CalcTextSize("Search").X + 20;
-        var craftableButtonWidth = ImGui.CalcTextSize("Can craft").X + 20;
+        var buttonPadding = this.ScaleUi(20f);
+        var searchButtonWidth = ImGui.CalcTextSize("Search").X + buttonPadding;
+        var craftableButtonWidth = ImGui.CalcTextSize("Can craft").X + buttonPadding;
         var showDreamButton = this.gwenDreamService.IsAutoRetainerAvailable;
-        var dreamButtonWidth = ImGui.CalcTextSize("Gwen's Dream").X + 20;
-        var overlayButtonWidth = ImGui.CalcTextSize("Missing Items Overlay").X + 20;
-        var refreshButtonWidth = ImGui.CalcTextSize("Refresh Inventory").X + 20;
-        var settingsButtonWidth = ImGui.CalcTextSize("Settings").X + 20;
+        var overlayButtonWidth = ImGui.CalcTextSize("Missing Items Overlay").X + buttonPadding;
+        var refreshButtonWidth = ImGui.CalcTextSize("Refresh Inventory").X + buttonPadding;
+        var settingsButtonWidth = ImGui.CalcTextSize("Settings").X + buttonPadding;
         var searchWidth = MathF.Max(
-            150,
+            this.ScaleUi(150f),
             ImGui.GetContentRegionAvail().X -
             searchButtonWidth -
             craftableButtonWidth -
-            (showDreamButton ? dreamButtonWidth : 0) -
             overlayButtonWidth -
             refreshButtonWidth -
             settingsButtonWidth -
-            36);
+            this.ScaleUi(36f));
 
         ImGui.SetNextItemWidth(searchWidth);
         var searchChanged = ImGui.InputTextWithHint(
@@ -413,17 +416,6 @@ public sealed class RecipeWindow : Window, IDisposable
         if (ImGui.Button("Can craft", new Vector2(craftableButtonWidth, 0)))
             this.RefreshCraftableRecipes(true);
         DrawTooltipIfHovered("Show recipes you can make from your current stored materials.");
-
-        if (showDreamButton)
-        {
-            ImGui.SameLine();
-            if (ImGui.Button("Gwen's Dream", new Vector2(dreamButtonWidth, 0)))
-            {
-                if (this.gwenDreamService.TryStart(this.recipePlanDetails))
-                    this.dreamCraftPending = true;
-            }
-            DrawTooltipIfHovered("Will automatically withdraw all materials from retainers and craft all pre-crafts and recipes - ultimate laziness!");
-        }
 
         ImGui.SameLine();
         if (ImGui.Button("Missing Items Overlay", new Vector2(overlayButtonWidth, 0)))
@@ -459,11 +451,11 @@ public sealed class RecipeWindow : Window, IDisposable
     {
         var accent = this.configuration.AccentColor;
         var buttonColor = this.configuration.ButtonColor;
-        ImGui.PushStyleVar(ImGuiStyleVar.FrameRounding, 5);
-        ImGui.PushStyleVar(ImGuiStyleVar.ChildRounding, 6);
-        ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, new Vector2(7, 4));
-        ImGui.PushStyleVar(ImGuiStyleVar.ItemSpacing, new Vector2(6, 5));
-        ImGui.PushStyleVar(ImGuiStyleVar.CellPadding, new Vector2(6, 4));
+        ImGui.PushStyleVar(ImGuiStyleVar.FrameRounding, this.ScaleUi(5f));
+        ImGui.PushStyleVar(ImGuiStyleVar.ChildRounding, this.ScaleUi(6f));
+        ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, this.ScaleUi(new Vector2(7f, 4f)));
+        ImGui.PushStyleVar(ImGuiStyleVar.ItemSpacing, this.ScaleUi(new Vector2(6f, 5f)));
+        ImGui.PushStyleVar(ImGuiStyleVar.CellPadding, this.ScaleUi(new Vector2(6f, 4f)));
 
         ImGui.PushStyleColor(ImGuiCol.Button, WithAlpha(buttonColor, 0.72f));
         ImGui.PushStyleColor(ImGuiCol.ButtonHovered, AdjustColor(buttonColor, 0.10f));
@@ -588,7 +580,7 @@ public sealed class RecipeWindow : Window, IDisposable
     {
         if (this.recipePlanDetails is null)
         {
-            ImGui.Dummy(new Vector2(0, 24));
+            ImGui.Dummy(new Vector2(0, this.ScaleUi(24f)));
             ImGui.TextColored(
                 this.configuration.AccentColor,
                 this.showingCraftableRecipes
@@ -645,26 +637,47 @@ public sealed class RecipeWindow : Window, IDisposable
             this.artisanCraftQueue.Count > 0 &&
             (details.Recipes.Count > 1 ||
              this.artisanCraftQueue.Any(recipe => recipe.IsIntermediate));
-        if (canCraftAll || !string.IsNullOrWhiteSpace(this.integrationMessage))
+        var hasDreamFeature = this.gwenDreamService.IsAutoRetainerAvailable;
+        var canUseDream = hasDreamFeature && this.gwenDreamService.CanUseForSelection(this.recipePlanDetails);
+        if (details.Recipes.Count > 0 || !string.IsNullOrWhiteSpace(this.integrationMessage))
         {
             ImGui.Spacing();
-            if (canCraftAll)
+            ImGui.BeginDisabled(!canCraftAll);
+            ImGui.PushStyleColor(
+                ImGuiCol.Button,
+                this.configuration.ReadyButtonColor);
+            var craftAllClicked = ImGui.Button("Craft all with Artisan", new Vector2(this.ScaleUi(160f), 0));
+            ImGui.PopStyleColor();
+            ImGui.EndDisabled();
+            if (craftAllClicked)
             {
-                ImGui.PushStyleColor(
-                    ImGuiCol.Button,
-                    this.configuration.ReadyButtonColor);
-                var craftAllClicked = ImGui.Button("Craft all with Artisan", new Vector2(160, 0));
-                ImGui.PopStyleColor();
-                if (craftAllClicked)
-                {
-                    this.integrationError =
-                        !this.pluginIntegrationService.CraftAllWithArtisan(
-                            this.artisanCraftQueue,
-                            0,
-                            out this.integrationMessage);
-                }
-                DrawTooltipIfHovered("Queue every selected recipe in Artisan, including required pre-crafts.");
+                this.integrationError =
+                    !this.pluginIntegrationService.CraftAllWithArtisan(
+                        this.artisanCraftQueue,
+                        0,
+                        out this.integrationMessage);
+            }
+            DrawTooltipIfHovered("Queue every selected recipe in Artisan, including required pre-crafts.");
 
+            if (hasDreamFeature)
+                ImGui.SameLine();
+
+            if (hasDreamFeature)
+            {
+                ImGui.BeginDisabled(!canUseDream);
+                if (ImGui.Button("Gwen's Dream", new Vector2(this.ScaleUi(140f), 0)))
+                {
+                    if (this.gwenDreamService.TryStart(this.recipePlanDetails))
+                        this.dreamCraftPending = true;
+                }
+                ImGui.EndDisabled();
+                DrawTooltipIfHovered("Will automatically withdraw all materials from retainers and craft all pre-crafts and recipes - ultimate laziness!");
+
+                if (!string.IsNullOrWhiteSpace(this.integrationMessage))
+                    ImGui.SameLine();
+            }
+            else if (!string.IsNullOrWhiteSpace(this.integrationMessage))
+            {
                 ImGui.SameLine();
             }
 
@@ -757,7 +770,7 @@ public sealed class RecipeWindow : Window, IDisposable
 
     private void DrawSavePlanControls()
     {
-        ImGui.SetNextItemWidth(260);
+        ImGui.SetNextItemWidth(this.ScaleUi(260f));
         var submitted = ImGui.InputTextWithHint(
             $"##recipe-plan-name-{this.planInputNonce}",
             "Plan name",
@@ -770,7 +783,7 @@ public sealed class RecipeWindow : Window, IDisposable
             this.SaveCurrentPlan();
         DrawTooltipIfHovered("Save the current selected recipes as a named plan.");
 
-        ImGui.SetNextItemWidth(220);
+        ImGui.SetNextItemWidth(this.ScaleUi(220f));
         ImGui.InputTextWithHint(
             $"##recipe-plan-folder-{this.planInputNonce}",
             "Folder (optional)",
@@ -869,7 +882,7 @@ public sealed class RecipeWindow : Window, IDisposable
                 {
                     ImGui.PushID($"saved-plan-{savedPlan.Name}");
                     var rowWidth = Math.Max(1f, ImGui.GetContentRegionAvail().X);
-                    var rowHeight = 52f;
+                    var rowHeight = this.ScaleUi(52f);
                     var rowPos = ImGui.GetCursorScreenPos();
                     var rowColor = this.selectedSavedPlans.Contains(savedPlan)
                         ? WithAlpha(this.configuration.AccentColor, 0.18f)
@@ -878,11 +891,11 @@ public sealed class RecipeWindow : Window, IDisposable
                         rowPos,
                         rowPos + new Vector2(rowWidth, rowHeight),
                         ImGui.GetColorU32(rowColor),
-                        14f);
+                        this.ScaleUi(14f));
                     ImGui.Dummy(new Vector2(rowWidth, rowHeight));
 
                     var cursor = ImGui.GetCursorPos();
-                    ImGui.SetCursorScreenPos(rowPos + new Vector2(14f, 14f));
+                    ImGui.SetCursorScreenPos(rowPos + this.ScaleUi(new Vector2(14f, 14f)));
                     var isSelected = this.selectedSavedPlans.Contains(savedPlan);
                     if (ImGui.Checkbox("##select-saved-plan", ref isSelected))
                     {
@@ -892,30 +905,30 @@ public sealed class RecipeWindow : Window, IDisposable
                             this.selectedSavedPlans.Remove(savedPlan);
                     }
 
-                    ImGui.SetCursorScreenPos(rowPos + new Vector2(44f, 8f));
+                    ImGui.SetCursorScreenPos(rowPos + this.ScaleUi(new Vector2(44f, 8f)));
                     ImGui.TextUnformatted(savedPlan.Name);
-                    ImGui.SetCursorScreenPos(rowPos + new Vector2(44f, 25f));
+                    ImGui.SetCursorScreenPos(rowPos + this.ScaleUi(new Vector2(44f, 25f)));
                     ImGui.TextDisabled($"{savedPlan.Recipes.Count} recipes");
 
-                    var actionX = rowPos.X + rowWidth - 314f;
-                    ImGui.SetCursorScreenPos(new Vector2(actionX, rowPos.Y + 12f));
-                    if (ImGui.Button("Load", new Vector2(48, 0)))
+                    var actionX = rowPos.X + rowWidth - this.ScaleUi(314f);
+                    ImGui.SetCursorScreenPos(new Vector2(actionX, rowPos.Y + this.ScaleUi(12f)));
+                    if (ImGui.Button("Load", new Vector2(this.ScaleUi(48f), 0)))
                         planToLoad = savedPlan;
                     DrawTooltipIfHovered("Load this saved plan into the current recipe list.");
                     ImGui.SameLine();
-                    if (ImGui.Button("Move", new Vector2(48, 0)))
+                    if (ImGui.Button("Move", new Vector2(this.ScaleUi(48f), 0)))
                         planToMove = savedPlan;
                     DrawTooltipIfHovered("Move this saved plan to another folder.");
                     ImGui.SameLine();
-                    if (ImGui.Button("Duplicate", new Vector2(72, 0)))
+                    if (ImGui.Button("Duplicate", new Vector2(this.ScaleUi(72f), 0)))
                         planToDuplicate = savedPlan;
                     DrawTooltipIfHovered("Create a copy of this saved plan.");
                     ImGui.SameLine();
-                    if (ImGui.Button("Rename", new Vector2(62, 0)))
+                    if (ImGui.Button("Rename", new Vector2(this.ScaleUi(62f), 0)))
                         planToRename = savedPlan;
                     DrawTooltipIfHovered("Rename this saved plan.");
                     ImGui.SameLine();
-                    if (ImGui.Button("Delete", new Vector2(54, 0)))
+                    if (ImGui.Button("Delete", new Vector2(this.ScaleUi(54f), 0)))
                     {
                         if (ImGui.GetIO().KeyCtrl)
                             planToDelete = savedPlan;
@@ -1071,6 +1084,7 @@ public sealed class RecipeWindow : Window, IDisposable
                 ref this.isMovePlanPopupOpen,
                 ImGuiWindowFlags.AlwaysAutoResize))
             return;
+        WindowTheme.ApplyTextScale(this.configuration, includeMainWindowScale: true);
 
         this.DrawFolderSelectionControls();
         ImGui.SetNextItemWidth(280);
@@ -1108,6 +1122,7 @@ public sealed class RecipeWindow : Window, IDisposable
                 ref this.isMoveSelectedPlansPopupOpen,
                 ImGuiWindowFlags.AlwaysAutoResize))
             return;
+        WindowTheme.ApplyTextScale(this.configuration, includeMainWindowScale: true);
 
         this.DrawFolderSelectionControls();
         ImGui.SetNextItemWidth(280);
@@ -1214,6 +1229,7 @@ public sealed class RecipeWindow : Window, IDisposable
                 ref this.isRenamePlanPopupOpen,
                 ImGuiWindowFlags.AlwaysAutoResize))
             return;
+        WindowTheme.ApplyTextScale(this.configuration, includeMainWindowScale: true);
 
         ImGui.SetNextItemWidth(280);
         var submitted = ImGui.InputText(
@@ -1253,6 +1269,7 @@ public sealed class RecipeWindow : Window, IDisposable
                 ref this.isRenameFolderPopupOpen,
                 ImGuiWindowFlags.AlwaysAutoResize))
             return;
+        WindowTheme.ApplyTextScale(this.configuration, includeMainWindowScale: true);
 
         ImGui.SetNextItemWidth(280);
         var submitted = ImGui.InputText(
@@ -1593,12 +1610,12 @@ public sealed class RecipeWindow : Window, IDisposable
                 ImGuiTableFlags.Resizable |
                 ImGuiTableFlags.SizingStretchProp))
         {
-            ImGui.TableSetupColumn("Recipe", ImGuiTableColumnFlags.WidthFixed, 250);
-            ImGui.TableSetupColumn("Quantity", ImGuiTableColumnFlags.WidthFixed, 100);
-            ImGui.TableSetupColumn("Crafts", ImGuiTableColumnFlags.WidthFixed, 74);
+            ImGui.TableSetupColumn("Recipe", ImGuiTableColumnFlags.WidthFixed, this.ScaleUi(250f));
+            ImGui.TableSetupColumn("Quantity", ImGuiTableColumnFlags.WidthFixed, this.ScaleUi(100f));
+            ImGui.TableSetupColumn("Crafts", ImGuiTableColumnFlags.WidthFixed, this.ScaleUi(74f));
             ImGui.TableSetupColumn("Actions", ImGuiTableColumnFlags.WidthStretch, 1);
 
-            ImGui.TableNextRow(ImGuiTableRowFlags.None, 36);
+            ImGui.TableNextRow(ImGuiTableRowFlags.None, this.ScaleUi(36f));
             ImGui.TableNextColumn();
             this.DrawHeaderCard("Recipe");
             ImGui.TableNextColumn();
@@ -1615,8 +1632,8 @@ public sealed class RecipeWindow : Window, IDisposable
                 if (selectionIndex < 0)
                     continue;
 
-                const float selectedRecipeRowHeight = 36f;
-                ImGui.TableNextRow(ImGuiTableRowFlags.None, 44);
+                var selectedRecipeRowHeight = this.ScaleUi(36f);
+                ImGui.TableNextRow(ImGuiTableRowFlags.None, this.ScaleUi(44f));
                 ImGui.TableNextColumn();
                 this.DrawInfoCard(
                     $"recipe-name-{recipe.RecipeId}",
@@ -1633,7 +1650,7 @@ public sealed class RecipeWindow : Window, IDisposable
                     this.configuration.InputCardColor);
                 var inputHeight = ImGui.GetFrameHeight();
                 ImGui.SetCursorPos(quantityCursor + new Vector2(
-                    10f,
+                    this.ScaleUi(10f),
                     MathF.Max(0f, (selectedRecipeRowHeight - inputHeight) / 2f)));
                 ImGui.SetNextItemWidth(-1);
                 ImGui.PushStyleColor(ImGuiCol.FrameBg, Vector4.Zero);
@@ -1660,11 +1677,11 @@ public sealed class RecipeWindow : Window, IDisposable
                     this.configuration.TextColor);
 
                 ImGui.TableNextColumn();
-                var actionWidth = Math.Max(212f, ImGui.GetContentRegionAvail().X);
+                var actionWidth = Math.Max(this.ScaleUi(212f), ImGui.GetContentRegionAvail().X);
                 var spacing = ImGui.GetStyle().ItemSpacing.X;
-                const float craftButtonWidth = 84f;
-                const float teamcraftButtonWidth = 78f;
-                const float removeButtonWidth = 60f;
+                var craftButtonWidth = this.ScaleUi(84f);
+                var teamcraftButtonWidth = this.ScaleUi(78f);
+                var removeButtonWidth = this.ScaleUi(60f);
                 var totalButtonWidth =
                     craftButtonWidth +
                     teamcraftButtonWidth +
@@ -1721,7 +1738,7 @@ public sealed class RecipeWindow : Window, IDisposable
     {
         var totalCrafts = details.Recipes
             .Aggregate(0UL, (total, recipe) => total + recipe.CraftCount);
-        var cardWidth = Math.Max(92f, (ImGui.GetContentRegionAvail().X - 12f) / 3f);
+        var cardWidth = Math.Max(this.ScaleUi(92f), (ImGui.GetContentRegionAvail().X - this.ScaleUi(12f)) / 3f);
         this.DrawSummaryCard("Recipes", details.Recipes.Count.ToString(), cardWidth);
         ImGui.SameLine();
         this.DrawSummaryCard("Total Crafts", totalCrafts.ToString(), cardWidth);
@@ -1819,14 +1836,14 @@ public sealed class RecipeWindow : Window, IDisposable
             ImGuiTableFlags.Resizable |
             ImGuiTableFlags.SizingFixedFit;
         var requestedTableWidth =
-            220f +
-            45f +
-            (showTravel ? 68f : 0f) +
-            (showAvailable ? 115f : 0f) +
-            (showStock ? 88f : 0f) +
-            (showFoundIn ? 150f : 0f) +
-            (showRawCraftStatus ? 96f : 0f) +
-            (showMissing ? 75f : 0f) +
+            this.ScaleUi(220f) +
+            this.ScaleUi(45f) +
+            (showTravel ? this.ScaleUi(68f) : 0f) +
+            (showAvailable ? this.ScaleUi(115f) : 0f) +
+            (showStock ? this.ScaleUi(88f) : 0f) +
+            (showFoundIn ? this.ScaleUi(150f) : 0f) +
+            (showRawCraftStatus ? this.ScaleUi(96f) : 0f) +
+            (showMissing ? this.ScaleUi(75f) : 0f) +
             (ImGui.GetStyle().CellPadding.X * 2 * columnCount) +
             2f;
         var availableTableWidth = ImGui.GetContentRegionAvail().X;
@@ -1834,31 +1851,17 @@ public sealed class RecipeWindow : Window, IDisposable
         if (needsHorizontalScroll)
             tableFlags |= ImGuiTableFlags.ScrollX;
 
-        var lastColumnKey = showRawCraftStatus
-            ? "raw"
-            : showFoundIn
-                ? "found"
-                : showStock
-                    ? "stock"
-                        : showAvailable
-                            ? "available"
-                            : showTravel
-                                ? "travel"
-                                : "missing";
         void SetupColumn(string label, string key, float width)
         {
-            var stretch = !needsHorizontalScroll && key == lastColumnKey;
             ImGui.TableSetupColumn(
                 label,
-                stretch
-                    ? ImGuiTableColumnFlags.WidthStretch
-                    : ImGuiTableColumnFlags.WidthFixed,
-                stretch ? 1f : width);
+                ImGuiTableColumnFlags.WidthFixed,
+                width);
         }
 
         var tableHeight =
-            (44f * displayedMaterials.Count) +
-            36f +
+            (this.ScaleUi(44f) * displayedMaterials.Count) +
+            this.ScaleUi(36f) +
             (needsHorizontalScroll ? ImGui.GetStyle().ScrollbarSize : 0f) +
             2f;
         if (ImGui.BeginTable(
@@ -1867,21 +1870,21 @@ public sealed class RecipeWindow : Window, IDisposable
                 tableFlags,
                 new Vector2(Math.Max(1f, availableTableWidth), tableHeight)))
         {
-            SetupColumn("Ingredient", "ingredient", 220);
-            SetupColumn("Need", "need", 45);
+            SetupColumn("Ingredient", "ingredient", this.ScaleUi(220f));
+            SetupColumn("Need", "need", this.ScaleUi(45f));
             if (showMissing)
-                SetupColumn("Missing", "missing", 75);
+                SetupColumn("Missing", "missing", this.ScaleUi(75f));
             if (showTravel)
-                SetupColumn("Travel", "travel", 68);
+                SetupColumn("Travel", "travel", this.ScaleUi(68f));
             if (showAvailable)
-                SetupColumn("Available", "available", 115);
+                SetupColumn("Available", "available", this.ScaleUi(115f));
             if (showStock)
-                SetupColumn("Stock", "stock", 88);
+                SetupColumn("Stock", "stock", this.ScaleUi(88f));
             if (showFoundIn)
-                SetupColumn("Found in", "found", 150);
+                SetupColumn("Found in", "found", this.ScaleUi(150f));
             if (showRawCraftStatus)
-                SetupColumn("From raw", "raw", 96);
-            ImGui.TableNextRow(ImGuiTableRowFlags.None, 36);
+                SetupColumn("From raw", "raw", this.ScaleUi(96f));
+            ImGui.TableNextRow(ImGuiTableRowFlags.None, this.ScaleUi(36f));
             ImGui.TableNextColumn();
             this.DrawHeaderCard("Ingredient");
             ImGui.TableNextColumn();
@@ -1919,7 +1922,7 @@ public sealed class RecipeWindow : Window, IDisposable
 
             foreach (var ingredient in displayedMaterials)
             {
-                ImGui.TableNextRow(ImGuiTableRowFlags.None, 44);
+                ImGui.TableNextRow(ImGuiTableRowFlags.None, this.ScaleUi(44f));
                 var hasTimedWindow = this.aetherialReductionService.HasTimedWindow(
                     ingredient.ItemId,
                     ingredient.ReductionSources);
@@ -1932,7 +1935,7 @@ public sealed class RecipeWindow : Window, IDisposable
                 ImGui.TableNextColumn();
                 this.DrawInfoCard(
                     $"{tableId}-ingredient-{ingredient.ItemId}",
-                    new Vector2(-1, 36),
+                    new Vector2(-1, this.ScaleUi(36f)),
                     ingredient.Name,
                     ingredient.Source,
                     rowColor,
@@ -1948,7 +1951,7 @@ public sealed class RecipeWindow : Window, IDisposable
                     : WithAlpha(this.configuration.AccentColor, 0.14f);
                 this.DrawValueCard(
                     $"{tableId}-need-{ingredient.ItemId}",
-                    new Vector2(-1, 36),
+                    new Vector2(-1, this.ScaleUi(36f)),
                     ingredient.Required.ToString(),
                     needBackground,
                     this.configuration.TextColor);
@@ -1960,7 +1963,7 @@ public sealed class RecipeWindow : Window, IDisposable
                     {
                         this.DrawValueCard(
                             $"{tableId}-missing-{ingredient.ItemId}",
-                            new Vector2(-1, 36),
+                            new Vector2(-1, this.ScaleUi(36f)),
                             "Ready",
                             WithAlpha(this.configuration.SuccessTextColor, 0.18f),
                             this.configuration.SuccessTextColor);
@@ -1969,7 +1972,7 @@ public sealed class RecipeWindow : Window, IDisposable
                     {
                         this.DrawValueCard(
                             $"{tableId}-missing-{ingredient.ItemId}",
-                            new Vector2(-1, 36),
+                            new Vector2(-1, this.ScaleUi(36f)),
                             "Craftable",
                             WithAlpha(this.configuration.WarningTextColor, 0.18f),
                             this.configuration.WarningTextColor);
@@ -1978,7 +1981,7 @@ public sealed class RecipeWindow : Window, IDisposable
                     {
                         this.DrawValueCard(
                             $"{tableId}-missing-{ingredient.ItemId}",
-                            new Vector2(-1, 36),
+                            new Vector2(-1, this.ScaleUi(36f)),
                             ingredient.Missing.ToString(),
                             WithAlpha(this.configuration.MissingTextColor, 0.18f),
                             this.configuration.MissingTextColor);
@@ -1992,15 +1995,15 @@ public sealed class RecipeWindow : Window, IDisposable
                     ImGui.TableNextColumn();
                     if (this.CanGatherIngredient(ingredient, reductionSource))
                     {
-                        var buttonWidth = 64f;
+                        var buttonWidth = this.ScaleUi(64f);
                         var columnWidth = Math.Max(1f, ImGui.GetContentRegionAvail().X);
                         this.DrawDecorativeCardBackground(
-                            new Vector2(columnWidth, 36),
+                            new Vector2(columnWidth, this.ScaleUi(36f)),
                             WithAlpha(this.configuration.AccentColor, 0.12f));
                         var buttonCursor = ImGui.GetCursorPos();
                         ImGui.SetCursorPos(new Vector2(
                             buttonCursor.X + MathF.Max(0f, (columnWidth - buttonWidth) / 2f),
-                            buttonCursor.Y - 34f));
+                            buttonCursor.Y - this.ScaleUi(34f)));
                         if (ImGui.Button($"Gather##{tableId}-{ingredient.ItemId}", new Vector2(buttonWidth, 0)))
                         {
                             this.integrationError = !this.pluginIntegrationService.GatherWithGatherBuddy(
@@ -2020,7 +2023,7 @@ public sealed class RecipeWindow : Window, IDisposable
                     {
                         this.DrawValueCard(
                             $"{tableId}-travel-{ingredient.ItemId}",
-                            new Vector2(-1, 36),
+                            new Vector2(-1, this.ScaleUi(36f)),
                             "-",
                             AdjustColor(this.configuration.WindowBackgroundColor, 0.05f),
                             AdjustColor(this.configuration.TextColor, -0.30f));
@@ -2038,7 +2041,7 @@ public sealed class RecipeWindow : Window, IDisposable
                     ImGui.TableNextColumn();
                     this.DrawValueCard(
                         $"{tableId}-stock-{ingredient.ItemId}",
-                        new Vector2(-1, 36),
+                        new Vector2(-1, this.ScaleUi(36f)),
                         FormatStockDisplay(ingredient),
                         WithAlpha(this.configuration.AccentColor, 0.10f),
                         this.configuration.TextColor);
@@ -2052,7 +2055,7 @@ public sealed class RecipeWindow : Window, IDisposable
                         var locationsText = string.Join(", ", ingredient.Locations);
                         this.DrawValueCard(
                             $"{tableId}-found-{ingredient.ItemId}",
-                            new Vector2(-1, 36),
+                            new Vector2(-1, this.ScaleUi(36f)),
                             TrimDisplayText(locationsText, 42),
                             AdjustColor(this.configuration.WindowBackgroundColor, 0.07f),
                             this.configuration.TextColor);
@@ -2063,7 +2066,7 @@ public sealed class RecipeWindow : Window, IDisposable
                     {
                         this.DrawValueCard(
                             $"{tableId}-found-{ingredient.ItemId}",
-                            new Vector2(-1, 36),
+                            new Vector2(-1, this.ScaleUi(36f)),
                             "-",
                             AdjustColor(this.configuration.WindowBackgroundColor, 0.05f),
                             AdjustColor(this.configuration.TextColor, -0.30f));
@@ -2077,7 +2080,7 @@ public sealed class RecipeWindow : Window, IDisposable
                     {
                         this.DrawValueCard(
                             $"{tableId}-raw-{ingredient.ItemId}",
-                            new Vector2(-1, 36),
+                            new Vector2(-1, this.ScaleUi(36f)),
                             "Owned",
                             WithAlpha(this.configuration.SuccessTextColor, 0.18f),
                             this.configuration.SuccessTextColor);
@@ -2085,12 +2088,12 @@ public sealed class RecipeWindow : Window, IDisposable
                     else if (ingredient.CanCraftMissingFromRaw is true &&
                              ingredient.RawCraftRecipeId is { } rawCraftRecipeId)
                     {
-                        var cardSize = ResolveCardSize(new Vector2(-1, 36), 42f);
+                        var cardSize = this.ResolveCardSize(new Vector2(-1, this.ScaleUi(36f)), 42f);
                         this.DrawDecorativeCardBackground(
                             cardSize,
                             WithAlpha(this.configuration.ReadyButtonColor, 0.16f));
                         var cardMin = ImGui.GetItemRectMin();
-                        var buttonSize = new Vector2(96f, 26f);
+                        var buttonSize = this.ScaleUi(new Vector2(96f, 26f));
                         ImGui.SetCursorScreenPos(new Vector2(
                             cardMin.X + MathF.Max(0f, (cardSize.X - buttonSize.X) / 2f),
                             cardMin.Y + MathF.Max(0f, (cardSize.Y - buttonSize.Y) / 2f)));
@@ -2111,7 +2114,7 @@ public sealed class RecipeWindow : Window, IDisposable
                     {
                         this.DrawValueCard(
                             $"{tableId}-raw-{ingredient.ItemId}",
-                            new Vector2(-1, 36),
+                            new Vector2(-1, this.ScaleUi(36f)),
                             "-",
                             AdjustColor(this.configuration.WindowBackgroundColor, 0.05f),
                             AdjustColor(this.configuration.TextColor, -0.30f));
@@ -2126,7 +2129,7 @@ public sealed class RecipeWindow : Window, IDisposable
 
     private void DrawSummaryCard(string label, string value, float width)
     {
-        var size = new Vector2(width, 48);
+        var size = new Vector2(width, this.ScaleUi(48f));
         var position = ImGui.GetCursorScreenPos();
         var drawList = ImGui.GetWindowDrawList();
         var topColor = ImGui.GetColorU32(WithAlpha(AdjustColor(this.configuration.AccentColor, 0.08f), 0.92f));
@@ -2142,15 +2145,15 @@ public sealed class RecipeWindow : Window, IDisposable
             position,
             position + size,
             ImGui.GetColorU32(WithAlpha(this.configuration.WindowBackgroundColor, 0.18f)),
-            14f);
+            this.ScaleUi(14f));
         var labelSize = ImGui.CalcTextSize(label);
         var valueSize = ImGui.CalcTextSize(value);
         drawList.AddText(
-            position + new Vector2((size.X - labelSize.X) / 2f, 7f),
+            position + new Vector2((size.X - labelSize.X) / 2f, this.ScaleUi(7f)),
             ImGui.GetColorU32(AdjustColor(this.configuration.TextColor, -0.12f)),
             label);
         drawList.AddText(
-            position + new Vector2((size.X - valueSize.X) / 2f, 23f),
+            position + new Vector2((size.X - valueSize.X) / 2f, this.ScaleUi(23f)),
             ImGui.GetColorU32(this.configuration.TextColor),
             value);
         ImGui.Dummy(size);
@@ -2158,7 +2161,7 @@ public sealed class RecipeWindow : Window, IDisposable
 
     private void DrawHeaderCard(string label)
     {
-        var size = new Vector2(Math.Max(1f, ImGui.GetContentRegionAvail().X), 28f);
+        var size = new Vector2(Math.Max(1f, ImGui.GetContentRegionAvail().X), this.ScaleUi(28f));
         var position = ImGui.GetCursorScreenPos();
         var drawList = ImGui.GetWindowDrawList();
         drawList.AddRectFilledMultiColor(
@@ -2170,7 +2173,7 @@ public sealed class RecipeWindow : Window, IDisposable
             ImGui.GetColorU32(WithAlpha(AdjustColor(this.configuration.AccentColor, -0.10f), 0.78f)));
         var textSize = ImGui.CalcTextSize(label);
         drawList.AddText(
-            position + new Vector2((size.X - textSize.X) / 2f, 7f),
+            position + new Vector2((size.X - textSize.X) / 2f, this.ScaleUi(7f)),
             ImGui.GetColorU32(this.configuration.TextColor),
             label);
         ImGui.Dummy(size);
@@ -2184,23 +2187,24 @@ public sealed class RecipeWindow : Window, IDisposable
         Vector4 backgroundColor,
         Vector4 textColor)
     {
-        var resolvedSize = ResolveCardSize(size, 42f);
+        var resolvedSize = this.ResolveCardSize(size, 42f);
         var position = ImGui.GetCursorScreenPos();
         ImGui.InvisibleButton(id, resolvedSize);
         var drawList = ImGui.GetWindowDrawList();
-        drawList.AddRectFilled(position, position + resolvedSize, ImGui.GetColorU32(backgroundColor), 12f);
+        drawList.AddRectFilled(position, position + resolvedSize, ImGui.GetColorU32(backgroundColor), this.ScaleUi(12f));
 
-        var safeTitle = TrimDisplayText(title, 34);
-        var safeSubtitle = TrimDisplayText(subtitle, 38);
+        var textWidth = Math.Max(1f, resolvedSize.X - this.ScaleUi(28f));
+        var safeTitle = TrimDisplayTextToWidth(title, textWidth);
+        var safeSubtitle = TrimDisplayTextToWidth(subtitle, textWidth);
         DrawStackedTextBlock(
             drawList,
-            position + new Vector2(14f, 0f),
-            new Vector2(Math.Max(1f, resolvedSize.X - 28f), resolvedSize.Y),
+            position + new Vector2(this.ScaleUi(14f), 0f),
+            new Vector2(textWidth, resolvedSize.Y),
             safeTitle,
             safeSubtitle,
             ImGui.GetColorU32(textColor),
             ImGui.GetColorU32(AdjustColor(textColor, -0.24f)),
-            2f,
+            this.ScaleUi(2f),
             0f,
             false);
         if ((title.Length > safeTitle.Length || subtitle.Length > safeSubtitle.Length) && ImGui.IsItemHovered())
@@ -2214,11 +2218,11 @@ public sealed class RecipeWindow : Window, IDisposable
         Vector4 backgroundColor,
         Vector4 textColor)
     {
-        var resolvedSize = ResolveCardSize(size, 42f);
+        var resolvedSize = this.ResolveCardSize(size, 42f);
         var position = ImGui.GetCursorScreenPos();
         ImGui.InvisibleButton(id, resolvedSize);
         var drawList = ImGui.GetWindowDrawList();
-        drawList.AddRectFilled(position, position + resolvedSize, ImGui.GetColorU32(backgroundColor), 12f);
+        drawList.AddRectFilled(position, position + resolvedSize, ImGui.GetColorU32(backgroundColor), this.ScaleUi(12f));
 
         var displayValue = TrimDisplayText(value, 28);
         var valueSize = ImGui.CalcTextSize(displayValue);
@@ -2232,20 +2236,20 @@ public sealed class RecipeWindow : Window, IDisposable
 
     private void DrawDecorativeCardBackground(Vector2 size, Vector4 backgroundColor)
     {
-        var resolvedSize = ResolveCardSize(size, 42f);
+        var resolvedSize = this.ResolveCardSize(size, 42f);
         var position = ImGui.GetCursorScreenPos();
         ImGui.Dummy(resolvedSize);
         ImGui.GetWindowDrawList().AddRectFilled(
             position,
             position + resolvedSize,
             ImGui.GetColorU32(backgroundColor),
-            12f);
+            this.ScaleUi(12f));
     }
 
-    private static Vector2 ResolveCardSize(Vector2 size, float defaultHeight)
+    private Vector2 ResolveCardSize(Vector2 size, float defaultHeight)
     {
         var width = size.X <= 0f ? Math.Max(1f, ImGui.GetContentRegionAvail().X) : size.X;
-        var height = size.Y <= 0f ? defaultHeight : size.Y;
+        var height = size.Y <= 0f ? this.ScaleUi(defaultHeight) : size.Y;
         return new Vector2(width, height);
     }
 
@@ -2338,7 +2342,7 @@ public sealed class RecipeWindow : Window, IDisposable
         {
             this.DrawValueCard(
                 $"{tableId}-available-{ingredient.ItemId}",
-                new Vector2(-1, 36),
+                new Vector2(-1, this.ScaleUi(36f)),
                 "-",
                 AdjustColor(this.configuration.WindowBackgroundColor, 0.05f),
                 AdjustColor(this.configuration.TextColor, -0.30f));
@@ -2348,7 +2352,7 @@ public sealed class RecipeWindow : Window, IDisposable
         var displayText = FormatAvailabilityDisplay(timerText, out var tooltip, out var isAvailableNow);
         var waitSeconds = GetAvailabilityWaitSeconds(timerText);
         var isImminent = !isAvailableNow && waitSeconds is >= 0 and <= 60;
-        var size = ResolveCardSize(new Vector2(-1, 36), 36f);
+        var size = this.ResolveCardSize(new Vector2(-1, this.ScaleUi(36f)), 36f);
         var position = ImGui.GetCursorScreenPos();
         ImGui.InvisibleButton($"{tableId}-available-{ingredient.ItemId}", size);
         var drawList = ImGui.GetWindowDrawList();
@@ -2362,7 +2366,7 @@ public sealed class RecipeWindow : Window, IDisposable
             : isImminent
                 ? this.configuration.WarningTextColor
                 : this.configuration.TextColor;
-        drawList.AddRectFilled(position, position + size, ImGui.GetColorU32(backgroundColor), 12f);
+        drawList.AddRectFilled(position, position + size, ImGui.GetColorU32(backgroundColor), this.ScaleUi(12f));
         var displaySize = ImGui.CalcTextSize(displayText);
         drawList.AddText(
             position + new Vector2((size.X - displaySize.X) / 2f, (size.Y - displaySize.Y) / 2f),
@@ -2513,6 +2517,7 @@ public sealed class RecipeWindow : Window, IDisposable
                 ref this.isTravelPopupOpen,
                 ImGuiWindowFlags.AlwaysAutoResize))
             return;
+        WindowTheme.ApplyTextScale(this.configuration, includeMainWindowScale: true);
 
         ImGui.TextUnformatted(this.gatheringItemName);
         ImGui.Separator();
@@ -2596,13 +2601,53 @@ public sealed class RecipeWindow : Window, IDisposable
 
     private void OnInventoryChanged() => this.inventoryRefreshRequested = true;
 
-    private static void DrawTooltipIfHovered(string text)
+    private void DrawTooltipIfHovered(string text)
     {
         if (!ImGui.IsItemHovered())
             return;
 
         ImGui.BeginTooltip();
+        WindowTheme.ApplyTextScale(this.configuration, includeMainWindowScale: true);
         ImGui.TextUnformatted(text);
         ImGui.EndTooltip();
     }
+
+    private void ApplyMainWindowScaleIfNeeded()
+    {
+        var scaledPercent = WindowTheme.GetMainWindowScalePercent(this.configuration);
+        if (scaledPercent == this.appliedMainWindowScalePercent)
+            return;
+
+        var currentSize = ImGui.GetWindowSize();
+        if (currentSize.X <= 0 || currentSize.Y <= 0)
+            currentSize = this.ScaleMainWindowSize(BaseWindowSize, this.appliedMainWindowScalePercent);
+
+        var ratio = scaledPercent / (float)this.appliedMainWindowScalePercent;
+        this.appliedMainWindowScalePercent = scaledPercent;
+        this.ApplyMainWindowConstraints();
+
+        var minimumSize = this.ScaleMainWindowSize(BaseMinimumWindowSize, scaledPercent);
+        var resized = new Vector2(
+            Math.Max(currentSize.X * ratio, minimumSize.X),
+            Math.Max(currentSize.Y * ratio, minimumSize.Y));
+        ImGui.SetWindowSize(resized, ImGuiCond.Always);
+    }
+
+    private void ApplyMainWindowConstraints()
+    {
+        this.SizeConstraints = new WindowSizeConstraints
+        {
+            MinimumSize = this.ScaleMainWindowSize(BaseMinimumWindowSize, this.appliedMainWindowScalePercent),
+            MaximumSize = new Vector2(float.MaxValue, float.MaxValue),
+        };
+    }
+
+    private Vector2 ScaleMainWindowSize(Vector2 size, int scalePercent) =>
+        size * (scalePercent / 100f);
+
+    private float ScaleUi(float value) =>
+        value * WindowTheme.GetMainInterfaceScale(this.configuration);
+
+    private Vector2 ScaleUi(Vector2 value) =>
+        value * WindowTheme.GetMainInterfaceScale(this.configuration);
 }

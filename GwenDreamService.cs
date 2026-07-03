@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using Dalamud.Game.ClientState.Objects.Types;
+using Dalamud.Plugin.Ipc;
 using Dalamud.Plugin.Services;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.Game.Control;
@@ -44,6 +45,7 @@ public sealed unsafe class GwenDreamService : IDisposable
     private readonly IGameGui gameGui;
     private readonly ITargetManager targetManager;
     private readonly IObjectTable objectTable;
+    private readonly ICallGateSubscriber<bool> autoRetainerIsBusy;
     private List<DreamTarget> pendingTargets = [];
     private int activeTargetIndex;
     private DreamTarget? activeTarget;
@@ -74,6 +76,7 @@ public sealed unsafe class GwenDreamService : IDisposable
         this.gameGui = gameGui;
         this.targetManager = targetManager;
         this.objectTable = objectTable;
+        this.autoRetainerIsBusy = Plugin.PluginInterface.GetIpcSubscriber<bool>("AutoRetainer.PluginState.IsBusy");
         this.framework.Update += this.OnFrameworkUpdate;
     }
 
@@ -95,6 +98,42 @@ public sealed unsafe class GwenDreamService : IDisposable
 
     public bool StatusIsError { get; private set; }
 
+    public bool CanUseForSelection(RecipePlanDetails? details)
+    {
+        if (details is null)
+            return false;
+
+        return this.FindDreamTargets(details, out _, logErrors: false).Count > 0;
+    }
+
+    public DreamDebugSnapshot GetDebugSnapshot()
+    {
+        var openRetainerName = this.TryGetOpenRetainerName(out var currentRetainerName)
+            ? currentRetainerName
+            : string.Empty;
+        var activeTargetSummary = this.activeTarget is null
+            ? string.Empty
+            : $"{this.activeTarget.RetainerName} -> {this.activeTarget.ItemName} x{this.activeTarget.WithdrawQuantity:N0}";
+
+        return new DreamDebugSnapshot(
+            this.step.ToString(),
+            this.IsActive,
+            this.IsAutoRetainerAvailable,
+            this.IsAutoRetainerBusy(),
+            this.LastRunSucceeded,
+            this.StatusIsError,
+            this.StatusMessage,
+            openRetainerName,
+            this.pendingTargets.Count,
+            this.activeTargetIndex,
+            activeTargetSummary,
+            this.retainerSelectAttempt,
+            this.withdrawIssued,
+            this.step is DreamStep.Idle ? TimeSpan.Zero : DateTime.UtcNow - this.stepStartedAt,
+            this.completionSequence,
+            this.DescribeVisibleRetainerAddons());
+    }
+
     public void Dispose() => this.framework.Update -= this.OnFrameworkUpdate;
 
     public bool TryStart(RecipePlanDetails? details)
@@ -109,6 +148,9 @@ public sealed unsafe class GwenDreamService : IDisposable
 
         if (targets.Count == 0)
             return this.Fail("No retainer material is needed for the current recipe selection.");
+
+        if (this.TryGetAutoRetainerBusyMessage(out var busyMessage))
+            return this.Fail(busyMessage);
 
         if (!this.EnsureSummoningBellTargeted())
             return this.Fail("Stand near a summoning bell and try Gwen's Dream again.");
@@ -130,6 +172,9 @@ public sealed unsafe class GwenDreamService : IDisposable
     private void OnFrameworkUpdate(IFramework framework)
     {
         if (this.activeTarget is null || this.step is DreamStep.Idle or DreamStep.Completed or DreamStep.Failed)
+            return;
+
+        if (this.TryFailIfAutoRetainerTookOver())
             return;
 
         switch (this.step)
@@ -601,7 +646,7 @@ public sealed unsafe class GwenDreamService : IDisposable
         }
     }
 
-    private List<DreamTarget> FindDreamTargets(RecipePlanDetails details, out string error)
+    private List<DreamTarget> FindDreamTargets(RecipePlanDetails details, out string error, bool logErrors = true)
     {
         var storedRetainers = this.inventoryService.GetStoredRetainers();
         if (storedRetainers.Count == 0)
@@ -618,7 +663,8 @@ public sealed unsafe class GwenDreamService : IDisposable
                 out var plannedTargets,
                 out error))
         {
-            this.fileLog.Warning("Dream", $"Could not build Dream withdrawal plan: {error}");
+            if (logErrors)
+                this.fileLog.Warning("Dream", $"Could not build Dream withdrawal plan: {error}");
             return [];
         }
 
@@ -1648,6 +1694,111 @@ public sealed unsafe class GwenDreamService : IDisposable
         this.IsAddonVisible("RetainerItemTransferList") ||
         this.IsAddonVisible("InputNumeric");
 
+    private bool IsAutoRetainerBusy() => this.TryGetAutoRetainerBusyMessage(out _);
+
+    private bool TryFailIfAutoRetainerTookOver()
+    {
+        if (!this.TryGetAutoRetainerBusyMessage(out var busyMessage))
+            return false;
+
+        this.Fail(busyMessage);
+        return true;
+    }
+
+    private bool TryGetAutoRetainerBusyMessage(out string message)
+    {
+        message = string.Empty;
+        if (!this.IsAutoRetainerAvailable)
+            return false;
+
+        if (!this.TryIsAutoRetainerBusy(out var stateDescription))
+            return false;
+
+        message = string.IsNullOrWhiteSpace(stateDescription)
+            ? "AutoRetainer is currently processing retainers. Wait for it to finish, then try Gwen's Dream again."
+            : $"AutoRetainer is currently processing retainers ({stateDescription}). Wait for it to finish, then try Gwen's Dream again.";
+        return true;
+    }
+
+    private bool TryIsAutoRetainerBusy(out string stateDescription)
+    {
+        stateDescription = string.Empty;
+
+        try
+        {
+            if (this.autoRetainerIsBusy.InvokeFunc())
+            {
+                stateDescription = this.DescribeAutoRetainerActivity();
+                return true;
+            }
+        }
+        catch
+        {
+            // Fall back to reflection for older or partially-loaded AutoRetainer builds.
+        }
+
+        return this.TryIsAutoRetainerBusyViaReflection(out stateDescription);
+    }
+
+    private bool TryIsAutoRetainerBusyViaReflection(out string stateDescription)
+    {
+        stateDescription = string.Empty;
+
+        try
+        {
+            var assembly = AppDomain.CurrentDomain
+                .GetAssemblies()
+                .FirstOrDefault(candidate => string.Equals(
+                    candidate.GetName().Name,
+                    "AutoRetainer",
+                    StringComparison.OrdinalIgnoreCase));
+            if (assembly is null)
+                return false;
+
+            var activeStates = new List<string>();
+
+            var pluginType = assembly.GetType("AutoRetainer.AutoRetainer", false);
+            var pluginField = pluginType?.GetField("P", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+            var pluginInstance = pluginField?.GetValue(null);
+            var taskManagerInstance = pluginType?.GetField("TaskManager", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                ?.GetValue(pluginInstance);
+            var taskManagerBusy = taskManagerInstance?.GetType().GetProperty("IsBusy", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                ?.GetValue(taskManagerInstance);
+            if (taskManagerBusy is bool { } taskQueueBusy && taskQueueBusy)
+                activeStates.Add("task queue busy");
+
+            var schedulerType = assembly.GetType("AutoRetainer.Scheduler.SchedulerMain", false);
+            var pluginEnabled = schedulerType?.GetProperty("PluginEnabled", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
+                ?.GetValue(null);
+            if (pluginEnabled is bool { } schedulerEnabled && schedulerEnabled)
+                activeStates.Add("scheduler enabled");
+
+            var retainerPostProcessLocked = schedulerType?.GetField("RetainerPostProcessLocked", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
+                ?.GetValue(null);
+            if (retainerPostProcessLocked is bool { } retainerLocked && retainerLocked)
+                activeStates.Add("retainer post-process");
+
+            var characterPostProcessLocked = schedulerType?.GetField("CharacterPostProcessLocked", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
+                ?.GetValue(null);
+            if (characterPostProcessLocked is bool { } characterLocked && characterLocked)
+                activeStates.Add("character post-process");
+
+            stateDescription = string.Join(", ", activeStates);
+            return activeStates.Count > 0;
+        }
+        catch (Exception exception)
+        {
+            this.fileLog.Warning("Dream", $"Could not inspect AutoRetainer state: {exception.Message}");
+            return false;
+        }
+    }
+
+    private string DescribeAutoRetainerActivity()
+    {
+        this.TryIsAutoRetainerBusyViaReflection(out var stateDescription);
+        return stateDescription;
+    }
+
     private bool HasVisibleRetainerGrid() =>
         this.IsAddonVisible("RetainerGrid0") ||
         this.IsAddonVisible("RetainerGrid1") ||
@@ -1784,3 +1935,21 @@ public sealed unsafe class GwenDreamService : IDisposable
         uint WithdrawQuantity,
         uint SnapshotQuantity);
 }
+
+public sealed record DreamDebugSnapshot(
+    string StepName,
+    bool IsActive,
+    bool AutoRetainerAvailable,
+    bool AutoRetainerBusy,
+    bool LastRunSucceeded,
+    bool StatusIsError,
+    string StatusMessage,
+    string OpenRetainerName,
+    int PendingTargets,
+    int ActiveTargetIndex,
+    string ActiveTargetSummary,
+    int RetainerSelectAttempt,
+    bool WithdrawIssued,
+    TimeSpan StepElapsed,
+    uint CompletionSequence,
+    string VisibleRetainerAddons);

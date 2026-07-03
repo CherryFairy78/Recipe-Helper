@@ -55,6 +55,8 @@ public sealed unsafe class RetainerSnapshotService : IDisposable
 
     public event Action? SnapshotsChanged;
 
+    public string SnapshotPath => this.snapshotPath;
+
     public IReadOnlyList<StoredRetainerInventory> GetSnapshots()
     {
         lock (this.snapshotLock)

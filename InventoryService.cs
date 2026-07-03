@@ -63,6 +63,8 @@ public sealed unsafe class InventoryService : IDisposable
     public IReadOnlyList<StoredRetainerInventory> GetStoredRetainers() =>
         this.retainerSnapshotService.GetSnapshots();
 
+    public string RetainerSnapshotPath => this.retainerSnapshotService.SnapshotPath;
+
     private IReadOnlyDictionary<uint, OwnedInventoryItem> GetOwnedItems(
         bool includeStoredRetainers,
         bool updateStats)

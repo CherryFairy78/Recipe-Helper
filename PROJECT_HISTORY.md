@@ -402,6 +402,16 @@ Recipe Helper searches FFXIV recipes, calculates the materials required for a ch
 - Prepared Recipe Helper v1.1.12.0 for the next live release.
 - Verification after preparing v1.1.12: Debug and Release builds both succeeded with zero warnings and zero errors, the Release manifest reports `1.1.12.0`, and the publish ZIP `artifacts\Release\DalamudRecipeHelper-v1.1.12.zip` was created with SHA-256 `207E271E8A046EC44D307ED8D28585D9519387F38DB0E1948E62BAAF58CA80B4`.
 
+### 2026-07-03
+
+- Folded Customisation and Debug access into Settings, added support-report copy and clear actions, and now clear the debug log when the Debug window closes so reports stay short and current.
+- Expanded UI scaling with 60%-100% interface steps, global text scaling, broader layout fixes for scaled tables and recipe rows, and side-by-side placement for the selected-recipe Artisan and `Gwen's Dream` actions.
+- Added richer colour customization, moved option help text beside controls where needed, and kept the in-game support flow centered on the Settings area rather than opening extra top-level windows.
+- Hardened `Gwen's Dream` against AutoRetainer conflicts by detecting when AutoRetainer is already processing retainers, stopping cleanly instead of timing out, and surfacing the busy state in the debug report.
+- Rebuilt the local Debug deployment after the v1.1.13 version bump so the active dev plugin copy matches the Release build again, and added a version-parity check to `tools\Prepare-Release.ps1` to catch future Debug/Release/dev-plugin drift before publishing.
+- Prepared Recipe Helper v1.1.13.0 for the next live release.
+- Verification after preparing v1.1.13: Debug and Release builds both succeeded with zero warnings and zero errors, the Release manifest reports `1.1.13.0`, and the publish ZIP `artifacts\Release\DalamudRecipeHelper-v1.1.13.zip` was created with SHA-256 `16083E59F18BA39D5B73C1C8CC0E389B986B56DC016AAD43E21A4AFC85ADD284`.
+
 ## Continuation checklist
 
 When returning to this project:

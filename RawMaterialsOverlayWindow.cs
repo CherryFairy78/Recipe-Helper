@@ -99,6 +99,7 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
 
     public override void Draw()
     {
+        WindowTheme.ApplyTextScale(this.configuration);
         if (this.inventoryRefreshRequested)
         {
             this.inventoryRefreshRequested = false;
@@ -114,6 +115,7 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
             if (ImGui.IsItemHovered())
             {
                 ImGui.BeginTooltip();
+                WindowTheme.ApplyTextScale(this.configuration);
                 ImGui.TextColored(this.configuration.AccentColor, "Selected recipes");
                 foreach (var recipeName in this.selectedRecipeNames)
                     ImGui.BulletText(recipeName);
@@ -653,6 +655,7 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
             return;
 
         ImGui.BeginTooltip();
+        WindowTheme.ApplyTextScale(Plugin.PluginInterface.GetPluginConfig() as Configuration ?? new Configuration());
         ImGui.TextUnformatted(text);
         ImGui.EndTooltip();
     }

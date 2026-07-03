@@ -39,6 +39,27 @@ public static class WindowTheme
             new Vector4(accent.X, accent.Y, accent.Z, 0.62f));
     }
 
+    public static void ApplyTextScale(Configuration configuration, bool includeMainWindowScale = false)
+    {
+        var scale = GetTextScale(configuration);
+        if (includeMainWindowScale)
+            scale *= GetMainInterfaceScale(configuration);
+
+        ImGui.SetWindowFontScale(scale);
+    }
+
+    public static int GetMainWindowScalePercent(Configuration configuration) =>
+        Math.Clamp(configuration.MainWindowScalePercent, 60, 100);
+
+    public static float GetMainInterfaceScale(Configuration configuration) =>
+        GetMainWindowScalePercent(configuration) / 100f;
+
+    public static int GetTextScalePercent(Configuration configuration) =>
+        Math.Clamp(configuration.TextScalePercent, 80, 150);
+
+    public static float GetTextScale(Configuration configuration) =>
+        GetTextScalePercent(configuration) / 100f;
+
     public static void Pop() => ImGui.PopStyleColor(PushedColorCount);
 
     private static Vector4 Adjust(Vector4 color, float amount, float alpha) =>

@@ -56,6 +56,8 @@ public sealed class Plugin : IDalamudPlugin
     private readonly WindowSystem windowSystem = new("DalamudRecipeHelper");
     private readonly RecipeWindow recipeWindow;
     private readonly SettingsWindow settingsWindow;
+    private readonly AppearanceSettingsWindow appearanceSettingsWindow;
+    private readonly DebugWindow debugWindow;
     private readonly RawMaterialsOverlayWindow rawMaterialsOverlayWindow;
     private readonly PluginIntegrationService pluginIntegrationService;
     private readonly GwenDreamService gwenDreamService;
@@ -64,10 +66,12 @@ public sealed class Plugin : IDalamudPlugin
     private readonly SavedPlanStorageService savedPlanStorage;
     private readonly string[] mainCommands;
     private readonly string overlayCommand;
+    private bool debugWindowWasOpen;
 
     public Plugin()
     {
         this.fileLog = new FileLogService(PluginInterface.GetPluginConfigDirectory());
+        this.fileLog.ClearLogs();
         this.fileLog.Info("Plugin", $"Started. Logs: {this.fileLog.LogDirectory}");
         this.mainCommands = PluginInterface.IsDev
             ? DevelopmentMainCommands
@@ -87,7 +91,6 @@ public sealed class Plugin : IDalamudPlugin
             this.fileLog);
         if (this.savedPlanStorage.RestoreOrMirror(this.configuration))
             PluginInterface.SavePluginConfig(this.configuration);
-        this.settingsWindow = new SettingsWindow(this.configuration, this.SaveConfiguration);
         var aetherialReductionService = new AetherialReductionService(DataManager, this.fileLog);
         var marketboardPriceService = new MarketboardPriceService(this.fileLog);
         this.pluginIntegrationService =
@@ -105,10 +108,7 @@ public sealed class Plugin : IDalamudPlugin
             this.fileLog,
             retainerSnapshotService,
             GameInventory);
-        var recipeService = new RecipeService(
-            DataManager,
-            this.fileLog,
-            aetherialReductionService);
+        var recipeService = new RecipeService(DataManager, this.fileLog, aetherialReductionService);
         this.gwenDreamService = new GwenDreamService(
             this.fileLog,
             recipeService,
@@ -118,6 +118,20 @@ public sealed class Plugin : IDalamudPlugin
             GameGui,
             TargetManager,
             ObjectTable);
+        this.appearanceSettingsWindow = new AppearanceSettingsWindow(
+            this.configuration,
+            this.SaveConfiguration);
+        this.debugWindow = new DebugWindow(
+            this.configuration,
+            this.fileLog,
+            inventoryService,
+            this.gwenDreamService,
+            PluginInterface.GetPluginConfigDirectory());
+        this.settingsWindow = new SettingsWindow(
+            this.configuration,
+            this.SaveConfiguration,
+            this.appearanceSettingsWindow,
+            this.debugWindow);
         this.rawMaterialsOverlayWindow = new RawMaterialsOverlayWindow(
             this.pluginIntegrationService,
             aetherialReductionService,
@@ -141,7 +155,10 @@ public sealed class Plugin : IDalamudPlugin
             this.rawMaterialsOverlayWindow);
         this.windowSystem.AddWindow(this.recipeWindow);
         this.windowSystem.AddWindow(this.settingsWindow);
+        this.windowSystem.AddWindow(this.appearanceSettingsWindow);
+        this.windowSystem.AddWindow(this.debugWindow);
         this.windowSystem.AddWindow(this.rawMaterialsOverlayWindow);
+        this.debugWindowWasOpen = this.debugWindow.IsOpen;
 
         foreach (var command in this.mainCommands)
         {
@@ -156,7 +173,7 @@ public sealed class Plugin : IDalamudPlugin
             HelpMessage = "Toggle the Recipe Helper Missing Items Overlay.",
         });
 
-        PluginInterface.UiBuilder.Draw += this.windowSystem.Draw;
+        PluginInterface.UiBuilder.Draw += this.OnDraw;
         PluginInterface.UiBuilder.OpenConfigUi += this.OpenSettings;
         PluginInterface.UiBuilder.OpenMainUi += this.Open;
     }
@@ -164,7 +181,7 @@ public sealed class Plugin : IDalamudPlugin
     public void Dispose()
     {
         this.fileLog.Info("Plugin", "Stopping.");
-        PluginInterface.UiBuilder.Draw -= this.windowSystem.Draw;
+        PluginInterface.UiBuilder.Draw -= this.OnDraw;
         PluginInterface.UiBuilder.OpenConfigUi -= this.OpenSettings;
         PluginInterface.UiBuilder.OpenMainUi -= this.Open;
         foreach (var command in this.mainCommands)
@@ -175,6 +192,7 @@ public sealed class Plugin : IDalamudPlugin
         this.gwenDreamService.Dispose();
         this.rawMaterialsOverlayWindow.Dispose();
         this.recipeWindow.Dispose();
+        this.fileLog.ClearLogs();
     }
 
     private void OnCommand(string command, string args)
@@ -206,6 +224,16 @@ public sealed class Plugin : IDalamudPlugin
     private void Open() => this.recipeWindow.IsOpen = true;
 
     private void OpenSettings() => this.settingsWindow.IsOpen = true;
+
+    private void OnDraw()
+    {
+        this.windowSystem.Draw();
+
+        if (this.debugWindowWasOpen && !this.debugWindow.IsOpen)
+            this.debugWindow.ClearOnClose();
+
+        this.debugWindowWasOpen = this.debugWindow.IsOpen;
+    }
 
     private void SaveConfiguration()
     {

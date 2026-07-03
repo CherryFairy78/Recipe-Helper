@@ -20,6 +20,7 @@ public static class MaterialUsageTooltip
             new Vector2(320, 0),
             new Vector2(520, 420));
         ImGui.BeginTooltip();
+        WindowTheme.ApplyTextScale(configuration);
 
         ImGui.TextColored(configuration.AccentColor, material.Name);
         ImGui.TextDisabled("Marketboard snapshot via Universalis");
