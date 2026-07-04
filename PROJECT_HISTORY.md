@@ -427,6 +427,9 @@ Recipe Helper searches FFXIV recipes, calculates the materials required for a ch
 - Added recipe job abbreviations to both normal search and `Can craft` results, combined multiple jobs when one craftable item can come from different recipes, and added a job filter to the results pane.
 - Prepared Recipe Helper v1.1.16.0 for the next live release.
 - Verification after preparing v1.1.16: Debug build succeeded with zero warnings and zero errors, Release compilation produced the fresh `1.1.16.0` DLL but the automated packager hit the same manifest file-lock on `DalamudRecipeHelper.json`, the Release manifest was refreshed manually from the root manifest, and the publish ZIP `artifacts\Release\DalamudRecipeHelper-v1.1.16.zip` was created with SHA-256 `7BF59D457E102A06981A09CC61048097EE842CE3EE910FF03FD10E2C369186C0`.
+- Hardened `Gwen's Dream` retainer-list selection so the active target retainer name is always considered during matching, list text is normalized more loosely, and diagnostic logging now reports visible retainer entries when Dream can see the list but cannot select a row yet.
+- Prepared Recipe Helper v1.1.17.0 for the next live release.
+- Verification after preparing v1.1.17: Debug build succeeded with zero warnings and zero errors, Release compilation produced the fresh `1.1.17.0` DLL but the automated packager hit the same manifest file-lock on `DalamudRecipeHelper.json`, the Release manifest was refreshed manually from the root manifest, and the publish ZIP `artifacts\Release\DalamudRecipeHelper-v1.1.17.zip` was created with SHA-256 `5A74CBB348D41BF0C1180B55549A36BF775583CFB4F4D22EB7391688A3060845`.
 
 ## Continuation checklist
 

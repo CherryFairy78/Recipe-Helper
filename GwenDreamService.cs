@@ -53,6 +53,7 @@ public sealed unsafe class GwenDreamService : IDisposable
     private DateTime stepStartedAt;
     private DateTime nextUiAdvanceAt;
     private DateTime lastCloseDebugAt;
+    private DateTime nextRetainerListDiagnosticAt;
     private int retainerSelectAttempt;
     private uint initialLiveQuantity;
     private bool withdrawIssued;
@@ -193,6 +194,7 @@ public sealed unsafe class GwenDreamService : IDisposable
                         return;
                     }
 
+                    this.TryLogRetainerListSelectionState(this.activeTarget.RetainerName);
                     this.MoveToStep(
                         DreamStep.WaitingForRetainerSelection,
                         $"Retainer list opened for {this.activeTarget.RetainerName}. Waiting for the retainer entry to become selectable.");
@@ -222,6 +224,7 @@ public sealed unsafe class GwenDreamService : IDisposable
                         return;
                     }
 
+                    this.TryLogRetainerListSelectionState(this.activeTarget.RetainerName);
                     this.UpdateStatus(
                         $"Retainer list opened for {this.activeTarget.RetainerName}. Waiting for the retainer entry to become selectable.",
                         false);
@@ -1640,16 +1643,15 @@ public sealed unsafe class GwenDreamService : IDisposable
 
     private int? FindRetainerListIndex(AtkUnitBase* unitBase, string retainerName)
     {
-        var normalizedTarget = retainerName.Trim();
+        var normalizedTarget = NormalizeRetainerListText(retainerName);
         if (normalizedTarget.Length == 0)
             return null;
 
         var knownRetainerNames = this.inventoryService.GetStoredRetainers()
-            .Select(retainer => retainer.Name.Trim())
+            .Select(retainer => NormalizeRetainerListText(retainer.Name))
             .Where(name => !string.IsNullOrWhiteSpace(name))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        if (knownRetainerNames.Count == 0)
-            knownRetainerNames.Add(normalizedTarget);
+        knownRetainerNames.Add(normalizedTarget);
 
         var currentIndex = 0;
         for (var i = 0; i < unitBase->UldManager.NodeListCount; i++)
@@ -1659,11 +1661,11 @@ public sealed unsafe class GwenDreamService : IDisposable
                 continue;
 
             var textNode = (AtkTextNode*)node;
-            var text = textNode->NodeText.ToString().Trim();
+            var text = NormalizeRetainerListText(textNode->NodeText.ToString());
             if (!knownRetainerNames.Contains(text))
                 continue;
 
-            if (text.Equals(normalizedTarget, StringComparison.OrdinalIgnoreCase))
+            if (IsRetainerListNameMatch(text, normalizedTarget))
                 return currentIndex;
 
             currentIndex++;
@@ -1692,6 +1694,99 @@ public sealed unsafe class GwenDreamService : IDisposable
 
         return this.FindRetainerListIndex(unitBase, retainerName) is not null;
     }
+
+    private void TryLogRetainerListSelectionState(string retainerName)
+    {
+        if (DateTime.UtcNow < this.nextRetainerListDiagnosticAt)
+            return;
+
+        this.nextRetainerListDiagnosticAt = DateTime.UtcNow.AddSeconds(2);
+        var addon = this.gameGui.GetAddonByName("RetainerList", 1);
+        if (addon.Address == IntPtr.Zero)
+            return;
+
+        var unitBase = (AtkUnitBase*)addon.Address;
+        if (!unitBase->IsVisible)
+            return;
+
+        var normalizedTarget = NormalizeRetainerListText(retainerName);
+        var visibleEntries = this.GetVisibleRetainerListEntries(unitBase);
+        var entrySummary = visibleEntries.Count == 0
+            ? "none"
+            : string.Join(" | ", visibleEntries.Select(entry => $"[{entry.Index}] {entry.Name}"));
+        this.fileLog.Info(
+            "Dream",
+            $"Retainer list visible but '{normalizedTarget}' is not selectable yet. Visible entries: {entrySummary}");
+    }
+
+    private List<(int Index, string Name)> GetVisibleRetainerListEntries(AtkUnitBase* unitBase)
+    {
+        var entries = new List<(int Index, string Name)>();
+        var knownRetainerNames = this.inventoryService.GetStoredRetainers()
+            .Select(retainer => NormalizeRetainerListText(retainer.Name))
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var currentIndex = 0;
+        for (var i = 0; i < unitBase->UldManager.NodeListCount; i++)
+        {
+            var node = unitBase->UldManager.NodeList[i];
+            if (node is null || node->Type != NodeType.Text)
+                continue;
+
+            var textNode = (AtkTextNode*)node;
+            var text = NormalizeRetainerListText(textNode->NodeText.ToString());
+            if (string.IsNullOrWhiteSpace(text))
+                continue;
+
+            if (knownRetainerNames.Count > 0)
+            {
+                if (!knownRetainerNames.Contains(text))
+                    continue;
+            }
+            else if (!LooksLikeRetainerListEntry(text))
+            {
+                continue;
+            }
+
+            if (entries.Any(entry => entry.Name.Equals(text, StringComparison.OrdinalIgnoreCase)))
+                continue;
+
+            entries.Add((currentIndex, text));
+            currentIndex++;
+        }
+
+        return entries;
+    }
+
+    private static bool IsRetainerListNameMatch(string visibleName, string targetName)
+    {
+        if (visibleName.Equals(targetName, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return visibleName.StartsWith(targetName + " ", StringComparison.OrdinalIgnoreCase) ||
+               visibleName.StartsWith(targetName + "\u00A0", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizeRetainerListText(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return string.Empty;
+
+        var cleanText = text
+            .Replace('\u00A0', ' ')
+            .Replace('\r', ' ')
+            .Trim();
+        var firstLine = cleanText
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .FirstOrDefault();
+        return firstLine ?? cleanText;
+    }
+
+    private static bool LooksLikeRetainerListEntry(string text) =>
+        text.Length > 1 &&
+        text.Length <= 32 &&
+        text.Any(char.IsLetterOrDigit);
 
     private bool IsSummoningBellTarget(IGameObject target)
     {
@@ -1944,6 +2039,8 @@ public sealed unsafe class GwenDreamService : IDisposable
         }
         if (nextStep != DreamStep.WaitingForRetainerSelection)
             this.retainerSelectAttempt = 0;
+        if (nextStep != DreamStep.WaitingForRetainerSelection)
+            this.nextRetainerListDiagnosticAt = DateTime.MinValue;
         if (nextStep != DreamStep.WaitingForWithdraw)
             this.withdrawIssued = false;
         this.UpdateStatus(message, false);
@@ -1956,6 +2053,7 @@ public sealed unsafe class GwenDreamService : IDisposable
         this.pendingTargets.Clear();
         this.activeTargetIndex = 0;
         this.retainerSelectAttempt = 0;
+        this.nextRetainerListDiagnosticAt = DateTime.MinValue;
         this.withdrawIssued = false;
         this.LastRunSucceeded = false;
         this.completionSequence++;
