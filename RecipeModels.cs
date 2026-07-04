@@ -4,7 +4,12 @@ using System.Linq;
 
 namespace DalamudRecipeHelper;
 
-public sealed record RecipeMatch(uint RecipeId, uint ResultItemId, string ResultName, uint ResultAmount);
+public sealed record RecipeMatch(
+    uint RecipeId,
+    uint ResultItemId,
+    string ResultName,
+    uint ResultAmount,
+    string JobAbbreviations);
 
 public sealed record CraftableRecipeAvailability(
     RecipeMatch Recipe,
@@ -31,6 +36,8 @@ public sealed class SavedRecipePlanEntry
     public string ResultName { get; set; } = string.Empty;
 
     public uint ResultAmount { get; set; }
+
+    public string JobAbbreviations { get; set; } = string.Empty;
 
     public uint DesiredAmount { get; set; }
 }

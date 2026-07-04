@@ -246,14 +246,17 @@ public sealed class RecipeWindow : Window, IDisposable
                     ImGui.PushID((int)result.RecipeId);
                     var isSelected = this.selectedRecipes.Any(
                         selection => selection.Recipe.RecipeId == result.RecipeId);
+                    var jobPrefix = string.IsNullOrWhiteSpace(result.JobAbbreviations)
+                        ? string.Empty
+                        : $"{result.JobAbbreviations} | ";
                     var subtitle = this.showingCraftableRecipes &&
                                    this.craftableAvailability.TryGetValue(
                                        result.RecipeId,
                                        out var availability)
-                        ? $"{availability.CraftCount:N0} crafts | {availability.OutputAmount:N0} items"
+                        ? $"{jobPrefix}{availability.CraftCount:N0} crafts | {availability.OutputAmount:N0} items"
                         : isSelected
-                            ? "Added to plan"
-                            : $"Click to add | Yield {result.ResultAmount}";
+                            ? $"{jobPrefix}Added to plan"
+                            : $"{jobPrefix}Click to add | Yield {result.ResultAmount}";
 
                     var rowWidth = Math.Max(1f, ImGui.GetContentRegionAvail().X);
                     var rowHeight = this.ScaleUi(48f);
@@ -1368,6 +1371,7 @@ public sealed class RecipeWindow : Window, IDisposable
             ResultItemId = recipe.ResultItemId,
             ResultName = recipe.ResultName,
             ResultAmount = recipe.ResultAmount,
+            JobAbbreviations = recipe.JobAbbreviations,
             DesiredAmount = recipe.DesiredAmount,
         };
 
@@ -1410,6 +1414,7 @@ public sealed class RecipeWindow : Window, IDisposable
                     ResultItemId = selection.Recipe.ResultItemId,
                     ResultName = selection.Recipe.ResultName,
                     ResultAmount = selection.Recipe.ResultAmount,
+                    JobAbbreviations = selection.Recipe.JobAbbreviations,
                     DesiredAmount = selection.DesiredAmount,
                 }).ToList(),
         };
@@ -1508,7 +1513,8 @@ public sealed class RecipeWindow : Window, IDisposable
                     savedRecipe.RecipeId,
                     savedRecipe.ResultItemId,
                     savedRecipe.ResultName,
-                    Math.Max(1, savedRecipe.ResultAmount)),
+                    Math.Max(1, savedRecipe.ResultAmount),
+                    savedRecipe.JobAbbreviations),
                 Math.Max(1, savedRecipe.DesiredAmount)));
         }
 
@@ -1550,7 +1556,8 @@ public sealed class RecipeWindow : Window, IDisposable
                         first.RecipeId,
                         first.ResultItemId,
                         first.ResultName,
-                        Math.Max(1U, first.ResultAmount)),
+                        Math.Max(1U, first.ResultAmount),
+                        first.JobAbbreviations),
                     desiredAmount);
             })
             .OrderBy(selection => selection.Recipe.ResultName)

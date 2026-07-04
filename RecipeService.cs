@@ -11,6 +11,19 @@ namespace DalamudRecipeHelper;
 
 public sealed class RecipeService
 {
+    private static readonly IReadOnlyDictionary<string, string> CraftingJobAbbreviations =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Carpenter"] = "CRP",
+            ["Blacksmith"] = "BSM",
+            ["Armorer"] = "ARM",
+            ["Goldsmith"] = "GSM",
+            ["Leatherworker"] = "LTW",
+            ["Weaver"] = "WVR",
+            ["Alchemist"] = "ALC",
+            ["Culinarian"] = "CUL",
+        };
+
     private readonly IDataManager dataManager;
     private readonly FileLogService fileLog;
     private readonly AetherialReductionService aetherialReductionService;
@@ -1044,7 +1057,47 @@ public sealed class RecipeService
             return null;
 
         var amount = this.ReadUInt(recipe, "AmountResult");
-        return new RecipeMatch(recipe.RowId, resultItemId, resultName, Math.Max(1, amount));
+        return new RecipeMatch(
+            recipe.RowId,
+            resultItemId,
+            resultName,
+            Math.Max(1, amount),
+            this.GetRecipeJobAbbreviations(recipe));
+    }
+
+    private string GetRecipeJobAbbreviations(Recipe recipe)
+    {
+        var jobs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        this.TryAddJobAbbreviationFromValue(ReadMember(recipe, "CraftType"), jobs);
+        this.TryAddJobAbbreviationFromValue(ReadMember(recipe, "ClassJob"), jobs);
+        return jobs.Count == 0
+            ? string.Empty
+            : string.Join(" / ", jobs.OrderBy(static job => job));
+    }
+
+    private void TryAddJobAbbreviationFromValue(object? value, ISet<string> jobs)
+    {
+        if (value is null)
+            return;
+
+        const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public;
+        var nestedValue = value.GetType().GetProperty("Value", flags)?.GetValue(value);
+        if (nestedValue is not null && !ReferenceEquals(nestedValue, value))
+        {
+            this.TryAddJobAbbreviationFromValue(nestedValue, jobs);
+            return;
+        }
+
+        var abbreviation = value.GetType().GetProperty("Abbreviation", flags)?.GetValue(value)?.ToString();
+        if (!string.IsNullOrWhiteSpace(abbreviation))
+        {
+            jobs.Add(abbreviation.Trim().ToUpperInvariant());
+            return;
+        }
+
+        var name = value.GetType().GetProperty("Name", flags)?.GetValue(value)?.ToString()?.Trim();
+        if (!string.IsNullOrWhiteSpace(name) && CraftingJobAbbreviations.TryGetValue(name, out var mappedAbbreviation))
+            jobs.Add(mappedAbbreviation);
     }
 
     private string GetItemName(uint itemId)

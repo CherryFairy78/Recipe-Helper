@@ -1814,6 +1814,7 @@ public sealed unsafe class GwenDreamService : IDisposable
                 return false;
 
             var activeStates = new List<string>();
+            var isBusy = false;
 
             var pluginType = assembly.GetType("AutoRetainer.AutoRetainer", false);
             var pluginField = pluginType?.GetField("P", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
@@ -1823,26 +1824,37 @@ public sealed unsafe class GwenDreamService : IDisposable
             var taskManagerBusy = taskManagerInstance?.GetType().GetProperty("IsBusy", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
                 ?.GetValue(taskManagerInstance);
             if (taskManagerBusy is bool { } taskQueueBusy && taskQueueBusy)
+            {
                 activeStates.Add("task queue busy");
+                isBusy = true;
+            }
 
             var schedulerType = assembly.GetType("AutoRetainer.Scheduler.SchedulerMain", false);
             var pluginEnabled = schedulerType?.GetProperty("PluginEnabled", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
                 ?.GetValue(null);
-            if (pluginEnabled is bool { } schedulerEnabled && schedulerEnabled)
-                activeStates.Add("scheduler enabled");
+            var schedulerEnabled = pluginEnabled is bool { } schedulerRunning && schedulerRunning;
 
             var retainerPostProcessLocked = schedulerType?.GetField("RetainerPostProcessLocked", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
                 ?.GetValue(null);
             if (retainerPostProcessLocked is bool { } retainerLocked && retainerLocked)
+            {
                 activeStates.Add("retainer post-process");
+                isBusy = true;
+            }
 
             var characterPostProcessLocked = schedulerType?.GetField("CharacterPostProcessLocked", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
                 ?.GetValue(null);
             if (characterPostProcessLocked is bool { } characterLocked && characterLocked)
+            {
                 activeStates.Add("character post-process");
+                isBusy = true;
+            }
+
+            if (isBusy && schedulerEnabled)
+                activeStates.Add("scheduler enabled");
 
             stateDescription = string.Join(", ", activeStates);
-            return activeStates.Count > 0;
+            return isBusy;
         }
         catch (Exception exception)
         {
