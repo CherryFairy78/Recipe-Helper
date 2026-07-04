@@ -11,6 +11,19 @@ namespace DalamudRecipeHelper;
 
 public sealed class RecipeService
 {
+    private static readonly IReadOnlyDictionary<uint, string> CraftingJobAbbreviationsByCraftTypeId =
+        new Dictionary<uint, string>
+        {
+            [0] = "CRP",
+            [1] = "BSM",
+            [2] = "ARM",
+            [3] = "GSM",
+            [4] = "LTW",
+            [5] = "WVR",
+            [6] = "ALC",
+            [7] = "CUL",
+        };
+
     private static readonly IReadOnlyDictionary<string, string> CraftingJobAbbreviations =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -98,10 +111,27 @@ public sealed class RecipeService
             })
             .Where(availability => availability.CraftCount > 0)
             .GroupBy(availability => availability.Recipe.ResultItemId)
-            .Select(group => group
-                .OrderByDescending(availability => availability.CraftCount)
-                .ThenBy(availability => availability.Recipe.RecipeId)
-                .First())
+            .Select(group =>
+            {
+                var selectedAvailability = group
+                    .OrderByDescending(availability => availability.CraftCount)
+                    .ThenBy(availability => availability.Recipe.RecipeId)
+                    .First();
+                var combinedJobs = string.Join(
+                    " / ",
+                    group.SelectMany(availability => SplitJobAbbreviations(availability.Recipe.JobAbbreviations))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .OrderBy(static job => job));
+                return string.IsNullOrWhiteSpace(combinedJobs)
+                    ? selectedAvailability
+                    : selectedAvailability with
+                    {
+                        Recipe = selectedAvailability.Recipe with
+                        {
+                            JobAbbreviations = combinedJobs,
+                        },
+                    };
+            })
             .OrderBy(availability => availability.Recipe.ResultName)
             .ThenBy(availability => availability.Recipe.RecipeId)
             .ToList();
@@ -1081,10 +1111,25 @@ public sealed class RecipeService
             return;
 
         const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public;
+
+        if (value is System.Collections.IEnumerable enumerable && value is not string)
+        {
+            foreach (var entry in enumerable)
+                this.TryAddJobAbbreviationFromValue(entry, jobs);
+        }
+
         var nestedValue = value.GetType().GetProperty("Value", flags)?.GetValue(value);
         if (nestedValue is not null && !ReferenceEquals(nestedValue, value))
         {
             this.TryAddJobAbbreviationFromValue(nestedValue, jobs);
+            return;
+        }
+
+        var rowId = value.GetType().GetProperty("RowId", flags)?.GetValue(value);
+        if (rowId is uint typedRowId &&
+            CraftingJobAbbreviationsByCraftTypeId.TryGetValue(typedRowId, out var mappedByRowId))
+        {
+            jobs.Add(mappedByRowId);
             return;
         }
 
@@ -1099,6 +1144,14 @@ public sealed class RecipeService
         if (!string.IsNullOrWhiteSpace(name) && CraftingJobAbbreviations.TryGetValue(name, out var mappedAbbreviation))
             jobs.Add(mappedAbbreviation);
     }
+
+    private static IReadOnlyList<string> SplitJobAbbreviations(string jobAbbreviations) =>
+        string.IsNullOrWhiteSpace(jobAbbreviations)
+            ? []
+            : jobAbbreviations
+                .Split('/', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
 
     private string GetItemName(uint itemId)
     {

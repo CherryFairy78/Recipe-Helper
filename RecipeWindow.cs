@@ -37,6 +37,7 @@ public sealed class RecipeWindow : Window, IDisposable
     private string artisanCraftQueueError = string.Empty;
     private string searchText = string.Empty;
     private string resultFilter = string.Empty;
+    private string selectedJobFilter = string.Empty;
     private RecipePlanDetails? recipePlanDetails;
     private IReadOnlyDictionary<uint, OwnedInventoryItem> ownedItems = new Dictionary<uint, OwnedInventoryItem>();
     private IReadOnlyList<GatheringDestination> gatheringDestinations = [];
@@ -182,13 +183,19 @@ public sealed class RecipeWindow : Window, IDisposable
                 maximumSearchWidth);
             if (ImGui.BeginChild("results", new Vector2(leftWidth, 0), true))
             {
-                var displayedResults = string.IsNullOrWhiteSpace(this.resultFilter)
-                    ? this.searchResults
-                    : this.searchResults
-                        .Where(result => result.ResultName.Contains(
-                            this.resultFilter.Trim(),
-                            StringComparison.CurrentCultureIgnoreCase))
-                        .ToList();
+                var availableJobFilters = this.GetAvailableJobFilters();
+                if (!string.IsNullOrWhiteSpace(this.selectedJobFilter) &&
+                    !availableJobFilters.Contains(this.selectedJobFilter, StringComparer.OrdinalIgnoreCase))
+                    this.selectedJobFilter = string.Empty;
+
+                var displayedResults = this.searchResults
+                    .Where(result =>
+                        (string.IsNullOrWhiteSpace(this.resultFilter) ||
+                         result.ResultName.Contains(
+                             this.resultFilter.Trim(),
+                             StringComparison.CurrentCultureIgnoreCase)) &&
+                        this.MatchesJobFilter(result))
+                    .ToList();
                 ImGui.TextColored(
                     this.configuration.AccentColor,
                     this.showingCraftableRecipes ? "CRAFTABLE NOW" : "RECIPES");
@@ -218,6 +225,35 @@ public sealed class RecipeWindow : Window, IDisposable
                         if (ImGui.Button("Clear filter", new Vector2(this.ScaleUi(92f), 0)))
                             this.resultFilter = string.Empty;
                         DrawTooltipIfHovered("Clear the result filter only.");
+                    }
+
+                    if (availableJobFilters.Count > 0)
+                    {
+                        ImGui.SetNextItemWidth(-1);
+                        if (ImGui.BeginCombo(
+                                "##job-filter",
+                                string.IsNullOrWhiteSpace(this.selectedJobFilter)
+                                    ? "All jobs"
+                                    : this.selectedJobFilter))
+                        {
+                            var showAllJobs = string.IsNullOrWhiteSpace(this.selectedJobFilter);
+                            if (ImGui.Selectable("All jobs", showAllJobs))
+                                this.selectedJobFilter = string.Empty;
+
+                            foreach (var job in availableJobFilters)
+                            {
+                                var isSelectedJob = string.Equals(
+                                    this.selectedJobFilter,
+                                    job,
+                                    StringComparison.OrdinalIgnoreCase);
+                                if (ImGui.Selectable(job, isSelectedJob))
+                                    this.selectedJobFilter = job;
+                            }
+
+                            ImGui.EndCombo();
+                        }
+
+                        DrawTooltipIfHovered("Filter these results by crafting job.");
                     }
 
                     ImGui.Spacing();
@@ -486,6 +522,7 @@ public sealed class RecipeWindow : Window, IDisposable
     {
         this.showingCraftableRecipes = false;
         this.resultFilter = string.Empty;
+        this.selectedJobFilter = string.Empty;
         this.craftableAvailability =
             new Dictionary<uint, CraftableRecipeAvailability>();
         this.searchResults = this.recipeService.Search(this.searchText);
@@ -499,6 +536,8 @@ public sealed class RecipeWindow : Window, IDisposable
         this.showingCraftableRecipes = true;
         if (scanInventory)
             this.resultFilter = string.Empty;
+        if (scanInventory)
+            this.selectedJobFilter = string.Empty;
         this.searchText = string.Empty;
         var available = this.recipeService.GetCraftableRecipes(this.ownedItems);
         this.craftableAvailability = available.ToDictionary(
@@ -537,11 +576,32 @@ public sealed class RecipeWindow : Window, IDisposable
     {
         this.searchText = string.Empty;
         this.resultFilter = string.Empty;
+        this.selectedJobFilter = string.Empty;
         this.searchResults = [];
         this.showingCraftableRecipes = false;
         this.craftableAvailability =
             new Dictionary<uint, CraftableRecipeAvailability>();
     }
+
+    private IReadOnlyList<string> GetAvailableJobFilters() =>
+        this.searchResults
+            .SelectMany(result => SplitJobAbbreviations(result.JobAbbreviations))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(static job => job)
+            .ToList();
+
+    private bool MatchesJobFilter(RecipeMatch result) =>
+        string.IsNullOrWhiteSpace(this.selectedJobFilter) ||
+        SplitJobAbbreviations(result.JobAbbreviations)
+            .Any(job => string.Equals(job, this.selectedJobFilter, StringComparison.OrdinalIgnoreCase));
+
+    private static IReadOnlyList<string> SplitJobAbbreviations(string jobAbbreviations) =>
+        string.IsNullOrWhiteSpace(jobAbbreviations)
+            ? []
+            : jobAbbreviations
+                .Split('/', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
 
     private void RefreshDetails(bool scanInventory)
     {
