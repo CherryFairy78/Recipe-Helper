@@ -423,6 +423,10 @@ Recipe Helper searches FFXIV recipes, calculates the materials required for a ch
 - The pre-open recovery now ignores a normal `RetainerList` and only intervenes for genuine already-open inventory or prompt states.
 - Prepared Recipe Helper v1.1.15.0 for the next live release.
 - Verification after preparing v1.1.15: Debug build succeeded with zero warnings and zero errors, Release compilation produced the fresh `1.1.15.0` DLL but the automated packager hit the same manifest file-lock on `DalamudRecipeHelper.json`, the Release manifest was then refreshed manually from the root manifest, and the publish ZIP `artifacts\Release\DalamudRecipeHelper-v1.1.15.zip` was created with SHA-256 `2858A41F36A2FC258EE10BF0F9497394C8F152663A820E848597210B21784C36`.
+- Tightened `Gwen's Dream` AutoRetainer busy detection so an enabled scheduler alone no longer blocks Dream when AutoRetainer is otherwise idle.
+- Added recipe job abbreviations to both normal search and `Can craft` results, combined multiple jobs when one craftable item can come from different recipes, and added a job filter to the results pane.
+- Prepared Recipe Helper v1.1.16.0 for the next live release.
+- Verification after preparing v1.1.16: Debug build succeeded with zero warnings and zero errors, Release compilation produced the fresh `1.1.16.0` DLL but the automated packager hit the same manifest file-lock on `DalamudRecipeHelper.json`, the Release manifest was refreshed manually from the root manifest, and the publish ZIP `artifacts\Release\DalamudRecipeHelper-v1.1.16.zip` was created with SHA-256 `7BF59D457E102A06981A09CC61048097EE842CE3EE910FF03FD10E2C369186C0`.
 
 ## Continuation checklist
 
