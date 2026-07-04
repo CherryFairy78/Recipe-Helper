@@ -180,6 +180,9 @@ public sealed unsafe class GwenDreamService : IDisposable
         switch (this.step)
         {
             case DreamStep.WaitingForRetainerList:
+                if (this.TryHandleOpenRetainerBeforeList())
+                    return;
+
                 if (this.IsAddonVisible("RetainerList"))
                 {
                     if (this.TrySelectRetainerFromList(this.activeTarget.RetainerName))
@@ -1125,6 +1128,52 @@ public sealed unsafe class GwenDreamService : IDisposable
         return $"Dream target {this.activeTargetIndex + 1}/{this.pendingTargets.Count}: withdraw {target.WithdrawQuantity:N0} {target.ItemName} from {target.RetainerName}.";
     }
 
+    private bool TryHandleOpenRetainerBeforeList()
+    {
+        if (this.activeTarget is null)
+            return false;
+
+        if (this.TryGetOpenRetainerName(out var openRetainerName) &&
+            openRetainerName.Equals(this.activeTarget.RetainerName, StringComparison.OrdinalIgnoreCase) &&
+            this.IsRetainerInventoryOpen())
+        {
+            this.MoveToStep(
+                DreamStep.WaitingForWithdraw,
+                $"Retainer inventory was already open for {this.activeTarget.RetainerName}. Withdrawing {this.activeTarget.WithdrawQuantity:N0} {this.activeTarget.ItemName}.");
+            return true;
+        }
+
+        if (this.TryGetOpenRetainerName(out openRetainerName) &&
+            openRetainerName.Equals(this.activeTarget.RetainerName, StringComparison.OrdinalIgnoreCase) &&
+            (this.IsAddonVisible("Talk") ||
+             this.IsAddonVisible("Dialogue") ||
+             this.IsAddonVisible("SelectString")))
+        {
+            this.MoveToStep(
+                DreamStep.WaitingForPromptOrMenu,
+                $"Retainer {this.activeTarget.RetainerName} was already open. Waiting for the prompt or menu.");
+            return true;
+        }
+
+        if ((this.IsRetainerWindowVisible() || this.HasVisibleRetainerGrid() || this.IsRetainerAgentActive()) &&
+            DateTime.UtcNow >= this.nextUiAdvanceAt)
+        {
+            if (this.TryCloseRetainer())
+            {
+                this.UpdateStatus("A retainer window was already open. Closing it before starting Gwen's Dream.", false);
+                return true;
+            }
+        }
+
+        if (this.IsRetainerWindowVisible() || this.HasVisibleRetainerGrid() || this.IsRetainerAgentActive())
+        {
+            this.UpdateStatus("A retainer window is already open. Closing it before starting Gwen's Dream.", false);
+            return true;
+        }
+
+        return false;
+    }
+
     private bool TryCloseRetainer()
     {
         try
@@ -1681,7 +1730,7 @@ public sealed unsafe class GwenDreamService : IDisposable
           this.IsAddonVisible("InputNumeric")));
 
     private bool IsRetainerInventoryOpen() => this.TryGetOpenRetainerName(out _) &&
-        this.HasVisibleRetainerGrid();
+        (this.HasVisibleRetainerGrid() || this.IsRetainerInventoryShellVisible());
 
     private bool HasRetainerUiSignal() =>
         this.IsAddonVisible("Talk") ||

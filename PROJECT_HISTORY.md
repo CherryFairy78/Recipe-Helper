@@ -412,6 +412,14 @@ Recipe Helper searches FFXIV recipes, calculates the materials required for a ch
 - Prepared Recipe Helper v1.1.13.0 for the next live release.
 - Verification after preparing v1.1.13: Debug and Release builds both succeeded with zero warnings and zero errors, the Release manifest reports `1.1.13.0`, and the publish ZIP `artifacts\Release\DalamudRecipeHelper-v1.1.13.zip` was created with SHA-256 `16083E59F18BA39D5B73C1C8CC0E389B986B56DC016AAD43E21A4AFC85ADD284`.
 
+### 2026-07-04
+
+- Fixed a `Gwen's Dream` start-state failure where the flow could time out waiting for the retainer list if the user was already inside a retainer window when Dream began.
+- Dream now continues directly when the target retainer inventory or prompt state is already open, and it closes unrelated open retainer windows before retrying the normal list flow.
+- Broadened retainer inventory detection so the plain `InventoryRetainer` shell counts as an open retainer inventory even when the grid visibility is inconsistent.
+- Prepared Recipe Helper v1.1.14.0 for the next live release.
+- Verification after preparing v1.1.14: Debug build succeeded with zero warnings and zero errors, Release compilation produced the fresh `1.1.14.0` DLL but the automated packager hit a manifest file-lock on `DalamudRecipeHelper.json`, the Release manifest was then refreshed manually from the root manifest, and the publish ZIP `artifacts\Release\DalamudRecipeHelper-v1.1.14.zip` was created with SHA-256 `BB61B9C5491B08D06E37395658DD75A4724732E9E7EBEF53953B2D27C6B9162A`.
+
 ## Continuation checklist
 
 When returning to this project:
