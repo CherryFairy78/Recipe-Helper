@@ -419,6 +419,10 @@ Recipe Helper searches FFXIV recipes, calculates the materials required for a ch
 - Broadened retainer inventory detection so the plain `InventoryRetainer` shell counts as an open retainer inventory even when the grid visibility is inconsistent.
 - Prepared Recipe Helper v1.1.14.0 for the next live release.
 - Verification after preparing v1.1.14: Debug build succeeded with zero warnings and zero errors, Release compilation produced the fresh `1.1.14.0` DLL but the automated packager hit a manifest file-lock on `DalamudRecipeHelper.json`, the Release manifest was then refreshed manually from the root manifest, and the publish ZIP `artifacts\Release\DalamudRecipeHelper-v1.1.14.zip` was created with SHA-256 `BB61B9C5491B08D06E37395658DD75A4724732E9E7EBEF53953B2D27C6B9162A`.
+- Fixed the v1.1.14 regression where Dream could open the retainer list and immediately close it again because the new recovery path treated the normal retainer list as a pre-open retainer state.
+- The pre-open recovery now ignores a normal `RetainerList` and only intervenes for genuine already-open inventory or prompt states.
+- Prepared Recipe Helper v1.1.15.0 for the next live release.
+- Verification after preparing v1.1.15: Debug build succeeded with zero warnings and zero errors, Release compilation produced the fresh `1.1.15.0` DLL but the automated packager hit the same manifest file-lock on `DalamudRecipeHelper.json`, the Release manifest was then refreshed manually from the root manifest, and the publish ZIP `artifacts\Release\DalamudRecipeHelper-v1.1.15.zip` was created with SHA-256 `2858A41F36A2FC258EE10BF0F9497394C8F152663A820E848597210B21784C36`.
 
 ## Continuation checklist
 

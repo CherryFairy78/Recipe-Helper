@@ -1133,6 +1133,9 @@ public sealed unsafe class GwenDreamService : IDisposable
         if (this.activeTarget is null)
             return false;
 
+        if (this.IsActualRetainerListVisible())
+            return false;
+
         if (this.TryGetOpenRetainerName(out var openRetainerName) &&
             openRetainerName.Equals(this.activeTarget.RetainerName, StringComparison.OrdinalIgnoreCase) &&
             this.IsRetainerInventoryOpen())
@@ -1155,7 +1158,13 @@ public sealed unsafe class GwenDreamService : IDisposable
             return true;
         }
 
-        if ((this.IsRetainerWindowVisible() || this.HasVisibleRetainerGrid() || this.IsRetainerAgentActive()) &&
+        var hasPreOpenRetainerState =
+            this.IsRetainerInventoryShellVisible() ||
+            this.HasVisibleRetainerGrid() ||
+            this.IsRetainerAgentActive() ||
+            this.TryGetOpenRetainerName(out _);
+
+        if (hasPreOpenRetainerState &&
             DateTime.UtcNow >= this.nextUiAdvanceAt)
         {
             if (this.TryCloseRetainer())
@@ -1165,7 +1174,7 @@ public sealed unsafe class GwenDreamService : IDisposable
             }
         }
 
-        if (this.IsRetainerWindowVisible() || this.HasVisibleRetainerGrid() || this.IsRetainerAgentActive())
+        if (hasPreOpenRetainerState)
         {
             this.UpdateStatus("A retainer window is already open. Closing it before starting Gwen's Dream.", false);
             return true;
