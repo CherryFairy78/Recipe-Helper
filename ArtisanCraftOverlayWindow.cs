@@ -418,12 +418,14 @@ public sealed class ArtisanCraftOverlayWindow : Window
 
     private Vector4 GetReadableStatusTextColor(Vector4 backgroundColor, Vector4 preferredColor)
     {
-        var renderedBackground = BlendColors(this.configuration.WindowBackgroundColor, backgroundColor);
+        var renderedBackground = BlendColors(
+            this.configuration.WindowBackgroundColor,
+            this.ApplyOverlayOpacity(backgroundColor));
         var candidates = new[]
         {
             preferredColor with { W = 1f },
-            this.configuration.TitleBarColor with { W = 1f },
-            AdjustColor(this.configuration.WindowBackgroundColor, -0.12f) with { W = 1f },
+            this.configuration.TextColor with { W = 1f },
+            new Vector4(0.97f, 0.98f, 0.99f, 1f),
             new Vector4(0.08f, 0.08f, 0.10f, 1f),
         };
 

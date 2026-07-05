@@ -442,6 +442,9 @@ Recipe Helper searches FFXIV recipes, calculates the materials required for a ch
 - Prepared Recipe Helper v1.1.18.0 for the next live release with a package-visible changelog so users can see what changed directly from the published metadata.
 - Verification after preparing v1.1.18: Debug and Release builds both succeeded with zero warnings and zero errors, both generated manifests report `1.1.18.0` with the new changelog field, and the publish ZIP `artifacts\Release\DalamudRecipeHelper-v1.1.18.zip` was created with SHA-256 `8DBC8FCDCA0DB52D8CDE9B3CDFB381F0559B01A83CDBE93E0F31684F1347BA05`.
 - Published Recipe Helper v1.1.18 as the latest GitHub release with `DalamudRecipeHelper-v1.1.18.zip`, using the same user-facing changelog in the package metadata, custom repository feed, and release notes.
+- Tightened the Artisan progress popup status text so it now automatically chooses a clearly light or dark colour based on the rendered status-card background, keeping the text readable across very dark and very light themes.
+- Prepared Recipe Helper v1.1.19.0 as a quick follow-up release for the popup readability fix.
+- Verification after preparing v1.1.19: Debug and Release builds both succeeded with zero warnings and zero errors, both generated manifests report `1.1.19.0` with the new changelog field, and the publish ZIP `artifacts\Release\DalamudRecipeHelper-v1.1.19.zip` was created with SHA-256 `07ABD348F72E9C97D4360284FAD9DBF6660FC579A62D9927738526E8BDE3BFC1`.
 
 ## Continuation checklist
 
