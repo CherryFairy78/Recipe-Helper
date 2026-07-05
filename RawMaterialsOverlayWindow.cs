@@ -22,6 +22,7 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
     private readonly MarketboardPriceService marketboardPriceService;
     private readonly InventoryService inventoryService;
     private readonly Configuration configuration;
+    private readonly Action openRecipeHelper;
     private readonly Action saveConfiguration;
     private IReadOnlyList<IngredientNeed> materials = [];
     private IReadOnlyList<string> selectedRecipeNames = [];
@@ -38,6 +39,7 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
         MarketboardPriceService marketboardPriceService,
         InventoryService inventoryService,
         Configuration configuration,
+        Action openRecipeHelper,
         Action saveConfiguration)
         : base("Missing Items Overlay###DalamudRecipeHelperRawOverlay")
     {
@@ -46,6 +48,7 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
         this.marketboardPriceService = marketboardPriceService;
         this.inventoryService = inventoryService;
         this.configuration = configuration;
+        this.openRecipeHelper = openRecipeHelper;
         this.saveConfiguration = saveConfiguration;
         this.inventoryService.InventoryChanged += this.OnInventoryChanged;
         this.Size = new Vector2(372, 210);
@@ -116,7 +119,7 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
             {
                 ImGui.BeginTooltip();
                 WindowTheme.ApplyTextScale(this.configuration);
-                ImGui.TextColored(this.configuration.AccentColor, "Selected recipes");
+                ImGui.TextColored(this.configuration.AccentTextColor, "Selected recipes");
                 foreach (var recipeName in this.selectedRecipeNames)
                     ImGui.BulletText(recipeName);
                 ImGui.EndTooltip();
@@ -129,6 +132,16 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
             this.configuration.ShowVendoredItemsInOverlay = !hideVendoredItems;
             this.saveConfiguration();
         }
+
+        ImGui.SameLine();
+        var actionScale = WindowTheme.GetTextScale(this.configuration);
+        var openButtonWidth = Math.Max(
+            140f * actionScale,
+            ImGui.CalcTextSize("Open Recipe Helper").X + (26f * actionScale));
+        WindowTheme.PushButtonStyle(this.configuration, actionScale);
+        if (WindowTheme.ShadowedButton("Open Recipe Helper", new Vector2(openButtonWidth, 0)))
+            this.openRecipeHelper();
+        WindowTheme.PopButtonStyle();
 
         var overlayMaterials = this.GetOverlayMaterials();
         if (overlayMaterials.Count == 0)
@@ -245,13 +258,10 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
                     ImGui.SetCursorPos(new Vector2(
                         buttonCursor.X + MathF.Max(0f, (actionWidth - gatherButtonWidth) / 2f),
                         buttonCursor.Y - 27f));
-                    var accent = this.configuration.ButtonColor;
-                    ImGui.PushStyleColor(ImGuiCol.Button, WithAlpha(accent, 0.72f));
-                    ImGui.PushStyleColor(ImGuiCol.ButtonHovered, AdjustColor(accent, 0.10f));
-                    ImGui.PushStyleColor(ImGuiCol.ButtonActive, AdjustColor(accent, -0.08f));
+                    WindowTheme.PushButtonStyle(this.configuration, WindowTheme.GetTextScale(this.configuration));
                     var gatherClicked =
-                        ImGui.Button($"Gather##raw-overlay-{material.ItemId}", new Vector2(gatherButtonWidth, 0));
-                    ImGui.PopStyleColor(3);
+                        WindowTheme.ShadowedButton($"Gather##raw-overlay-{material.ItemId}", new Vector2(gatherButtonWidth, 0));
+                    WindowTheme.PopButtonStyle();
                     if (gatherClicked)
                     {
                         var gathered = this.pluginIntegrationService.GatherWithGatherBuddy(
@@ -405,6 +415,8 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
             titleBarHeight +
             windowPadding +
             selectedRecipeHeight +
+            ImGui.GetFrameHeight() +
+            style.ItemSpacing.Y +
             collapsedHeaderHeight +
             12f;
         if (materialCount == 0)

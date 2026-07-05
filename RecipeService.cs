@@ -609,13 +609,15 @@ public sealed class RecipeService
 
         recipePath.Remove(resultItemId);
         var resultName = this.GetItemName(resultItemId);
+        var resultAmount = Math.Max(1U, this.ReadUInt(recipe, "AmountResult"));
         queue.Add(new ArtisanCraftQueueEntry(
             recipe.RowId,
+            resultItemId,
             resultName,
+            resultAmount,
             (uint)craftCount,
             isIntermediate));
         stock.TryGetValue(resultItemId, out var currentStock);
-        var resultAmount = Math.Max(1U, this.ReadUInt(recipe, "AmountResult"));
         stock[resultItemId] = AddSaturating(
             currentStock,
             MultiplySaturating((ulong)resultAmount, craftCount));

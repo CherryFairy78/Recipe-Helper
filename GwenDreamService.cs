@@ -1647,6 +1647,12 @@ public sealed unsafe class GwenDreamService : IDisposable
         if (normalizedTarget.Length == 0)
             return null;
 
+        var agentEntries = this.GetAgentRetainerListEntries();
+        var agentMatch = agentEntries.FirstOrDefault(
+            entry => IsRetainerListNameMatch(entry.Name, normalizedTarget));
+        if (!string.IsNullOrWhiteSpace(agentMatch.Name))
+            return agentMatch.Index;
+
         var knownRetainerNames = this.inventoryService.GetStoredRetainers()
             .Select(retainer => NormalizeRetainerListText(retainer.Name))
             .Where(name => !string.IsNullOrWhiteSpace(name))
@@ -1721,6 +1727,10 @@ public sealed unsafe class GwenDreamService : IDisposable
 
     private List<(int Index, string Name)> GetVisibleRetainerListEntries(AtkUnitBase* unitBase)
     {
+        var agentEntries = this.GetAgentRetainerListEntries();
+        if (agentEntries.Count > 0)
+            return agentEntries;
+
         var entries = new List<(int Index, string Name)>();
         var knownRetainerNames = this.inventoryService.GetStoredRetainers()
             .Select(retainer => NormalizeRetainerListText(retainer.Name))
@@ -1754,6 +1764,44 @@ public sealed unsafe class GwenDreamService : IDisposable
 
             entries.Add((currentIndex, text));
             currentIndex++;
+        }
+
+        return entries;
+    }
+
+    private List<(int Index, string Name)> GetAgentRetainerListEntries()
+    {
+        var uiModule = Framework.Instance()->UIModule;
+        if (uiModule is null)
+            return [];
+
+        var agent = uiModule->GetAgentModule()->GetAgentByInternalId(AgentId.RetainerList);
+        if (agent is null || !agent->IsAgentActive())
+            return [];
+
+        var agentList = (AgentRetainerList*)agent;
+        var retainerManager = RetainerManager.Instance();
+        if (retainerManager is null)
+            return [];
+
+        var entries = new List<(int Index, string Name)>();
+        var count = Math.Min(agentList->RetainerCount, (byte)10);
+        for (var i = 0; i < count; i++)
+        {
+            var entryAddress = (byte*)agentList + 0x50 + (i * 0x70);
+            var sortedIndex = *(byte*)(entryAddress + 0x6D);
+            var retainer = retainerManager->GetRetainerBySortedIndex(sortedIndex);
+            if (retainer is null || retainer->RetainerId == 0)
+                continue;
+
+            var name = NormalizeRetainerListText(retainer->NameString);
+            if (string.IsNullOrWhiteSpace(name))
+                continue;
+
+            if (entries.Any(entry => entry.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
+                continue;
+
+            entries.Add((i, name));
         }
 
         return entries;

@@ -431,6 +431,17 @@ Recipe Helper searches FFXIV recipes, calculates the materials required for a ch
 - Prepared Recipe Helper v1.1.17.0 for the next live release.
 - Verification after preparing v1.1.17: Debug build succeeded with zero warnings and zero errors, Release compilation produced the fresh `1.1.17.0` DLL but the automated packager hit the same manifest file-lock on `DalamudRecipeHelper.json`, the Release manifest was refreshed manually from the root manifest, and the publish ZIP `artifacts\Release\DalamudRecipeHelper-v1.1.17.zip` was created with SHA-256 `5A74CBB348D41BF0C1180B55549A36BF775583CFB4F4D22EB7391688A3060845`.
 
+### 2026-07-05
+
+- Added a compact Artisan progress popup that tracks current crafts, queued recipes, completed recipes, and time spent crafting this session, while still allowing Recipe Helper to be reopened from the popup when desired.
+- Reworked `Gwen's Dream` so it stays usable when every ingredient is already in live inventory, goes straight into Artisan when no retainer withdrawals are needed, and continues to cooperate more cleanly with AutoRetainer pause and resume states.
+- Expanded customisation with hex colour entry, separate accent-text, section-header-text, folder-text, saved-plan-text, and button-text colours, plus built-in blue, pink, purple, green, and orange presets alongside user-saved presets.
+- Unified button styling across the main UI, settings, debug window, overlays, and raw-material crafting actions, removing older one-off colour overrides that had started to bloat the theme system.
+- Moved Customisation and Debug access into Settings, improved scaling and layout behaviour at smaller interface sizes, and made the `Selected Recipes` action row live inside the section instead of floating below it.
+- Added nested saved-plan folders with move and rename flows, clearer parent and subfolder handling, and separate colour control for saved-plan rows and section headers.
+- Prepared Recipe Helper v1.1.18.0 for the next live release with a package-visible changelog so users can see what changed directly from the published metadata.
+- Verification after preparing v1.1.18: Debug and Release builds both succeeded with zero warnings and zero errors, both generated manifests report `1.1.18.0` with the new changelog field, and the publish ZIP `artifacts\Release\DalamudRecipeHelper-v1.1.18.zip` was created with SHA-256 `8DBC8FCDCA0DB52D8CDE9B3CDFB381F0559B01A83CDBE93E0F31684F1347BA05`.
+
 ## Continuation checklist
 
 When returning to this project:

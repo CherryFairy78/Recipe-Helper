@@ -22,7 +22,7 @@ public static class MaterialUsageTooltip
         ImGui.BeginTooltip();
         WindowTheme.ApplyTextScale(configuration);
 
-        ImGui.TextColored(configuration.AccentColor, material.Name);
+        ImGui.TextColored(configuration.AccentTextColor, material.Name);
         ImGui.TextDisabled("Marketboard snapshot via Universalis");
         ImGui.Separator();
 
@@ -49,7 +49,7 @@ public static class MaterialUsageTooltip
                 if (snapshot.NqWorldPrices.Count > 0)
                 {
                     ImGui.Spacing();
-                    ImGui.TextColored(configuration.AccentColor, "Cheapest NQ by World");
+                    ImGui.TextColored(configuration.AccentTextColor, "Cheapest NQ by World");
                     foreach (var worldPrice in snapshot.NqWorldPrices)
                         ImGui.TextUnformatted($"- {worldPrice.WorldName}: {worldPrice.PricePerUnit:N0} gil");
                 }
@@ -57,7 +57,7 @@ public static class MaterialUsageTooltip
                 if (snapshot.HqWorldPrices.Count > 0)
                 {
                     ImGui.Spacing();
-                    ImGui.TextColored(configuration.AccentColor, "Cheapest HQ by World");
+                    ImGui.TextColored(configuration.AccentTextColor, "Cheapest HQ by World");
                     foreach (var worldPrice in snapshot.HqWorldPrices)
                         ImGui.TextUnformatted($"- {worldPrice.WorldName}: {worldPrice.PricePerUnit:N0} gil");
                 }

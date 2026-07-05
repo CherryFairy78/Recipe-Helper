@@ -126,9 +126,25 @@ public sealed record RecipeDetails(
 
 public sealed record ArtisanCraftQueueEntry(
     uint RecipeId,
+    uint ResultItemId,
     string ResultName,
+    uint ResultAmount,
     uint CraftCount,
-    bool IsIntermediate);
+    bool IsIntermediate)
+{
+    public ulong TotalQuantity => (ulong)this.ResultAmount * this.CraftCount;
+}
+
+public sealed record ArtisanCraftProgressSnapshot(
+    bool IsActive,
+    ArtisanCraftQueueEntry? CurrentEntry,
+    bool CurrentEntryStarted,
+    uint CurrentEntryCompletedCrafts,
+    bool IsPausedForAutoRetainer,
+    TimeSpan Elapsed,
+    TimeSpan CurrentEntryElapsed,
+    IReadOnlyList<ArtisanCraftQueueEntry> PendingEntries,
+    IReadOnlyList<ArtisanCraftQueueEntry> CompletedEntries);
 
 public sealed record RecipePlanDetails(
     IReadOnlyList<RecipeDetails> Recipes,

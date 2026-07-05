@@ -1,7 +1,8 @@
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
-    <Version>1.1.17.0</Version>
+    <Version>1.1.18.0</Version>
     <Description>Plan multiple FFXIV recipes, compare combined materials with inventory and retainers, and hand crafting or gathering tasks to Artisan, Teamcraft, and GatherBuddy.</Description>
+    <Changelog>v1.1.18 adds the new Artisan progress popup, major interface customisation and scaling upgrades, saved-plan folder improvements, and stronger Gwen's Dream plus AutoRetainer handling.</Changelog>
     <PackageProjectUrl>https://github.com/CherryFairy78/Recipe-Helper</PackageProjectUrl>
     <Authors>Meghann</Authors>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>

@@ -42,21 +42,28 @@ public sealed class SettingsWindow : Window
     public override void Draw()
     {
         WindowTheme.ApplyTextScale(this.configuration);
-        ImGui.TextColored(this.configuration.AccentColor, "Settings");
+        ImGui.TextColored(this.configuration.AccentTextColor, "Settings");
         ImGui.TextDisabled("Open the dedicated windows below for colour customisation and support debugging.");
         ImGui.Spacing();
-        if (ImGui.Button("Open customisation"))
+        var actionScale = WindowTheme.GetTextScale(this.configuration);
+        var buttonPadding = 26f * actionScale;
+        var customisationButtonWidth = Math.Max(140f * actionScale, ImGui.CalcTextSize("Open customisation").X + buttonPadding);
+        var debugButtonWidth = Math.Max(110f * actionScale, ImGui.CalcTextSize("Open debug").X + buttonPadding);
+        WindowTheme.PushButtonStyle(this.configuration, actionScale);
+        if (WindowTheme.ShadowedButton("Open customisation", new Vector2(customisationButtonWidth, 0)))
             this.appearanceSettingsWindow.IsOpen = true;
 
         ImGui.SameLine();
-        if (ImGui.Button("Open debug"))
+        if (WindowTheme.ShadowedButton("Open debug", new Vector2(debugButtonWidth, 0)))
             this.debugWindow.OpenWithFreshReport();
+        WindowTheme.PopButtonStyle();
 
         ImGui.Spacing();
         ImGui.Separator();
         ImGui.Spacing();
 
-        ImGui.TextColored(this.configuration.AccentColor, "Interface Scaling");
+        WindowTheme.PushInputCardStyle(this.configuration);
+        ImGui.TextColored(this.configuration.AccentTextColor, "Interface Scaling");
         var changed = false;
         changed |= DrawPercentCombo(
             "Interface scale",
@@ -75,7 +82,7 @@ public sealed class SettingsWindow : Window
         ImGui.Separator();
         ImGui.Spacing();
 
-        ImGui.TextColored(this.configuration.AccentColor, "Missing Items Overlay");
+        ImGui.TextColored(this.configuration.AccentTextColor, "Missing Items Overlay");
         changed |= ImGui.Checkbox(
             "Use transparent overlay background",
             ref this.configuration.UseTransparentOverlayBackground);
@@ -92,6 +99,7 @@ public sealed class SettingsWindow : Window
                 1f,
                 "%.2f");
         }
+        WindowTheme.PopInputCardStyle();
 
         if (changed)
             this.save();

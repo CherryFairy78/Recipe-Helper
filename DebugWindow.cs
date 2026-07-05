@@ -64,15 +64,21 @@ public sealed class DebugWindow : Window
         if (string.IsNullOrWhiteSpace(this.debugReport))
             this.RefreshReport();
 
-        ImGui.TextColored(this.configuration.AccentColor, "Support Debug Report");
+        ImGui.TextColored(this.configuration.AccentTextColor, "Support Debug Report");
         ImGui.TextDisabled("Refresh it, copy it, and send the full report back for troubleshooting.");
         ImGui.Spacing();
 
-        if (ImGui.Button("Refresh report"))
+        var actionScale = WindowTheme.GetTextScale(this.configuration);
+        var buttonPadding = 26f * actionScale;
+        var refreshButtonWidth = Math.Max(118f * actionScale, ImGui.CalcTextSize("Refresh report").X + buttonPadding);
+        var copyButtonWidth = Math.Max(104f * actionScale, ImGui.CalcTextSize("Copy report").X + buttonPadding);
+        var clearButtonWidth = Math.Max(96f * actionScale, ImGui.CalcTextSize("Clear logs").X + buttonPadding);
+        WindowTheme.PushButtonStyle(this.configuration, actionScale);
+        if (WindowTheme.ShadowedButton("Refresh report", new Vector2(refreshButtonWidth, 0)))
             this.RefreshReport();
 
         ImGui.SameLine();
-        if (ImGui.Button("Copy report"))
+        if (WindowTheme.ShadowedButton("Copy report", new Vector2(copyButtonWidth, 0)))
         {
             if (string.IsNullOrWhiteSpace(this.debugReport))
                 this.RefreshReport();
@@ -82,12 +88,13 @@ public sealed class DebugWindow : Window
         }
 
         ImGui.SameLine();
-        if (ImGui.Button("Clear logs"))
+        if (WindowTheme.ShadowedButton("Clear logs", new Vector2(clearButtonWidth, 0)))
         {
             this.fileLog.ClearLogs();
             this.RefreshReport();
             this.clearMessageExpiresAtUtc = DateTime.UtcNow.AddSeconds(3);
         }
+        WindowTheme.PopButtonStyle();
 
         if (this.generatedAtUtc != default)
         {
@@ -167,7 +174,6 @@ public sealed class DebugWindow : Window
 
         builder.AppendLine();
         builder.AppendLine("[Configuration]");
-        builder.AppendLine($"ThemePresetCount: {this.configuration.ThemePresets.Count}");
         builder.AppendLine($"UseTransparentOverlayBackground: {this.configuration.UseTransparentOverlayBackground}");
         builder.AppendLine($"OverlayBackgroundOpacity: {this.configuration.OverlayBackgroundOpacity:F2}");
         builder.AppendLine($"ShowVendoredItemsInOverlay: {this.configuration.ShowVendoredItemsInOverlay}");

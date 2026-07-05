@@ -11,6 +11,19 @@ namespace DalamudRecipeHelper;
 
 public sealed class RecipeWindow : Window, IDisposable
 {
+    private sealed class SavedPlanFolderNode
+    {
+        public required string Name { get; init; }
+
+        public required string FullPath { get; init; }
+
+        public List<SavedRecipePlan> Plans { get; } = [];
+
+        public List<SavedPlanFolderNode> Children { get; } = [];
+
+        public int TotalPlanCount => this.Plans.Count + this.Children.Sum(child => child.TotalPlanCount);
+    }
+
     private static readonly Vector2 BaseWindowSize = new(760, 540);
     private static readonly Vector2 BaseMinimumWindowSize = new(460, 320);
 
@@ -26,6 +39,7 @@ public sealed class RecipeWindow : Window, IDisposable
     private readonly Action openSettings;
     private readonly Action saveConfiguration;
     private readonly RawMaterialsOverlayWindow rawMaterialsOverlayWindow;
+    private readonly ArtisanCraftOverlayWindow artisanCraftOverlayWindow;
     private readonly string versionText;
     private IReadOnlyList<RecipeMatch> searchResults = [];
     private IReadOnlyDictionary<uint, CraftableRecipeAvailability> craftableAvailability =
@@ -49,6 +63,7 @@ public sealed class RecipeWindow : Window, IDisposable
     private bool integrationError;
     private uint observedCraftAllCompletionCount;
     private uint observedDreamCompletionSequence;
+    private bool observedArtisanProgressActive;
     private bool dreamCraftPending;
     private bool inventoryRefreshRequested;
     private string planName = string.Empty;
@@ -75,7 +90,18 @@ public sealed class RecipeWindow : Window, IDisposable
     private string renameFolderError = string.Empty;
     private bool renameFolderPopupRequested;
     private bool isRenameFolderPopupOpen;
+    private string movingFolderSource = string.Empty;
+    private string moveFolderParentName = string.Empty;
+    private string moveFolderError = string.Empty;
+    private bool moveFolderPopupRequested;
+    private bool isMoveFolderPopupOpen;
+    private string createFolderName = string.Empty;
+    private string createFolderError = string.Empty;
+    private bool createFolderPopupRequested;
+    private bool isCreateFolderPopupOpen;
     private int appliedMainWindowScalePercent;
+    private Vector2 lastMainWindowPosition = new(60f, 60f);
+    private Vector2 lastMainWindowSize = BaseWindowSize;
 
     public RecipeWindow(
         FileLogService fileLog,
@@ -89,7 +115,8 @@ public sealed class RecipeWindow : Window, IDisposable
         Configuration configuration,
         Action openSettings,
         Action saveConfiguration,
-        RawMaterialsOverlayWindow rawMaterialsOverlayWindow)
+        RawMaterialsOverlayWindow rawMaterialsOverlayWindow,
+        ArtisanCraftOverlayWindow artisanCraftOverlayWindow)
         : base($"Recipe Helper v{typeof(RecipeWindow).Assembly.GetName().Version?.ToString(3) ?? "1.0.0"}###DalamudRecipeHelper")
     {
         this.fileLog = fileLog;
@@ -109,7 +136,10 @@ public sealed class RecipeWindow : Window, IDisposable
         this.openSettings = openSettings;
         this.saveConfiguration = saveConfiguration;
         this.rawMaterialsOverlayWindow = rawMaterialsOverlayWindow;
+        this.artisanCraftOverlayWindow = artisanCraftOverlayWindow;
         this.inventoryService.InventoryChanged += this.OnInventoryChanged;
+        this.observedArtisanProgressActive =
+            this.pluginIntegrationService.GetCraftAllProgressSnapshot().IsActive;
         this.appliedMainWindowScalePercent = WindowTheme.GetMainWindowScalePercent(this.configuration);
         this.Size = this.ScaleMainWindowSize(BaseWindowSize, this.appliedMainWindowScalePercent);
         this.SizeCondition = ImGuiCond.FirstUseEver;
@@ -137,34 +167,8 @@ public sealed class RecipeWindow : Window, IDisposable
     {
         WindowTheme.ApplyTextScale(this.configuration, includeMainWindowScale: true);
         this.ApplyMainWindowScaleIfNeeded();
-
-        if (this.observedCraftAllCompletionCount !=
-            this.pluginIntegrationService.CraftAllCompletionCount)
-        {
-            this.observedCraftAllCompletionCount =
-                this.pluginIntegrationService.CraftAllCompletionCount;
-            this.integrationMessage = string.Empty;
-            this.integrationError = false;
-        }
-
-        if (this.observedDreamCompletionSequence !=
-            this.gwenDreamService.CompletionSequence)
-        {
-            this.observedDreamCompletionSequence =
-                this.gwenDreamService.CompletionSequence;
-            if (this.dreamCraftPending)
-            {
-                this.dreamCraftPending = false;
-                if (this.gwenDreamService.LastRunSucceeded)
-                    this.TryStartDreamCraftAll();
-            }
-        }
-
-        if (this.inventoryRefreshRequested)
-        {
-            this.inventoryRefreshRequested = false;
-            this.RefreshDetails(true);
-        }
+        this.lastMainWindowPosition = ImGui.GetWindowPos();
+        this.lastMainWindowSize = ImGui.GetWindowSize();
 
         this.PushModernStyle();
         try
@@ -216,13 +220,13 @@ public sealed class RecipeWindow : Window, IDisposable
                         "Filter these results",
                         ref this.resultFilter,
                         128);
-                    if (ImGui.Button("Clear search", new Vector2(this.ScaleUi(96f), 0)))
+                    if (WindowTheme.ShadowedButton("Clear search", new Vector2(this.ScaleUi(96f), 0)))
                         this.ClearSearch();
                     DrawTooltipIfHovered("Clear the current search results and search text.");
                     if (!string.IsNullOrWhiteSpace(this.resultFilter))
                     {
                         ImGui.SameLine();
-                        if (ImGui.Button("Clear filter", new Vector2(this.ScaleUi(92f), 0)))
+                        if (WindowTheme.ShadowedButton("Clear filter", new Vector2(this.ScaleUi(92f), 0)))
                             this.resultFilter = string.Empty;
                         DrawTooltipIfHovered("Clear the result filter only.");
                     }
@@ -370,7 +374,7 @@ public sealed class RecipeWindow : Window, IDisposable
             ImGui.PushStyleColor(
                 ImGuiCol.ButtonActive,
                 WithAlpha(this.configuration.AccentColor, 0.78f));
-            ImGui.Button(
+            WindowTheme.ShadowedButton(
                 "##recipe-search-pane-splitter",
                 new Vector2(splitterWidth, Math.Max(1f, paneArea.Y)));
             ImGui.PopStyleColor(3);
@@ -406,9 +410,57 @@ public sealed class RecipeWindow : Window, IDisposable
         }
     }
 
+    public void ProcessBackgroundState()
+    {
+        var artisanProgressActive =
+            this.pluginIntegrationService.GetCraftAllProgressSnapshot().IsActive;
+        if (!this.observedArtisanProgressActive && artisanProgressActive)
+            this.OpenArtisanPopup();
+
+        this.observedArtisanProgressActive = artisanProgressActive;
+
+        if (this.observedCraftAllCompletionCount !=
+            this.pluginIntegrationService.CraftAllCompletionCount)
+        {
+            this.observedCraftAllCompletionCount =
+                this.pluginIntegrationService.CraftAllCompletionCount;
+            this.integrationMessage = string.Empty;
+            this.integrationError = false;
+        }
+
+        if (this.observedDreamCompletionSequence !=
+            this.gwenDreamService.CompletionSequence)
+        {
+            this.observedDreamCompletionSequence =
+                this.gwenDreamService.CompletionSequence;
+            if (this.dreamCraftPending)
+            {
+                this.dreamCraftPending = false;
+                if (this.gwenDreamService.LastRunSucceeded)
+                    this.TryStartDreamCraftAll();
+            }
+        }
+
+        if (!this.inventoryRefreshRequested)
+            return;
+
+        this.inventoryRefreshRequested = false;
+        this.RefreshDetails(true);
+    }
+
+    private void OpenArtisanPopup()
+    {
+        this.artisanCraftOverlayWindow.OpenBesideMainWindow(
+            this.lastMainWindowPosition,
+            this.lastMainWindowSize.X > 0f && this.lastMainWindowSize.Y > 0f
+                ? this.lastMainWindowSize
+                : this.ScaleMainWindowSize(BaseWindowSize, this.appliedMainWindowScalePercent));
+        this.IsOpen = false;
+    }
+
     private void DrawHeader()
     {
-        ImGui.TextColored(this.configuration.AccentColor, "RECIPE HELPER");
+        ImGui.TextColored(this.configuration.AccentTextColor, "RECIPE HELPER");
         ImGui.SameLine();
         ImGui.TextDisabled($"Plan | Check | Craft | v{this.versionText}");
         var inventoryStatus =
@@ -446,28 +498,28 @@ public sealed class RecipeWindow : Window, IDisposable
             ref this.searchText,
             128);
         ImGui.SameLine();
-        if (ImGui.Button("Search", new Vector2(searchButtonWidth, 0)) ||
+        if (WindowTheme.ShadowedButton("Search", new Vector2(searchButtonWidth, 0)) ||
             searchChanged && this.searchText.Length >= 3)
             this.RefreshSearch();
         DrawTooltipIfHovered("Search recipes by crafted item name or item ID.");
 
         ImGui.SameLine();
-        if (ImGui.Button("Can craft", new Vector2(craftableButtonWidth, 0)))
+        if (WindowTheme.ShadowedButton("Can craft", new Vector2(craftableButtonWidth, 0)))
             this.RefreshCraftableRecipes(true);
         DrawTooltipIfHovered("Show recipes you can make from your current stored materials.");
 
         ImGui.SameLine();
-        if (ImGui.Button("Missing Items Overlay", new Vector2(overlayButtonWidth, 0)))
+        if (WindowTheme.ShadowedButton("Missing Items Overlay", new Vector2(overlayButtonWidth, 0)))
             this.rawMaterialsOverlayWindow.IsOpen = true;
         DrawTooltipIfHovered("Open the compact overlay for missing gatherable materials.");
 
         ImGui.SameLine();
-        if (ImGui.Button("Refresh Inventory", new Vector2(refreshButtonWidth, 0)))
+        if (WindowTheme.ShadowedButton("Refresh Inventory", new Vector2(refreshButtonWidth, 0)))
             this.RefreshDetails(true);
         DrawTooltipIfHovered("Rescan inventory, saddlebags, and saved retainer stock.");
 
         ImGui.SameLine();
-        if (ImGui.Button("Settings", new Vector2(settingsButtonWidth, 0)))
+        if (WindowTheme.ShadowedButton("Settings", new Vector2(settingsButtonWidth, 0)))
             this.openSettings();
         DrawTooltipIfHovered("Open Recipe Helper settings.");
 
@@ -497,12 +549,12 @@ public sealed class RecipeWindow : Window, IDisposable
         ImGui.PushStyleVar(ImGuiStyleVar.CellPadding, this.ScaleUi(new Vector2(6f, 4f)));
 
         ImGui.PushStyleColor(ImGuiCol.Button, WithAlpha(buttonColor, 0.72f));
-        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, AdjustColor(buttonColor, 0.10f));
-        ImGui.PushStyleColor(ImGuiCol.ButtonActive, AdjustColor(buttonColor, -0.08f));
-        ImGui.PushStyleColor(ImGuiCol.Header, WithAlpha(accent, 0.30f));
-        ImGui.PushStyleColor(ImGuiCol.HeaderHovered, WithAlpha(accent, 0.48f));
-        ImGui.PushStyleColor(ImGuiCol.HeaderActive, WithAlpha(accent, 0.62f));
-        ImGui.PushStyleColor(ImGuiCol.TableHeaderBg, WithAlpha(accent, 0.22f));
+        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, AdjustColor(buttonColor, 0.18f));
+        ImGui.PushStyleColor(ImGuiCol.ButtonActive, AdjustColor(buttonColor, -0.04f));
+        ImGui.PushStyleColor(ImGuiCol.Header, AdjustColor(WithAlpha(accent, 0.82f), -0.04f));
+        ImGui.PushStyleColor(ImGuiCol.HeaderHovered, AdjustColor(WithAlpha(accent, 0.94f), 0.04f));
+        ImGui.PushStyleColor(ImGuiCol.HeaderActive, AdjustColor(WithAlpha(accent, 0.98f), -0.08f));
+        ImGui.PushStyleColor(ImGuiCol.TableHeaderBg, AdjustColor(WithAlpha(accent, 0.90f), -0.06f));
         ImGui.PushStyleColor(ImGuiCol.FrameBg, this.configuration.InputCardColor);
         ImGui.PushStyleColor(ImGuiCol.FrameBgHovered, AdjustColor(this.configuration.InputCardColor, 0.06f));
         ImGui.PushStyleColor(ImGuiCol.FrameBgActive, AdjustColor(this.configuration.InputCardColor, 0.10f));
@@ -664,7 +716,7 @@ public sealed class RecipeWindow : Window, IDisposable
         }
 
         var details = this.recipePlanDetails;
-        ImGui.TextColored(this.configuration.AccentColor, "RECIPE PLAN");
+        ImGui.TextColored(this.configuration.AccentTextColor, "RECIPE PLAN");
         ImGui.SameLine();
         ImGui.TextDisabled($"{details.Recipes.Count} selected");
         this.DrawSavePlanControls();
@@ -674,6 +726,15 @@ public sealed class RecipeWindow : Window, IDisposable
                 "Select, combine, craft, or manage named recipe plans",
                 "saved-plans-section"))
             this.DrawSavedPlans();
+
+        var canShowCraftAll =
+            this.artisanCraftQueue.Count > 0 &&
+            details.Ingredients.All(ingredient => ingredient.HasEnough) &&
+            (details.Recipes.Count > 1 ||
+             this.artisanCraftQueue.Any(recipe => recipe.IsIntermediate));
+        var hasDreamFeature = this.gwenDreamService.IsAutoRetainerAvailable;
+        var canUseDreamWithdrawals = hasDreamFeature && this.gwenDreamService.CanUseForSelection(this.recipePlanDetails);
+        var canUseDream = hasDreamFeature && (canUseDreamWithdrawals || canShowCraftAll);
 
         if (this.DrawCollapsibleSection(
                 "SELECTED RECIPES",
@@ -694,63 +755,83 @@ public sealed class RecipeWindow : Window, IDisposable
             this.DrawSummary(details);
             ImGui.Spacing();
             this.DrawSelectedRecipes(details);
-        }
-
-        var canCraftAll =
-            this.artisanCraftQueue.Count > 0 &&
-            (details.Recipes.Count > 1 ||
-             this.artisanCraftQueue.Any(recipe => recipe.IsIntermediate));
-        var hasDreamFeature = this.gwenDreamService.IsAutoRetainerAvailable;
-        var canUseDream = hasDreamFeature && this.gwenDreamService.CanUseForSelection(this.recipePlanDetails);
-        if (details.Recipes.Count > 0 || !string.IsNullOrWhiteSpace(this.integrationMessage))
-        {
             ImGui.Spacing();
-            ImGui.BeginDisabled(!canCraftAll);
-            ImGui.PushStyleColor(
-                ImGuiCol.Button,
-                this.configuration.ReadyButtonColor);
-            var craftAllClicked = ImGui.Button("Craft all with Artisan", new Vector2(this.ScaleUi(160f), 0));
-            ImGui.PopStyleColor();
-            ImGui.EndDisabled();
-            if (craftAllClicked)
+            if (details.Recipes.Count > 0 || !string.IsNullOrWhiteSpace(this.integrationMessage))
             {
-                this.integrationError =
-                    !this.pluginIntegrationService.CraftAllWithArtisan(
-                        this.artisanCraftQueue,
-                        0,
-                        out this.integrationMessage);
-            }
-            DrawTooltipIfHovered("Queue every selected recipe in Artisan, including required pre-crafts.");
-
-            if (hasDreamFeature)
-                ImGui.SameLine();
-
-            if (hasDreamFeature)
-            {
-                ImGui.BeginDisabled(!canUseDream);
-                if (ImGui.Button("Gwen's Dream", new Vector2(this.ScaleUi(140f), 0)))
+                var craftAllClicked = false;
+                if (canShowCraftAll)
                 {
-                    if (this.gwenDreamService.TryStart(this.recipePlanDetails))
-                        this.dreamCraftPending = true;
+                    craftAllClicked = WindowTheme.ShadowedButton("Craft all with Artisan", new Vector2(this.ScaleUi(160f), 0));
                 }
-                ImGui.EndDisabled();
-                DrawTooltipIfHovered("Will automatically withdraw all materials from retainers and craft all pre-crafts and recipes - ultimate laziness!");
+                if (craftAllClicked)
+                {
+                    this.integrationError =
+                        !this.pluginIntegrationService.CraftAllWithArtisan(
+                            this.artisanCraftQueue,
+                            0,
+                            out this.integrationMessage);
+                }
+                if (canShowCraftAll)
+                    DrawTooltipIfHovered("Queue every selected recipe in Artisan, including required pre-crafts.");
+
+                if (canShowCraftAll)
+                    ImGui.SameLine();
+                var artisanProgressActive = this.pluginIntegrationService.GetCraftAllProgressSnapshot().IsActive;
+                if (artisanProgressActive)
+                    ImGui.PushStyleColor(ImGuiCol.Button, WithAlpha(this.configuration.AccentColor, 0.70f));
+                if (WindowTheme.ShadowedButton("Artisan popup", new Vector2(this.ScaleUi(132f), 0)))
+                {
+                    if (this.artisanCraftOverlayWindow.IsOpen)
+                    {
+                        this.artisanCraftOverlayWindow.IsOpen = false;
+                    }
+                    else
+                    {
+                        this.artisanCraftOverlayWindow.OpenOverMainWindow(
+                            ImGui.GetWindowPos());
+                    }
+                }
+                if (artisanProgressActive)
+                    ImGui.PopStyleColor();
+                DrawTooltipIfHovered("Open or close the Artisan progress popup.");
+
+                if (hasDreamFeature)
+                    ImGui.SameLine();
+
+                if (hasDreamFeature)
+                {
+                    ImGui.BeginDisabled(!canUseDream);
+                    if (WindowTheme.ShadowedButton("Gwen's Dream", new Vector2(this.ScaleUi(140f), 0)))
+                    {
+                        if (canUseDreamWithdrawals)
+                        {
+                            if (this.gwenDreamService.TryStart(this.recipePlanDetails))
+                                this.dreamCraftPending = true;
+                        }
+                        else
+                        {
+                            this.TryStartDreamCraftAll();
+                        }
+                    }
+                    ImGui.EndDisabled();
+                    DrawTooltipIfHovered("Will automatically withdraw all materials from retainers and craft all pre-crafts and recipes - ultimate laziness!");
+
+                    if (!string.IsNullOrWhiteSpace(this.integrationMessage))
+                        ImGui.SameLine();
+                }
+                else if (!string.IsNullOrWhiteSpace(this.integrationMessage))
+                {
+                    ImGui.SameLine();
+                }
 
                 if (!string.IsNullOrWhiteSpace(this.integrationMessage))
-                    ImGui.SameLine();
-            }
-            else if (!string.IsNullOrWhiteSpace(this.integrationMessage))
-            {
-                ImGui.SameLine();
-            }
-
-            if (!string.IsNullOrWhiteSpace(this.integrationMessage))
-            {
-                ImGui.TextColored(
-                    this.integrationError
-                        ? this.configuration.MissingTextColor
-                        : this.configuration.SuccessTextColor,
-                    this.integrationMessage);
+                {
+                    ImGui.TextColored(
+                        this.integrationError
+                            ? this.configuration.MissingTextColor
+                            : this.configuration.SuccessTextColor,
+                        this.integrationMessage);
+                }
             }
         }
 
@@ -842,17 +923,17 @@ public sealed class RecipeWindow : Window, IDisposable
             ImGuiInputTextFlags.EnterReturnsTrue);
         DrawTooltipIfHovered("Enter a name to save or update this recipe plan.");
         ImGui.SameLine();
-        if (ImGui.Button("Save plan") || submitted)
+        if (WindowTheme.ShadowedButton("Save plan") || submitted)
             this.SaveCurrentPlan();
         DrawTooltipIfHovered("Save the current selected recipes as a named plan.");
 
         ImGui.SetNextItemWidth(this.ScaleUi(220f));
         ImGui.InputTextWithHint(
             $"##recipe-plan-folder-{this.planInputNonce}",
-            "Folder (optional)",
+            "Folder (optional, use / for subfolders)",
             ref this.planFolderName,
             80);
-        DrawTooltipIfHovered("Optional folder name for this saved plan.");
+        DrawTooltipIfHovered("Optional folder name for this saved plan. Use / to create subfolders.");
 
         this.DrawPlanMessage();
     }
@@ -900,156 +981,213 @@ public sealed class RecipeWindow : Window, IDisposable
         SavedRecipePlan? planToDelete = null;
         SavedRecipePlan? planToMove = null;
         string? folderToRename = null;
+        string? folderToMove = null;
         var loadSelectedPlans = false;
         var craftSelectedPlans = false;
         var moveSelectedPlans = false;
+        var createFolder = false;
         this.selectedSavedPlans.RemoveWhere(plan =>
             !this.configuration.SavedRecipePlans.Contains(plan));
+        this.NormalizeSavedPlanFolders();
         var displayedPlans = this.configuration.SavedRecipePlans
             .OrderBy(plan => NormalizeFolderName(plan.FolderName))
             .ThenBy(plan => plan.Name)
             .ToList();
-        foreach (var folderGroup in displayedPlans.GroupBy(plan => NormalizeFolderName(plan.FolderName)))
+        var folderTree = BuildSavedPlanFolderTree(this.configuration.SavedPlanFolders, displayedPlans);
+
+        void DrawSavedPlanRow(SavedRecipePlan savedPlan)
         {
-            var folderName = folderGroup.Key;
-            ImGui.PushID($"saved-folder-{folderName}");
-            var folderHeaderColor = this.configuration.UseAccentForFolderHeaders
+            ImGui.PushID($"saved-plan-{savedPlan.Name}");
+            var rowWidth = Math.Max(1f, ImGui.GetContentRegionAvail().X);
+            var rowHeight = this.ScaleUi(52f);
+            var rowPos = ImGui.GetCursorScreenPos();
+            var rowColor = this.selectedSavedPlans.Contains(savedPlan)
+                ? WithAlpha(this.configuration.AccentColor, 0.18f)
+                : AdjustColor(this.configuration.WindowBackgroundColor, 0.08f);
+            ImGui.GetWindowDrawList().AddRectFilled(
+                rowPos,
+                rowPos + new Vector2(rowWidth, rowHeight),
+                ImGui.GetColorU32(rowColor),
+                this.ScaleUi(14f));
+            ImGui.Dummy(new Vector2(rowWidth, rowHeight));
+
+            var cursor = ImGui.GetCursorPos();
+            ImGui.SetCursorScreenPos(rowPos + this.ScaleUi(new Vector2(14f, 14f)));
+            var isSelected = this.selectedSavedPlans.Contains(savedPlan);
+            if (ImGui.Checkbox("##select-saved-plan", ref isSelected))
+            {
+                if (isSelected)
+                    this.selectedSavedPlans.Add(savedPlan);
+                else
+                    this.selectedSavedPlans.Remove(savedPlan);
+            }
+
+            ImGui.SetCursorScreenPos(rowPos + this.ScaleUi(new Vector2(44f, 8f)));
+            ImGui.PushStyleColor(ImGuiCol.Text, this.configuration.SavedPlanTextColor);
+            ImGui.TextUnformatted(savedPlan.Name);
+            ImGui.PopStyleColor();
+            ImGui.SetCursorScreenPos(rowPos + this.ScaleUi(new Vector2(44f, 25f)));
+            ImGui.TextColored(
+                WithAlpha(this.configuration.SavedPlanTextColor, 0.72f),
+                $"{savedPlan.Recipes.Count} recipes");
+
+            var actionX = rowPos.X + rowWidth - this.ScaleUi(314f);
+            ImGui.SetCursorScreenPos(new Vector2(actionX, rowPos.Y + this.ScaleUi(12f)));
+            if (WindowTheme.ShadowedButton("Load", new Vector2(this.ScaleUi(48f), 0)))
+                planToLoad = savedPlan;
+            DrawTooltipIfHovered("Load this saved plan into the current recipe list.");
+            ImGui.SameLine();
+            if (WindowTheme.ShadowedButton("Move", new Vector2(this.ScaleUi(48f), 0)))
+                planToMove = savedPlan;
+            DrawTooltipIfHovered("Move this saved plan to another folder.");
+            ImGui.SameLine();
+            if (WindowTheme.ShadowedButton("Duplicate", new Vector2(this.ScaleUi(72f), 0)))
+                planToDuplicate = savedPlan;
+            DrawTooltipIfHovered("Create a copy of this saved plan.");
+            ImGui.SameLine();
+            if (WindowTheme.ShadowedButton("Rename", new Vector2(this.ScaleUi(62f), 0)))
+                planToRename = savedPlan;
+            DrawTooltipIfHovered("Rename this saved plan.");
+            ImGui.SameLine();
+            if (WindowTheme.ShadowedButton("Delete", new Vector2(this.ScaleUi(54f), 0)))
+            {
+                if (ImGui.GetIO().KeyCtrl)
+                    planToDelete = savedPlan;
+                else
+                    this.ShowPlanMessage("Hold Ctrl while clicking Delete to remove a saved plan.", true);
+            }
+
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.BeginTooltip();
+                ImGui.TextUnformatted("Hold Ctrl and click to delete this saved plan.");
+                ImGui.EndTooltip();
+            }
+
+            ImGui.SetCursorPos(cursor);
+            ImGui.Spacing();
+            ImGui.PopID();
+        }
+
+        void DrawFolderHeader(SavedPlanFolderNode folderNode, int depth)
+        {
+            ImGui.PushID($"saved-folder-{folderNode.FullPath}");
+            var folderIndent = this.ScaleUi(18f);
+            var planIndent = this.ScaleUi(12f);
+            if (depth > 0)
+                ImGui.Indent(folderIndent);
+            var folderHeaderColor = depth == 0 && this.configuration.UseAccentForFolderHeaders
                 ? this.configuration.AccentColor
-                : this.configuration.FolderHeaderColor;
+                : depth == 0
+                    ? this.configuration.FolderHeaderColor
+                    : this.configuration.SubfolderHeaderColor;
             ImGui.PushStyleColor(ImGuiCol.Header, folderHeaderColor);
             ImGui.PushStyleColor(ImGuiCol.HeaderHovered, AdjustColor(folderHeaderColor, 0.06f));
             ImGui.PushStyleColor(ImGuiCol.HeaderActive, AdjustColor(folderHeaderColor, -0.04f));
             ImGui.PushStyleColor(
                 ImGuiCol.Text,
-                this.configuration.UseAccentForFolderHeaders
-                    ? this.configuration.TextColor
-                    : this.configuration.FolderHeaderTextColor);
+                depth == 0
+                    ? this.configuration.FolderHeaderTextColor
+                    : this.configuration.SubfolderHeaderTextColor);
             var isFolderOpen = ImGui.CollapsingHeader(
-                $"{GetFolderDisplayName(folderName)} ({folderGroup.Count()})##folder-group",
-                ImGuiTreeNodeFlags.DefaultOpen);
+                $"{GetFolderDisplayName(folderNode.Name)} ({folderNode.TotalPlanCount})##folder-group",
+                ImGuiTreeNodeFlags.DefaultOpen |
+                ImGuiTreeNodeFlags.AllowItemOverlap);
             ImGui.PopStyleColor(4);
-            if (!string.IsNullOrWhiteSpace(folderName))
+
+            if (!string.IsNullOrWhiteSpace(folderNode.FullPath))
             {
-                var buttonWidth = ImGui.CalcTextSize("Rename folder").X +
-                    (ImGui.GetStyle().FramePadding.X * 2f);
-                var targetX = ImGui.GetWindowContentRegionMax().X - buttonWidth;
+                var renameButtonWidth = Math.Max(
+                    this.ScaleUi(102f),
+                    ImGui.CalcTextSize("Rename folder").X + (ImGui.GetStyle().FramePadding.X * 2f));
+                var moveButtonWidth = Math.Max(
+                    this.ScaleUi(92f),
+                    ImGui.CalcTextSize("Move folder").X + (ImGui.GetStyle().FramePadding.X * 2f));
+                var spacing = ImGui.GetStyle().ItemSpacing.X;
+                var totalButtonWidth = moveButtonWidth + spacing + renameButtonWidth;
+                var targetX = ImGui.GetWindowContentRegionMax().X - totalButtonWidth;
                 ImGui.SameLine();
                 ImGui.SetCursorPosX(Math.Max(ImGui.GetCursorPosX(), targetX));
-                if (ImGui.SmallButton("Rename folder"))
-                    folderToRename = folderName;
-                DrawTooltipIfHovered("Rename this folder and keep all plans inside it.");
+                if (WindowTheme.ShadowedButton("Move folder", new Vector2(moveButtonWidth, 0)))
+                    folderToMove = folderNode.FullPath;
+                DrawTooltipIfHovered("Move this folder into another parent folder.");
+                ImGui.SameLine();
+                if (WindowTheme.ShadowedButton("Rename folder", new Vector2(renameButtonWidth, 0)))
+                    folderToRename = folderNode.FullPath;
+                DrawTooltipIfHovered("Rename this folder and keep all plans and subfolders inside it.");
             }
+
             if (isFolderOpen)
             {
-                foreach (var savedPlan in folderGroup)
+                foreach (var childFolder in folderNode.Children)
+                    DrawFolderHeader(childFolder, depth + 1);
+
+                foreach (var savedPlan in folderNode.Plans)
                 {
-                    ImGui.PushID($"saved-plan-{savedPlan.Name}");
-                    var rowWidth = Math.Max(1f, ImGui.GetContentRegionAvail().X);
-                    var rowHeight = this.ScaleUi(52f);
-                    var rowPos = ImGui.GetCursorScreenPos();
-                    var rowColor = this.selectedSavedPlans.Contains(savedPlan)
-                        ? WithAlpha(this.configuration.AccentColor, 0.18f)
-                        : AdjustColor(this.configuration.WindowBackgroundColor, 0.08f);
-                    ImGui.GetWindowDrawList().AddRectFilled(
-                        rowPos,
-                        rowPos + new Vector2(rowWidth, rowHeight),
-                        ImGui.GetColorU32(rowColor),
-                        this.ScaleUi(14f));
-                    ImGui.Dummy(new Vector2(rowWidth, rowHeight));
-
-                    var cursor = ImGui.GetCursorPos();
-                    ImGui.SetCursorScreenPos(rowPos + this.ScaleUi(new Vector2(14f, 14f)));
-                    var isSelected = this.selectedSavedPlans.Contains(savedPlan);
-                    if (ImGui.Checkbox("##select-saved-plan", ref isSelected))
-                    {
-                        if (isSelected)
-                            this.selectedSavedPlans.Add(savedPlan);
-                        else
-                            this.selectedSavedPlans.Remove(savedPlan);
-                    }
-
-                    ImGui.SetCursorScreenPos(rowPos + this.ScaleUi(new Vector2(44f, 8f)));
-                    ImGui.TextUnformatted(savedPlan.Name);
-                    ImGui.SetCursorScreenPos(rowPos + this.ScaleUi(new Vector2(44f, 25f)));
-                    ImGui.TextDisabled($"{savedPlan.Recipes.Count} recipes");
-
-                    var actionX = rowPos.X + rowWidth - this.ScaleUi(314f);
-                    ImGui.SetCursorScreenPos(new Vector2(actionX, rowPos.Y + this.ScaleUi(12f)));
-                    if (ImGui.Button("Load", new Vector2(this.ScaleUi(48f), 0)))
-                        planToLoad = savedPlan;
-                    DrawTooltipIfHovered("Load this saved plan into the current recipe list.");
-                    ImGui.SameLine();
-                    if (ImGui.Button("Move", new Vector2(this.ScaleUi(48f), 0)))
-                        planToMove = savedPlan;
-                    DrawTooltipIfHovered("Move this saved plan to another folder.");
-                    ImGui.SameLine();
-                    if (ImGui.Button("Duplicate", new Vector2(this.ScaleUi(72f), 0)))
-                        planToDuplicate = savedPlan;
-                    DrawTooltipIfHovered("Create a copy of this saved plan.");
-                    ImGui.SameLine();
-                    if (ImGui.Button("Rename", new Vector2(this.ScaleUi(62f), 0)))
-                        planToRename = savedPlan;
-                    DrawTooltipIfHovered("Rename this saved plan.");
-                    ImGui.SameLine();
-                    if (ImGui.Button("Delete", new Vector2(this.ScaleUi(54f), 0)))
-                    {
-                        if (ImGui.GetIO().KeyCtrl)
-                            planToDelete = savedPlan;
-                        else
-                            this.ShowPlanMessage("Hold Ctrl while clicking Delete to remove a saved plan.", true);
-                    }
-
-                    if (ImGui.IsItemHovered())
-                    {
-                        ImGui.BeginTooltip();
-                        ImGui.TextUnformatted("Hold Ctrl and click to delete this saved plan.");
-                        ImGui.EndTooltip();
-                    }
-
-                    ImGui.SetCursorPos(cursor);
-                    ImGui.Spacing();
-                    ImGui.PopID();
+                    if (depth > 0)
+                        ImGui.Indent(planIndent);
+                    DrawSavedPlanRow(savedPlan);
+                    if (depth > 0)
+                        ImGui.Unindent(planIndent);
                 }
             }
+
+            if (depth > 0)
+                ImGui.Unindent(folderIndent);
             ImGui.PopID();
         }
 
+        if (folderTree.Plans.Count > 0)
+        {
+            var unfiledNode = new SavedPlanFolderNode
+            {
+                Name = string.Empty,
+                FullPath = string.Empty,
+            };
+            unfiledNode.Plans.AddRange(folderTree.Plans);
+            DrawFolderHeader(unfiledNode, 0);
+        }
+
+        foreach (var childFolder in folderTree.Children)
+            DrawFolderHeader(childFolder, 0);
+
         if (this.selectedSavedPlans.Count > 0)
         {
-            if (ImGui.Button($"Load selected plans ({this.selectedSavedPlans.Count})"))
+            if (WindowTheme.ShadowedButton($"Load selected plans ({this.selectedSavedPlans.Count})"))
                 loadSelectedPlans = true;
             DrawTooltipIfHovered("Load all checked plans into one combined recipe list.");
 
             ImGui.SameLine();
-            ImGui.PushStyleColor(
-                ImGuiCol.Button,
-                this.configuration.ReadyButtonColor);
             craftSelectedPlans =
-                ImGui.Button($"Craft selected plans ({this.selectedSavedPlans.Count})");
-            ImGui.PopStyleColor();
+                WindowTheme.ShadowedButton($"Craft selected plans ({this.selectedSavedPlans.Count})");
             DrawTooltipIfHovered("Queue all checked plans in Artisan, including required pre-crafts.");
 
             ImGui.SameLine();
-            if (ImGui.Button($"Move selected ({this.selectedSavedPlans.Count})"))
+            if (WindowTheme.ShadowedButton($"Move selected ({this.selectedSavedPlans.Count})"))
                 moveSelectedPlans = true;
             DrawTooltipIfHovered("Move all checked plans into a folder.");
 
             ImGui.SameLine();
-            if (ImGui.Button($"Export selected ({this.selectedSavedPlans.Count})"))
+            if (WindowTheme.ShadowedButton($"Export selected ({this.selectedSavedPlans.Count})"))
                 this.ExportSavedPlansToClipboard(this.selectedSavedPlans);
             DrawTooltipIfHovered("Copy the checked saved plans to the clipboard, including folder names.");
         }
         else if (this.configuration.SavedRecipePlans.Count > 0)
         {
-            if (ImGui.Button("Export all saved plans"))
+            if (WindowTheme.ShadowedButton("Export all saved plans"))
                 this.ExportSavedPlansToClipboard(this.configuration.SavedRecipePlans);
             DrawTooltipIfHovered("Copy every saved plan to the clipboard.");
         }
 
-        if (this.configuration.SavedRecipePlans.Count > 0)
+        if (this.configuration.SavedRecipePlans.Count > 0 || this.configuration.SavedPlanFolders.Count > 0)
         {
             ImGui.SameLine();
-            if (ImGui.Button("Import plans from clipboard"))
+            if (WindowTheme.ShadowedButton("Create folder"))
+                createFolder = true;
+            DrawTooltipIfHovered("Create a saved-plan folder. Use / to create nested folders.");
+
+            ImGui.SameLine();
+            if (WindowTheme.ShadowedButton("Import plans from clipboard"))
                 this.ImportSavedPlansFromClipboard();
             DrawTooltipIfHovered("Import saved plans from copied Recipe Helper plan data.");
         }
@@ -1096,6 +1234,23 @@ public sealed class RecipeWindow : Window, IDisposable
             this.renameFolderPopupRequested = true;
         }
 
+        if (folderToMove is not null)
+        {
+            this.movingFolderSource = folderToMove;
+            this.moveFolderParentName = GetParentFolderPath(folderToMove);
+            this.moveFolderError = string.Empty;
+            this.isMoveFolderPopupOpen = true;
+            this.moveFolderPopupRequested = true;
+        }
+
+        if (createFolder)
+        {
+            this.createFolderName = string.Empty;
+            this.createFolderError = string.Empty;
+            this.isCreateFolderPopupOpen = true;
+            this.createFolderPopupRequested = true;
+        }
+
         if (planToDelete is not null)
         {
             this.selectedSavedPlans.Remove(planToDelete);
@@ -1112,6 +1267,8 @@ public sealed class RecipeWindow : Window, IDisposable
         this.DrawRenamePlanPopup();
         this.DrawMovePlanPopup();
         this.DrawMoveSelectedPlansPopup();
+        this.DrawMoveFolderPopup();
+        this.DrawCreateFolderPopup();
         this.DrawRenameFolderPopup();
     }
 
@@ -1149,20 +1306,20 @@ public sealed class RecipeWindow : Window, IDisposable
             return;
         WindowTheme.ApplyTextScale(this.configuration, includeMainWindowScale: true);
 
-        this.DrawFolderSelectionControls();
+        this.DrawFolderSelectionControls(ref this.movePlanFolderName, includeUnfiled: true);
         ImGui.SetNextItemWidth(280);
         var submitted = ImGui.InputText(
             "Folder",
             ref this.movePlanFolderName,
             80,
             ImGuiInputTextFlags.EnterReturnsTrue);
-        ImGui.TextDisabled("Leave blank to keep the plan unfiled.");
+        ImGui.TextDisabled("Leave blank to keep the plan unfiled. Use / to create subfolders.");
 
-        if (ImGui.Button("Move") || submitted)
+        if (WindowTheme.ShadowedButton("Move") || submitted)
             this.TryMoveSavedPlan();
 
         ImGui.SameLine();
-        if (ImGui.Button("Cancel"))
+        if (WindowTheme.ShadowedButton("Cancel"))
         {
             this.isMovePlanPopupOpen = false;
             this.movingPlan = null;
@@ -1187,20 +1344,20 @@ public sealed class RecipeWindow : Window, IDisposable
             return;
         WindowTheme.ApplyTextScale(this.configuration, includeMainWindowScale: true);
 
-        this.DrawFolderSelectionControls();
+        this.DrawFolderSelectionControls(ref this.movePlanFolderName, includeUnfiled: true);
         ImGui.SetNextItemWidth(280);
         var submitted = ImGui.InputText(
             "Folder",
             ref this.movePlanFolderName,
             80,
             ImGuiInputTextFlags.EnterReturnsTrue);
-        ImGui.TextDisabled($"Move {this.movingSelectedPlans.Count} selected plan{(this.movingSelectedPlans.Count == 1 ? string.Empty : "s")} into this folder.");
+        ImGui.TextDisabled($"Move {this.movingSelectedPlans.Count} selected plan{(this.movingSelectedPlans.Count == 1 ? string.Empty : "s")} into this folder. Use / to create subfolders.");
 
-        if (ImGui.Button("Move all") || submitted)
+        if (WindowTheme.ShadowedButton("Move all") || submitted)
             this.TryMoveSelectedPlans();
 
         ImGui.SameLine();
-        if (ImGui.Button("Cancel"))
+        if (WindowTheme.ShadowedButton("Cancel"))
         {
             this.isMoveSelectedPlansPopupOpen = false;
             this.movingSelectedPlans = [];
@@ -1210,13 +1367,98 @@ public sealed class RecipeWindow : Window, IDisposable
         ImGui.EndPopup();
     }
 
-    private void DrawFolderSelectionControls()
+    private void DrawMoveFolderPopup()
     {
-        var folders = GetSavedPlanFolders(this.configuration.SavedRecipePlans);
+        if (this.moveFolderPopupRequested)
+        {
+            ImGui.OpenPopup("Move folder");
+            this.moveFolderPopupRequested = false;
+        }
+
+        if (!ImGui.BeginPopupModal(
+                "Move folder",
+                ref this.isMoveFolderPopupOpen,
+                ImGuiWindowFlags.AlwaysAutoResize))
+            return;
+        WindowTheme.ApplyTextScale(this.configuration, includeMainWindowScale: true);
+
+        ImGui.TextDisabled($"Moving folder: {GetFolderDisplayName(this.movingFolderSource)}");
+        this.DrawFolderSelectionControls(ref this.moveFolderParentName, includeUnfiled: true);
+        ImGui.SetNextItemWidth(280);
+        var submitted = ImGui.InputText(
+            "Parent folder",
+            ref this.moveFolderParentName,
+            120,
+            ImGuiInputTextFlags.EnterReturnsTrue);
+        ImGui.TextDisabled("Leave blank to move it to the top level. Use / to create subfolders.");
+
+        if (!string.IsNullOrWhiteSpace(this.moveFolderError))
+            ImGui.TextColored(this.configuration.MissingTextColor, this.moveFolderError);
+
+        if (WindowTheme.ShadowedButton("Move folder") || submitted)
+            this.TryMoveFolder();
+
+        ImGui.SameLine();
+        if (WindowTheme.ShadowedButton("Cancel"))
+        {
+            this.isMoveFolderPopupOpen = false;
+            this.movingFolderSource = string.Empty;
+            this.moveFolderParentName = string.Empty;
+            this.moveFolderError = string.Empty;
+            ImGui.CloseCurrentPopup();
+        }
+
+        ImGui.EndPopup();
+    }
+
+    private void DrawCreateFolderPopup()
+    {
+        if (this.createFolderPopupRequested)
+        {
+            ImGui.OpenPopup("Create folder");
+            this.createFolderPopupRequested = false;
+        }
+
+        if (!ImGui.BeginPopupModal(
+                "Create folder",
+                ref this.isCreateFolderPopupOpen,
+                ImGuiWindowFlags.AlwaysAutoResize))
+            return;
+        WindowTheme.ApplyTextScale(this.configuration, includeMainWindowScale: true);
+
+        ImGui.SetNextItemWidth(280);
+        var submitted = ImGui.InputText(
+            "Folder",
+            ref this.createFolderName,
+            120,
+            ImGuiInputTextFlags.EnterReturnsTrue);
+        ImGui.TextDisabled("Use / to create nested folders.");
+
+        if (!string.IsNullOrWhiteSpace(this.createFolderError))
+            ImGui.TextColored(this.configuration.MissingTextColor, this.createFolderError);
+
+        if (WindowTheme.ShadowedButton("Create folder") || submitted)
+            this.TryCreateFolder();
+
+        ImGui.SameLine();
+        if (WindowTheme.ShadowedButton("Cancel"))
+        {
+            this.isCreateFolderPopupOpen = false;
+            this.createFolderName = string.Empty;
+            this.createFolderError = string.Empty;
+            ImGui.CloseCurrentPopup();
+        }
+
+        ImGui.EndPopup();
+    }
+
+    private void DrawFolderSelectionControls(ref string folderValue, bool includeUnfiled = false)
+    {
+        var folders = GetSavedPlanFolders(this.configuration.SavedPlanFolders, this.configuration.SavedRecipePlans);
         if (folders.Count == 0)
             return;
 
-        var selectedFolder = NormalizeFolderName(this.movePlanFolderName);
+        var selectedFolder = NormalizeFolderName(folderValue);
         var selectedIndex = folders.FindIndex(folder =>
             string.Equals(folder, selectedFolder, StringComparison.OrdinalIgnoreCase));
         var preview = selectedIndex >= 0 ? GetFolderDisplayName(folders[selectedIndex]) : "Choose existing folder";
@@ -1226,18 +1468,18 @@ public sealed class RecipeWindow : Window, IDisposable
             return;
 
         var useUnfiled = string.IsNullOrWhiteSpace(selectedFolder);
-        if (ImGui.Selectable("Unfiled", useUnfiled))
-            this.movePlanFolderName = string.Empty;
+        if (includeUnfiled && ImGui.Selectable("Unfiled", useUnfiled))
+            folderValue = string.Empty;
 
         foreach (var folder in folders)
         {
             var isSelected = string.Equals(folder, selectedFolder, StringComparison.OrdinalIgnoreCase);
             if (ImGui.Selectable(folder, isSelected))
-                this.movePlanFolderName = folder;
+                folderValue = folder;
         }
 
         ImGui.EndCombo();
-        ImGui.TextDisabled("Choose an existing folder or type a new one below.");
+        ImGui.TextDisabled("Choose an existing folder or type a new one below. Use / to create subfolders.");
     }
 
     private void TryMoveSavedPlan()
@@ -1246,7 +1488,8 @@ public sealed class RecipeWindow : Window, IDisposable
             return;
 
         this.selectedSavedPlans.Remove(this.movingPlan);
-        this.movingPlan.FolderName = this.movePlanFolderName.Trim();
+        this.movingPlan.FolderName = NormalizeFolderName(this.movePlanFolderName);
+        this.EnsureSavedPlanFolderHierarchy(this.movingPlan.FolderName);
         this.saveConfiguration();
         this.ShowPlanMessage($"Moved plan '{this.movingPlan.Name}'.", false);
         this.isMovePlanPopupOpen = false;
@@ -1256,7 +1499,7 @@ public sealed class RecipeWindow : Window, IDisposable
 
     private void TryMoveSelectedPlans()
     {
-        var folderName = this.movePlanFolderName.Trim();
+        var folderName = NormalizeFolderName(this.movePlanFolderName);
         var plans = this.movingSelectedPlans
             .Where(plan => this.configuration.SavedRecipePlans.Contains(plan))
             .ToList();
@@ -1269,6 +1512,7 @@ public sealed class RecipeWindow : Window, IDisposable
         foreach (var plan in plans)
         {
             plan.FolderName = folderName;
+            this.EnsureSavedPlanFolderHierarchy(plan.FolderName);
             this.selectedSavedPlans.Remove(plan);
         }
 
@@ -1276,6 +1520,81 @@ public sealed class RecipeWindow : Window, IDisposable
         this.ShowPlanMessage($"Moved {plans.Count} saved plan{(plans.Count == 1 ? string.Empty : "s")}.", false);
         this.isMoveSelectedPlansPopupOpen = false;
         this.movingSelectedPlans = [];
+        ImGui.CloseCurrentPopup();
+    }
+
+    private void TryCreateFolder()
+    {
+        var folderName = NormalizeFolderName(this.createFolderName);
+        if (string.IsNullOrWhiteSpace(folderName))
+        {
+            this.createFolderError = "Enter a folder name.";
+            return;
+        }
+
+        if (this.configuration.SavedPlanFolders.Contains(folderName, StringComparer.OrdinalIgnoreCase))
+        {
+            this.createFolderError = "That folder already exists.";
+            return;
+        }
+
+        this.EnsureSavedPlanFolderHierarchy(folderName);
+        this.saveConfiguration();
+        this.ShowPlanMessage($"Created folder '{GetFolderDisplayName(folderName)}'.", false);
+        this.isCreateFolderPopupOpen = false;
+        this.createFolderName = string.Empty;
+        this.createFolderError = string.Empty;
+        ImGui.CloseCurrentPopup();
+    }
+
+    private void TryMoveFolder()
+    {
+        var sourceFolder = NormalizeFolderName(this.movingFolderSource);
+        if (string.IsNullOrWhiteSpace(sourceFolder))
+        {
+            this.moveFolderError = "Choose a folder to move.";
+            return;
+        }
+
+        var destinationParent = NormalizeFolderName(this.moveFolderParentName);
+        if (FolderMatchesOrContains(destinationParent, sourceFolder))
+        {
+            this.moveFolderError = "Choose a parent folder outside the folder you are moving.";
+            return;
+        }
+
+        var folderName = GetFolderDisplayName(sourceFolder);
+        var targetFolder = CombineFolderPath(destinationParent, folderName);
+        if (string.Equals(targetFolder, sourceFolder, StringComparison.OrdinalIgnoreCase))
+        {
+            this.isMoveFolderPopupOpen = false;
+            this.movingFolderSource = string.Empty;
+            this.moveFolderParentName = string.Empty;
+            this.moveFolderError = string.Empty;
+            ImGui.CloseCurrentPopup();
+            return;
+        }
+
+        foreach (var plan in this.configuration.SavedRecipePlans)
+        {
+            var planFolder = NormalizeFolderName(plan.FolderName);
+            if (!FolderMatchesOrContains(planFolder, sourceFolder))
+                continue;
+
+            var suffix = planFolder.Length == sourceFolder.Length
+                ? string.Empty
+                : planFolder[sourceFolder.Length..];
+            plan.FolderName = NormalizeFolderName($"{targetFolder}{suffix}");
+        }
+
+        this.MoveSavedPlanFolderPaths(sourceFolder, targetFolder);
+
+        this.saveConfiguration();
+        this.ShowPlanMessage($"Moved folder '{folderName}'.", false);
+        this.isMoveFolderPopupOpen = false;
+        this.movingFolderSource = string.Empty;
+        this.moveFolderParentName = string.Empty;
+        this.moveFolderError = string.Empty;
         ImGui.CloseCurrentPopup();
     }
 
@@ -1304,11 +1623,11 @@ public sealed class RecipeWindow : Window, IDisposable
         if (!string.IsNullOrWhiteSpace(this.renamePlanError))
             ImGui.TextColored(this.configuration.MissingTextColor, this.renamePlanError);
 
-        if (ImGui.Button("Rename") || submitted)
+        if (WindowTheme.ShadowedButton("Rename") || submitted)
             this.TryRenameSavedPlan();
 
         ImGui.SameLine();
-        if (ImGui.Button("Cancel"))
+        if (WindowTheme.ShadowedButton("Cancel"))
         {
             this.isRenamePlanPopupOpen = false;
             this.renamingPlan = null;
@@ -1344,11 +1663,11 @@ public sealed class RecipeWindow : Window, IDisposable
         if (!string.IsNullOrWhiteSpace(this.renameFolderError))
             ImGui.TextColored(this.configuration.MissingTextColor, this.renameFolderError);
 
-        if (ImGui.Button("Rename") || submitted)
+        if (WindowTheme.ShadowedButton("Rename") || submitted)
             this.TryRenameFolder();
 
         ImGui.SameLine();
-        if (ImGui.Button("Cancel"))
+        if (WindowTheme.ShadowedButton("Cancel"))
         {
             this.isRenameFolderPopupOpen = false;
             this.renamingFolderSource = string.Empty;
@@ -1391,7 +1710,7 @@ public sealed class RecipeWindow : Window, IDisposable
 
     private void TryRenameFolder()
     {
-        var cleanName = this.renameFolderName.Trim();
+        var cleanName = NormalizeFolderName(this.renameFolderName);
         if (cleanName.Length == 0)
         {
             this.renameFolderError = "Enter a folder name.";
@@ -1407,14 +1726,20 @@ public sealed class RecipeWindow : Window, IDisposable
             return;
         }
 
-        foreach (var plan in this.configuration.SavedRecipePlans
-                     .Where(plan => string.Equals(
-                         NormalizeFolderName(plan.FolderName),
-                         NormalizeFolderName(this.renamingFolderSource),
-                         StringComparison.OrdinalIgnoreCase)))
+        var sourceFolder = NormalizeFolderName(this.renamingFolderSource);
+        foreach (var plan in this.configuration.SavedRecipePlans)
         {
-            plan.FolderName = cleanName;
+            var planFolder = NormalizeFolderName(plan.FolderName);
+            if (!FolderMatchesOrContains(planFolder, sourceFolder))
+                continue;
+
+            var suffix = planFolder.Length == sourceFolder.Length
+                ? string.Empty
+                : planFolder[sourceFolder.Length..];
+            plan.FolderName = $"{cleanName}{suffix}";
         }
+
+        this.MoveSavedPlanFolderPaths(sourceFolder, cleanName);
 
         this.saveConfiguration();
         this.ShowPlanMessage($"Renamed folder to '{cleanName}'.", false);
@@ -1435,18 +1760,200 @@ public sealed class RecipeWindow : Window, IDisposable
             DesiredAmount = recipe.DesiredAmount,
         };
 
-    private static string NormalizeFolderName(string? folderName) =>
-        string.IsNullOrWhiteSpace(folderName) ? string.Empty : folderName.Trim();
+    private static string NormalizeFolderName(string? folderName)
+    {
+        if (string.IsNullOrWhiteSpace(folderName))
+            return string.Empty;
 
-    private static List<string> GetSavedPlanFolders(IEnumerable<SavedRecipePlan> plans) =>
-        plans.Select(plan => NormalizeFolderName(plan.FolderName))
+        var segments = folderName
+            .Replace('\\', '/')
+            .Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(segment => !string.IsNullOrWhiteSpace(segment))
+            .ToArray();
+        return segments.Length == 0 ? string.Empty : string.Join('/', segments);
+    }
+
+    private void NormalizeSavedPlanFolders()
+    {
+        var normalizedFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var folder in this.configuration.SavedPlanFolders)
+        {
+            foreach (var path in ExpandFolderHierarchy(NormalizeFolderName(folder)))
+                normalizedFolders.Add(path);
+        }
+
+        foreach (var plan in this.configuration.SavedRecipePlans)
+        {
+            foreach (var path in ExpandFolderHierarchy(NormalizeFolderName(plan.FolderName)))
+                normalizedFolders.Add(path);
+        }
+
+        this.configuration.SavedPlanFolders = normalizedFolders
+            .OrderBy(folder => folder, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private void EnsureSavedPlanFolderHierarchy(string? folderPath)
+    {
+        foreach (var path in ExpandFolderHierarchy(NormalizeFolderName(folderPath)))
+        {
+            if (!this.configuration.SavedPlanFolders.Contains(path, StringComparer.OrdinalIgnoreCase))
+                this.configuration.SavedPlanFolders.Add(path);
+        }
+
+        this.configuration.SavedPlanFolders = this.configuration.SavedPlanFolders
+            .Select(NormalizeFolderName)
+            .Where(folder => !string.IsNullOrWhiteSpace(folder))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(folder => folder, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private void MoveSavedPlanFolderPaths(string sourceFolder, string targetFolder)
+    {
+        var updatedFolders = new List<string>();
+        foreach (var folder in this.configuration.SavedPlanFolders)
+        {
+            var normalizedFolder = NormalizeFolderName(folder);
+            if (!FolderMatchesOrContains(normalizedFolder, sourceFolder))
+            {
+                updatedFolders.Add(normalizedFolder);
+                continue;
+            }
+
+            var suffix = normalizedFolder.Length == sourceFolder.Length
+                ? string.Empty
+                : normalizedFolder[sourceFolder.Length..];
+            updatedFolders.Add(NormalizeFolderName($"{targetFolder}{suffix}"));
+        }
+
+        this.configuration.SavedPlanFolders = updatedFolders;
+        this.NormalizeSavedPlanFolders();
+    }
+
+    private static List<string> ExpandFolderHierarchy(string folderPath)
+    {
+        var normalized = NormalizeFolderName(folderPath);
+        if (string.IsNullOrWhiteSpace(normalized))
+            return [];
+
+        var segments = normalized.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        var paths = new List<string>(segments.Length);
+        var current = string.Empty;
+        foreach (var segment in segments)
+        {
+            current = string.IsNullOrWhiteSpace(current) ? segment : $"{current}/{segment}";
+            paths.Add(current);
+        }
+
+        return paths;
+    }
+
+    private static List<string> GetSavedPlanFolders(IEnumerable<string> folders, IEnumerable<SavedRecipePlan> plans) =>
+        folders.Select(NormalizeFolderName)
+            .Concat(plans.Select(plan => NormalizeFolderName(plan.FolderName)))
+            .SelectMany(ExpandFolderHierarchy)
             .Where(folderName => !string.IsNullOrWhiteSpace(folderName))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(folderName => folderName, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
     private static string GetFolderDisplayName(string folderName) =>
-        string.IsNullOrWhiteSpace(folderName) ? "Unfiled" : folderName;
+        string.IsNullOrWhiteSpace(folderName)
+            ? "Unfiled"
+            : folderName.Contains('/')
+                ? folderName[(folderName.LastIndexOf('/') + 1)..]
+                : folderName;
+
+    private static string GetParentFolderPath(string folderPath)
+    {
+        var normalized = NormalizeFolderName(folderPath);
+        if (string.IsNullOrWhiteSpace(normalized) || !normalized.Contains('/'))
+            return string.Empty;
+
+        return normalized[..normalized.LastIndexOf('/')];
+    }
+
+    private static string CombineFolderPath(string parentFolderPath, string folderName)
+    {
+        var normalizedParent = NormalizeFolderName(parentFolderPath);
+        var normalizedName = NormalizeFolderName(folderName);
+        if (string.IsNullOrWhiteSpace(normalizedParent))
+            return normalizedName;
+        if (string.IsNullOrWhiteSpace(normalizedName))
+            return normalizedParent;
+
+        return $"{normalizedParent}/{normalizedName}";
+    }
+
+    private static bool FolderMatchesOrContains(string folderPath, string parentFolderPath) =>
+        string.Equals(folderPath, parentFolderPath, StringComparison.OrdinalIgnoreCase) ||
+        folderPath.StartsWith(parentFolderPath + "/", StringComparison.OrdinalIgnoreCase);
+
+    private static SavedPlanFolderNode BuildSavedPlanFolderTree(IEnumerable<string> folders, IEnumerable<SavedRecipePlan> plans)
+    {
+        var root = new SavedPlanFolderNode
+        {
+            Name = string.Empty,
+            FullPath = string.Empty,
+        };
+
+        foreach (var folder in GetSavedPlanFolders(folders, plans))
+        {
+            var currentNode = root;
+            var currentPath = string.Empty;
+            foreach (var segment in folder.Split('/', StringSplitOptions.RemoveEmptyEntries))
+            {
+                currentPath = string.IsNullOrWhiteSpace(currentPath)
+                    ? segment
+                    : $"{currentPath}/{segment}";
+                var nextNode = currentNode.Children.FirstOrDefault(child =>
+                    string.Equals(child.Name, segment, StringComparison.OrdinalIgnoreCase));
+                if (nextNode is null)
+                {
+                    nextNode = new SavedPlanFolderNode
+                    {
+                        Name = segment,
+                        FullPath = currentPath,
+                    };
+                    currentNode.Children.Add(nextNode);
+                }
+
+                currentNode = nextNode;
+            }
+
+        }
+
+        foreach (var plan in plans)
+        {
+            var normalizedFolder = NormalizeFolderName(plan.FolderName);
+            if (string.IsNullOrWhiteSpace(normalizedFolder))
+            {
+                root.Plans.Add(plan);
+                continue;
+            }
+
+            var currentNode = root;
+            foreach (var segment in normalizedFolder.Split('/', StringSplitOptions.RemoveEmptyEntries))
+            {
+                currentNode = currentNode.Children.First(child =>
+                    string.Equals(child.Name, segment, StringComparison.OrdinalIgnoreCase));
+            }
+
+            currentNode.Plans.Add(plan);
+        }
+
+        SortFolderTree(root);
+        return root;
+    }
+
+    private static void SortFolderTree(SavedPlanFolderNode node)
+    {
+        node.Children.Sort((left, right) => string.Compare(left.Name, right.Name, StringComparison.OrdinalIgnoreCase));
+        node.Plans.Sort((left, right) => string.Compare(left.Name, right.Name, StringComparison.OrdinalIgnoreCase));
+        foreach (var child in node.Children)
+            SortFolderTree(child);
+    }
 
     private void SaveCurrentPlan()
     {
@@ -1466,7 +1973,7 @@ public sealed class RecipeWindow : Window, IDisposable
         var savedPlan = new SavedRecipePlan
         {
             Name = cleanName,
-            FolderName = this.planFolderName.Trim(),
+            FolderName = NormalizeFolderName(this.planFolderName),
             Recipes = this.selectedRecipes.Select(selection =>
                 new SavedRecipePlanEntry
                 {
@@ -1488,6 +1995,7 @@ public sealed class RecipeWindow : Window, IDisposable
         else
             this.configuration.SavedRecipePlans.Add(savedPlan);
 
+        this.EnsureSavedPlanFolderHierarchy(savedPlan.FolderName);
         this.saveConfiguration();
         this.ShowPlanMessage(
             existingIndex >= 0
@@ -1762,17 +2270,22 @@ public sealed class RecipeWindow : Window, IDisposable
                 ImGui.SetCursorPos(new Vector2(
                     actionCursor.X + MathF.Max(0f, (actionWidth - totalButtonWidth) / 2f),
                     actionCursor.Y + MathF.Max(0f, (selectedRecipeRowHeight - buttonHeight) / 2f)));
-                if (ImGui.Button($"Craft Items##plan-artisan-{recipe.RecipeId}", new Vector2(craftButtonWidth, 0)))
+                if (WindowTheme.ShadowedButton($"Craft Items##plan-artisan-{recipe.RecipeId}", new Vector2(craftButtonWidth, 0)))
                 {
                     this.integrationError = !this.pluginIntegrationService.CraftWithArtisan(
-                        recipe.RecipeId,
-                        recipe.CraftCount,
+                        new ArtisanCraftQueueEntry(
+                            recipe.RecipeId,
+                            recipe.ResultItemId,
+                            recipe.ResultName,
+                            recipe.ResultAmount,
+                            recipe.CraftCount,
+                            false),
                         out this.integrationMessage);
                 }
                 DrawTooltipIfHovered("Open this recipe in Artisan with the required craft count.");
 
                 ImGui.SameLine();
-                if (ImGui.Button($"Teamcraft##plan-teamcraft-{recipe.RecipeId}", new Vector2(teamcraftButtonWidth, 0)))
+                if (WindowTheme.ShadowedButton($"Teamcraft##plan-teamcraft-{recipe.RecipeId}", new Vector2(teamcraftButtonWidth, 0)))
                 {
                     this.integrationError = !this.pluginIntegrationService.OpenInTeamcraft(
                         recipe.ResultItemId,
@@ -1782,7 +2295,7 @@ public sealed class RecipeWindow : Window, IDisposable
                 DrawTooltipIfHovered("Open this recipe as a Teamcraft import list.");
 
                 ImGui.SameLine();
-                if (ImGui.Button($"Remove##plan-remove-{recipe.RecipeId}", new Vector2(removeButtonWidth, 0)))
+                if (WindowTheme.ShadowedButton($"Remove##plan-remove-{recipe.RecipeId}", new Vector2(removeButtonWidth, 0)))
                     recipeToRemove = recipe.RecipeId;
                 DrawTooltipIfHovered("Remove this recipe from the current plan.");
             }
@@ -1827,9 +2340,11 @@ public sealed class RecipeWindow : Window, IDisposable
         Action? action = null)
     {
         ImGui.Spacing();
+        ImGui.PushStyleColor(ImGuiCol.Text, this.configuration.SectionHeaderTextColor);
         var isOpen = ImGui.CollapsingHeader(
             $"{title}##{sectionId}",
             ImGuiTreeNodeFlags.DefaultOpen);
+        ImGui.PopStyleColor();
 
         if (!isOpen)
             return false;
@@ -1908,7 +2423,7 @@ public sealed class RecipeWindow : Window, IDisposable
             (showTravel ? this.ScaleUi(68f) : 0f) +
             (showAvailable ? this.ScaleUi(115f) : 0f) +
             (showStock ? this.ScaleUi(88f) : 0f) +
-            (showFoundIn ? this.ScaleUi(150f) : 0f) +
+            (showFoundIn ? this.ScaleUi(210f) : 0f) +
             (showRawCraftStatus ? this.ScaleUi(96f) : 0f) +
             (showMissing ? this.ScaleUi(75f) : 0f) +
             (ImGui.GetStyle().CellPadding.X * 2 * columnCount) +
@@ -1948,7 +2463,7 @@ public sealed class RecipeWindow : Window, IDisposable
             if (showStock)
                 SetupColumn("Stock", "stock", this.ScaleUi(88f));
             if (showFoundIn)
-                SetupColumn("Found in", "found", this.ScaleUi(150f));
+                SetupColumn("Found in", "found", this.ScaleUi(210f));
             if (showRawCraftStatus)
                 SetupColumn("From raw", "raw", this.ScaleUi(96f));
             ImGui.TableNextRow(ImGuiTableRowFlags.None, this.ScaleUi(36f));
@@ -2071,7 +2586,7 @@ public sealed class RecipeWindow : Window, IDisposable
                         ImGui.SetCursorPos(new Vector2(
                             buttonCursor.X + MathF.Max(0f, (columnWidth - buttonWidth) / 2f),
                             buttonCursor.Y - this.ScaleUi(34f)));
-                        if (ImGui.Button($"Gather##{tableId}-{ingredient.ItemId}", new Vector2(buttonWidth, 0)))
+                        if (WindowTheme.ShadowedButton($"Gather##{tableId}-{ingredient.ItemId}", new Vector2(buttonWidth, 0)))
                         {
                             this.integrationError = !this.pluginIntegrationService.GatherWithGatherBuddy(
                                 reductionSource?.Name ?? ingredient.Name,
@@ -2123,11 +2638,9 @@ public sealed class RecipeWindow : Window, IDisposable
                         this.DrawValueCard(
                             $"{tableId}-found-{ingredient.ItemId}",
                             new Vector2(-1, this.ScaleUi(36f)),
-                            TrimDisplayText(locationsText, 42),
+                            locationsText,
                             AdjustColor(this.configuration.WindowBackgroundColor, 0.07f),
                             this.configuration.TextColor);
-                        if (locationsText.Length > 42 && ImGui.IsItemHovered())
-                            ImGui.SetTooltip(locationsText);
                     }
                     else
                     {
@@ -2158,21 +2671,28 @@ public sealed class RecipeWindow : Window, IDisposable
                         var cardSize = this.ResolveCardSize(new Vector2(-1, this.ScaleUi(36f)), 42f);
                         this.DrawDecorativeCardBackground(
                             cardSize,
-                            WithAlpha(this.configuration.ReadyButtonColor, 0.16f));
+                            WithAlpha(this.configuration.ButtonColor, 0.16f));
                         var cardMin = ImGui.GetItemRectMin();
                         var buttonSize = this.ScaleUi(new Vector2(96f, 26f));
                         ImGui.SetCursorScreenPos(new Vector2(
                             cardMin.X + MathF.Max(0f, (cardSize.X - buttonSize.X) / 2f),
                             cardMin.Y + MathF.Max(0f, (cardSize.Y - buttonSize.Y) / 2f)));
-                        ImGui.PushStyleColor(ImGuiCol.Button, this.configuration.ReadyButtonColor);
                         var readyToCraftClicked =
-                            ImGui.Button($"Ready to craft##{tableId}-raw-{ingredient.ItemId}", buttonSize);
-                        ImGui.PopStyleColor();
+                            WindowTheme.ShadowedButton($"Ready to craft##{tableId}-raw-{ingredient.ItemId}", buttonSize);
                         if (readyToCraftClicked)
                         {
+                            var trackedRecipe = this.artisanCraftQueue.FirstOrDefault(recipe =>
+                                recipe.RecipeId == rawCraftRecipeId &&
+                                recipe.CraftCount == ingredient.RawCraftCount);
                             this.integrationError = !this.pluginIntegrationService.CraftWithArtisan(
-                                rawCraftRecipeId,
-                                ingredient.RawCraftCount,
+                                trackedRecipe ??
+                                new ArtisanCraftQueueEntry(
+                                    rawCraftRecipeId,
+                                    ingredient.ItemId,
+                                    ingredient.Name,
+                                    1,
+                                    ingredient.RawCraftCount,
+                                    true),
                                 out this.integrationMessage);
                         }
                         DrawTooltipIfHovered("Open Artisan to craft the missing amount from raw materials.");
@@ -2291,7 +2811,9 @@ public sealed class RecipeWindow : Window, IDisposable
         var drawList = ImGui.GetWindowDrawList();
         drawList.AddRectFilled(position, position + resolvedSize, ImGui.GetColorU32(backgroundColor), this.ScaleUi(12f));
 
-        var displayValue = TrimDisplayText(value, 28);
+        var displayValue = TrimDisplayTextToWidth(
+            value,
+            Math.Max(1f, resolvedSize.X - this.ScaleUi(16f)));
         var valueSize = ImGui.CalcTextSize(displayValue);
         drawList.AddText(
             position + new Vector2((resolvedSize.X - valueSize.X) / 2f, (resolvedSize.Y - valueSize.Y) / 2f),
@@ -2607,7 +3129,7 @@ public sealed class RecipeWindow : Window, IDisposable
                 ImGui.TextDisabled($"{destination.AetheryteName} ({destination.TeleportCost:N0} gil)");
                 if (destination.ItemId <= ushort.MaxValue)
                 {
-                    if (ImGui.Button("Show map"))
+                    if (WindowTheme.ShadowedButton("Show map"))
                     {
                         if (this.travelService.ShowOnMap(destination))
                         {
@@ -2624,7 +3146,7 @@ public sealed class RecipeWindow : Window, IDisposable
                     ImGui.SameLine();
                 }
 
-                if (ImGui.Button("Teleport"))
+                if (WindowTheme.ShadowedButton("Teleport"))
                 {
                     if (this.travelService.Teleport(destination))
                     {
@@ -2657,7 +3179,7 @@ public sealed class RecipeWindow : Window, IDisposable
         }
 
         ImGui.Spacing();
-        if (ImGui.Button("Close"))
+        if (WindowTheme.ShadowedButton("Close"))
         {
             this.isTravelPopupOpen = false;
             ImGui.CloseCurrentPopup();

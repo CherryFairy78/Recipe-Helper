@@ -32,12 +32,14 @@ internal sealed class SavedPlanStorageService
                 var backup = JsonSerializer.Deserialize<SavedPlanBackup>(
                     File.ReadAllText(this.backupPath),
                     this.serializerOptions);
-                if (backup?.Plans is { Count: > 0 })
+                if (backup is not null &&
+                    (backup.Plans.Count > 0 || backup.Folders.Count > 0))
                 {
                     configuration.SavedRecipePlans = backup.Plans;
+                    configuration.SavedPlanFolders = backup.Folders;
                     this.fileLog.Info(
                         "SavedPlans",
-                        $"Restored {backup.Plans.Count} saved plan(s) from the persistent backup.");
+                        $"Restored {backup.Plans.Count} saved plan(s) and {backup.Folders.Count} folder(s) from the persistent backup.");
                     return true;
                 }
             }
@@ -62,6 +64,7 @@ internal sealed class SavedPlanStorageService
                 new SavedPlanBackup
                 {
                     Plans = [.. plans],
+                    Folders = [.. (Plugin.PluginInterface.GetPluginConfig() as Configuration)?.SavedPlanFolders ?? []],
                 },
                 this.serializerOptions);
             File.WriteAllText(temporaryPath, json);
@@ -80,5 +83,7 @@ internal sealed class SavedPlanStorageService
         public int Version { get; set; } = 1;
 
         public List<SavedRecipePlan> Plans { get; set; } = [];
+
+        public List<string> Folders { get; set; } = [];
     }
 }

@@ -59,6 +59,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly AppearanceSettingsWindow appearanceSettingsWindow;
     private readonly DebugWindow debugWindow;
     private readonly RawMaterialsOverlayWindow rawMaterialsOverlayWindow;
+    private readonly ArtisanCraftOverlayWindow artisanCraftOverlayWindow;
     private readonly PluginIntegrationService pluginIntegrationService;
     private readonly GwenDreamService gwenDreamService;
     private readonly Configuration configuration;
@@ -97,7 +98,9 @@ public sealed class Plugin : IDalamudPlugin
             new PluginIntegrationService(
                 PluginInterface,
                 CommandManager,
+                Condition,
                 Framework,
+                GameInventory,
                 this.fileLog);
         var retainerSnapshotService = new RetainerSnapshotService(
             Framework,
@@ -138,6 +141,12 @@ public sealed class Plugin : IDalamudPlugin
             marketboardPriceService,
             inventoryService,
             this.configuration,
+            this.Open,
+            this.SaveConfiguration);
+        this.artisanCraftOverlayWindow = new ArtisanCraftOverlayWindow(
+            this.pluginIntegrationService,
+            this.configuration,
+            this.Open,
             this.SaveConfiguration);
 
         this.recipeWindow = new RecipeWindow(
@@ -152,12 +161,14 @@ public sealed class Plugin : IDalamudPlugin
             this.configuration,
             this.OpenSettings,
             this.SaveConfiguration,
-            this.rawMaterialsOverlayWindow);
+            this.rawMaterialsOverlayWindow,
+            this.artisanCraftOverlayWindow);
         this.windowSystem.AddWindow(this.recipeWindow);
         this.windowSystem.AddWindow(this.settingsWindow);
         this.windowSystem.AddWindow(this.appearanceSettingsWindow);
         this.windowSystem.AddWindow(this.debugWindow);
         this.windowSystem.AddWindow(this.rawMaterialsOverlayWindow);
+        this.windowSystem.AddWindow(this.artisanCraftOverlayWindow);
         this.debugWindowWasOpen = this.debugWindow.IsOpen;
 
         foreach (var command in this.mainCommands)
@@ -227,6 +238,7 @@ public sealed class Plugin : IDalamudPlugin
 
     private void OnDraw()
     {
+        this.recipeWindow.ProcessBackgroundState();
         this.windowSystem.Draw();
 
         if (this.debugWindowWasOpen && !this.debugWindow.IsOpen)
