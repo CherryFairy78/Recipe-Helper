@@ -36,7 +36,7 @@ public sealed class ArtisanCraftOverlayWindow : Window
         Configuration configuration,
         Action openRecipeHelper,
         Action saveConfiguration)
-        : base("Artisan Progress###DalamudRecipeHelperArtisanProgress")
+        : base("Recipe Helper Crafting Progress###DalamudRecipeHelperArtisanProgress")
     {
         this.pluginIntegrationService = pluginIntegrationService;
         this.configuration = configuration;

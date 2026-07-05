@@ -446,6 +446,9 @@ Recipe Helper searches FFXIV recipes, calculates the materials required for a ch
 - Prepared Recipe Helper v1.1.19.0 as a quick follow-up release for the popup readability fix.
 - Verification after preparing v1.1.19: Debug and Release builds both succeeded with zero warnings and zero errors, both generated manifests report `1.1.19.0` with the new changelog field, and the publish ZIP `artifacts\Release\DalamudRecipeHelper-v1.1.19.zip` was created with SHA-256 `07ABD348F72E9C97D4360284FAD9DBF6660FC579A62D9927738526E8BDE3BFC1`.
 - Published Recipe Helper v1.1.19 as the latest GitHub release with `DalamudRecipeHelper-v1.1.19.zip`, carrying the quick popup readability changelog through the package metadata, custom repository feed, and release notes.
+- Renamed the popup window title from `Artisan Progress` to `Recipe Helper Crafting Progress` so users can identify it more clearly in game.
+- Prepared Recipe Helper v1.1.20.0 as a quick naming follow-up release for the crafting progress window.
+- Verification after preparing v1.1.20: Debug and Release builds both succeeded with zero warnings and zero errors, both generated manifests report `1.1.20.0` with the new changelog field, and the publish ZIP `artifacts\Release\DalamudRecipeHelper-v1.1.20.zip` was created with SHA-256 `D07648BE3FC188EA38CF424B0BA4529D0C5DA48472BC7A3731EA4BF976057032`.
 
 ## Continuation checklist
 
