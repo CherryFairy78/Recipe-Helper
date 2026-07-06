@@ -1495,7 +1495,7 @@ public sealed class RecipeWindow : Window, IDisposable
                 new Vector2(Math.Max(1f, availableTableWidth), tableHeight)))
         {
             SetupColumn(itemHeader, this.ScaleUi(240f));
-            SetupColumn("Need", this.ScaleUi(60f));
+            SetupColumn("Qty", this.ScaleUi(60f));
             SetupColumn("Missing", this.ScaleUi(75f));
             SetupColumn("Travel", this.ScaleUi(68f));
             SetupColumn("Available", this.ScaleUi(115f));
@@ -1510,7 +1510,7 @@ public sealed class RecipeWindow : Window, IDisposable
             ImGui.TableNextColumn();
             this.DrawHeaderCard(itemHeader);
             ImGui.TableNextColumn();
-            this.DrawHeaderCard("Need");
+            this.DrawHeaderCard("Qty");
             ImGui.TableNextColumn();
             this.DrawHeaderCard("Missing");
             ImGui.TableNextColumn();

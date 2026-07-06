@@ -467,6 +467,9 @@ Recipe Helper searches FFXIV recipes, calculates the materials required for a ch
 - Made Saved Plans, saved-plan folders, Gatherables, and Collectables start closed on open, and split Raw Materials vs Shards/Crystals/Clusters obtained-item toggles so they behave independently.
 - Prepared Recipe Helper v1.1.24.0 for live publish with updated manifests, repo feed links, and release notes.
 - Verification after preparing v1.1.24: Debug build succeeded with zero warnings and zero errors, Release compilation produced the fresh `1.1.24.0` DLL but the automated packager hit the known manifest file-lock on `DalamudRecipeHelper.json`, the Release manifest was refreshed manually from the root manifest, and the publish ZIP `artifacts\Release\DalamudRecipeHelper-v1.1.24.zip` was created with SHA-256 `24BF4B3AFEF90CDC84D89FAE214B29308FFA4EA7BB22354B80869A1AB6010E2C`.
+- Renamed the gatherables and collectables quantity column from `Need` to `Qty` for clearer wording.
+- Prepared Recipe Helper v1.1.25.0 as a quick wording follow-up release.
+- Verification after preparing v1.1.25: Release and final Debug builds both succeeded with zero warnings and zero errors, an earlier parallel build attempt hit the known manifest file-lock on `DalamudRecipeHelper.json`, the Debug and Release manifests were refreshed manually from the root manifest, and the publish ZIP `artifacts\Release\DalamudRecipeHelper-v1.1.25.zip` was created with SHA-256 `386BB7A82AEE682062CDD5A735CEEF46B073DBEF9BBB987B3D3CC3986C5542E1`.
 
 ## Continuation checklist
 

@@ -1,8 +1,8 @@
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
-    <Version>1.1.24.0</Version>
+    <Version>1.1.25.0</Version>
     <Description>Plan multiple FFXIV recipes, compare combined materials with inventory and retainers, and hand crafting or gathering tasks to Artisan, Teamcraft, and GatherBuddy.</Description>
-    <Changelog>v1.1.24 adds gatherables and collectables planning improvements, better collectible hand-in details, and closed-by-default planning sections.</Changelog>
+    <Changelog>v1.1.25 renames the gatherables and collectables quantity column to Qty.</Changelog>
     <PackageProjectUrl>https://github.com/CherryFairy78/Recipe-Helper</PackageProjectUrl>
     <Authors>Meghann</Authors>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
