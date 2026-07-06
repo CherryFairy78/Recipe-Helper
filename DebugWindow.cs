@@ -179,6 +179,7 @@ public sealed class DebugWindow : Window
         builder.AppendLine($"ShowVendoredItemsInOverlay: {this.configuration.ShowVendoredItemsInOverlay}");
         builder.AppendLine($"UseAccentForFolderHeaders: {this.configuration.UseAccentForFolderHeaders}");
         builder.AppendLine($"ShowObtainedRawMaterials: {this.configuration.ShowObtainedRawMaterials}");
+        builder.AppendLine($"ShowObtainedElementalCatalysts: {this.configuration.ShowObtainedElementalCatalysts}");
         builder.AppendLine($"EstimatedSecondsPerCraft: {this.configuration.EstimatedSecondsPerCraft}");
 
         builder.AppendLine();

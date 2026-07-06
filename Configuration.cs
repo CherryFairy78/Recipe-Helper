@@ -60,6 +60,8 @@ public sealed class Configuration : IPluginConfiguration
 
     public bool ShowObtainedRawMaterials = true;
 
+    public bool ShowObtainedElementalCatalysts = true;
+
     public bool UseAccentForFolderHeaders = true;
 
     public int MainWindowScalePercent = 100;

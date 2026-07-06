@@ -463,6 +463,10 @@ Recipe Helper searches FFXIV recipes, calculates the materials required for a ch
 - Added built-in `Red`, `Yellow`, and `Grey` theme presets to the customisation window as quick preset options beside the existing palette choices.
 - Prepared Recipe Helper v1.1.23.0 as a quick theme-preset follow-up release.
 - Verification after preparing v1.1.23: sequential Debug and Release builds both succeeded with zero warnings and zero errors, both generated manifests report `1.1.23.0`, and the publish ZIP `artifacts\Release\DalamudRecipeHelper-v1.1.23.zip` was created with SHA-256 `EED1405C8ED75E9896438AE840529D73A80FE2AFAFB7C1658406C322AEF5534E`.
+- Expanded gatherables and collectables planning with clearer collectible recipe handling, better hand-in value tooltips, and the `Gather` header tab label.
+- Made Saved Plans, saved-plan folders, Gatherables, and Collectables start closed on open, and split Raw Materials vs Shards/Crystals/Clusters obtained-item toggles so they behave independently.
+- Prepared Recipe Helper v1.1.24.0 for live publish with updated manifests, repo feed links, and release notes.
+- Verification after preparing v1.1.24: Debug build succeeded with zero warnings and zero errors, Release compilation produced the fresh `1.1.24.0` DLL but the automated packager hit the known manifest file-lock on `DalamudRecipeHelper.json`, the Release manifest was refreshed manually from the root manifest, and the publish ZIP `artifacts\Release\DalamudRecipeHelper-v1.1.24.zip` was created with SHA-256 `24BF4B3AFEF90CDC84D89FAE214B29308FFA4EA7BB22354B80869A1AB6010E2C`.
 
 ## Continuation checklist
 

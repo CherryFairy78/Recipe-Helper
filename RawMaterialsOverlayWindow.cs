@@ -202,7 +202,7 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
                     rowColor,
                     this.configuration.TextColor);
                 if (this.recipeService.GetCollectibleRewardInfo(material.ItemId) is { } rewardInfo)
-                    this.DrawCollectibleRewardTooltip(material.Name, rewardInfo);
+                    this.DrawCollectibleRewardTooltip(material.Name, rewardInfo, material.Missing);
                 else
                     MaterialUsageTooltip.Draw(
                         this.marketboardPriceService,
@@ -673,7 +673,7 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
             Math.Clamp(color.Z + amount, 0, 1),
             color.W);
 
-    private void DrawCollectibleRewardTooltip(string itemName, CollectibleRewardInfo rewardInfo)
+    private void DrawCollectibleRewardTooltip(string itemName, CollectibleRewardInfo rewardInfo, uint quantity)
     {
         if (!ImGui.IsItemHovered())
             return;

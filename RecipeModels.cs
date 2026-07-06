@@ -75,25 +75,43 @@ public sealed record CollectibleRewardInfo(
     public string DisplayLabel => $"{this.BaseReward} {this.CurrencyLabel}";
 
     public string FormatTotal(uint quantity) =>
-        $"{Math.Min((ulong)this.BaseReward * quantity, uint.MaxValue)} {this.CurrencyLabel}";
+        $"{this.FormatRewardTotal(this.BaseReward, quantity)} {this.CurrencyLabel}";
 
-    public string GetTooltipText()
+    public string GetTooltipText() =>
+        this.GetTooltipTextCore(this.BaseReward, this.BonusRewardOne, this.BonusRewardTwo);
+
+    public string GetTotalTooltipText(uint quantity) =>
+        this.GetTooltipTextCore(
+            this.FormatRewardTotal(this.BaseReward, quantity),
+            this.FormatRewardTotal(this.BonusRewardOne, quantity),
+            this.FormatRewardTotal(this.BonusRewardTwo, quantity));
+
+    private string GetTooltipTextCore(uint baseReward, uint bonusRewardOne, uint bonusRewardTwo) =>
+        this.GetTooltipTextCore(
+            baseReward.ToString(),
+            bonusRewardOne.ToString(),
+            bonusRewardTwo.ToString());
+
+    private string GetTooltipTextCore(string baseReward, string bonusRewardOne, string bonusRewardTwo)
     {
         var lines = new List<string>
         {
-            $"Base hand-in value: {this.BaseReward} {this.CurrencyLabel}",
+            $"Base value hand-in: {baseReward} {this.CurrencyLabel}",
         };
 
         if (this.BonusRewardOne > 0 && this.BonusRewardOne != this.BaseReward)
-            lines.Add($"Quality bonus 1: {this.BonusRewardOne} {this.CurrencyLabel}");
+            lines.Add($"Quality bonus 1: {bonusRewardOne} {this.CurrencyLabel}");
 
         if (this.BonusRewardTwo > 0 &&
             this.BonusRewardTwo != this.BonusRewardOne &&
             this.BonusRewardTwo != this.BaseReward)
-            lines.Add($"Quality bonus 2: {this.BonusRewardTwo} {this.CurrencyLabel}");
+            lines.Add($"Quality bonus 2: {bonusRewardTwo} {this.CurrencyLabel}");
 
         return string.Join(Environment.NewLine, lines);
     }
+
+    private string FormatRewardTotal(uint reward, uint quantity) =>
+        Math.Min((ulong)reward * quantity, uint.MaxValue).ToString();
 }
 
 public sealed record StoredRetainerItem(uint NqQuantity, uint HqQuantity);
