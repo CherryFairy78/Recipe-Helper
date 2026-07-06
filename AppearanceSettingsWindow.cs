@@ -57,6 +57,30 @@ public sealed class AppearanceSettingsWindow : Window
             new Vector4(0.38f, 0.20f, 0.08f, 1f),
             new Vector4(0.76f, 0.49f, 0.23f, 0.92f),
             new Vector4(0.63f, 0.39f, 0.18f, 0.88f)),
+        CreateBuiltInPreset(
+            "Red",
+            new Vector4(0.86f, 0.26f, 0.28f, 1f),
+            new Vector4(0.78f, 0.18f, 0.20f, 1f),
+            new Vector4(0.80f, 0.21f, 0.24f, 1f),
+            new Vector4(0.33f, 0.10f, 0.12f, 1f),
+            new Vector4(0.67f, 0.28f, 0.31f, 0.92f),
+            new Vector4(0.55f, 0.22f, 0.25f, 0.88f)),
+        CreateBuiltInPreset(
+            "Yellow",
+            new Vector4(0.93f, 0.76f, 0.20f, 1f),
+            new Vector4(0.64f, 0.50f, 0.09f, 1f),
+            new Vector4(0.84f, 0.68f, 0.17f, 1f),
+            new Vector4(0.36f, 0.29f, 0.07f, 1f),
+            new Vector4(0.74f, 0.60f, 0.21f, 0.92f),
+            new Vector4(0.61f, 0.49f, 0.17f, 0.88f)),
+        CreateBuiltInPreset(
+            "Grey",
+            new Vector4(0.58f, 0.62f, 0.68f, 1f),
+            new Vector4(0.49f, 0.53f, 0.58f, 1f),
+            new Vector4(0.54f, 0.58f, 0.64f, 1f),
+            new Vector4(0.20f, 0.23f, 0.28f, 1f),
+            new Vector4(0.45f, 0.49f, 0.55f, 0.92f),
+            new Vector4(0.36f, 0.40f, 0.46f, 0.88f)),
     ];
     private string presetName = string.Empty;
     private int selectedSavedPresetIndex = -1;

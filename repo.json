@@ -5,7 +5,7 @@
     "Punchline": "Plan recipes and find every material you still need.",
     "Description": "Build a combined plan from multiple FFXIV recipes, compare NQ and HQ requirements with live inventory and saved retainer snapshots, track timed gathering materials, and hand crafting or travel actions to Artisan, Teamcraft, and GatherBuddy.",
     "InternalName": "DalamudRecipeHelper",
-    "AssemblyVersion": "1.1.22.0",
+    "AssemblyVersion": "1.1.23.0",
     "RepoUrl": "https://github.com/CherryFairy78/Recipe-Helper",
     "ApplicableVersion": "any",
     "DalamudApiLevel": 15,
@@ -14,13 +14,13 @@
       "recipe",
       "inventory"
     ],
-    "Changelog": "v1.1.22 fixes a gatherable job lookup crash when filtering collectables and gatherables.",
+    "Changelog": "v1.1.23 adds built-in Red, Yellow, and Grey theme presets.",
     "IsHide": false,
     "IsTestingExclusive": false,
     "AcceptsFeedback": true,
     "IconUrl": "https://raw.githubusercontent.com/CherryFairy78/Recipe-Helper/main/RecipeHelperIcon1.png",
-    "DownloadLinkInstall": "https://github.com/CherryFairy78/Recipe-Helper/releases/download/v1.1.22/DalamudRecipeHelper-v1.1.22.zip",
-    "DownloadLinkUpdate": "https://github.com/CherryFairy78/Recipe-Helper/releases/download/v1.1.22/DalamudRecipeHelper-v1.1.22.zip",
-    "LastUpdate": "1783339028"
+    "DownloadLinkInstall": "https://github.com/CherryFairy78/Recipe-Helper/releases/download/v1.1.23/DalamudRecipeHelper-v1.1.23.zip",
+    "DownloadLinkUpdate": "https://github.com/CherryFairy78/Recipe-Helper/releases/download/v1.1.23/DalamudRecipeHelper-v1.1.23.zip",
+    "LastUpdate": "1783340415"
   }
 ]

@@ -460,6 +460,9 @@ Recipe Helper searches FFXIV recipes, calculates the materials required for a ch
 - Adjusted the gatherable job lookup to keep using the safer fallback path when explicit class-job data is unavailable.
 - Prepared Recipe Helper v1.1.22.0 as a quick stability follow-up release for the gatherable filter crash.
 - Verification after preparing v1.1.22: sequential Debug and Release builds both succeeded with zero warnings and zero errors, both generated manifests report `1.1.22.0`, and the publish ZIP `artifacts\Release\DalamudRecipeHelper-v1.1.22.zip` was created with SHA-256 `1489457ABF42C1F519834DE1CB989F24F3BF0F928CED348D11ADDD8EF31B1EFC`.
+- Added built-in `Red`, `Yellow`, and `Grey` theme presets to the customisation window as quick preset options beside the existing palette choices.
+- Prepared Recipe Helper v1.1.23.0 as a quick theme-preset follow-up release.
+- Verification after preparing v1.1.23: sequential Debug and Release builds both succeeded with zero warnings and zero errors, both generated manifests report `1.1.23.0`, and the publish ZIP `artifacts\Release\DalamudRecipeHelper-v1.1.23.zip` was created with SHA-256 `EED1405C8ED75E9896438AE840529D73A80FE2AFAFB7C1658406C322AEF5534E`.
 
 ## Continuation checklist
 
