@@ -450,6 +450,12 @@ Recipe Helper searches FFXIV recipes, calculates the materials required for a ch
 - Prepared Recipe Helper v1.1.20.0 as a quick naming follow-up release for the crafting progress window.
 - Verification after preparing v1.1.20: Debug and Release builds both succeeded with zero warnings and zero errors, both generated manifests report `1.1.20.0` with the new changelog field, and the publish ZIP `artifacts\Release\DalamudRecipeHelper-v1.1.20.zip` was created with SHA-256 `D07648BE3FC188EA38CF424B0BA4529D0C5DA48472BC7A3731EA4BF976057032`.
 - Published Recipe Helper v1.1.20 as the latest GitHub release with `DalamudRecipeHelper-v1.1.20.zip`, carrying the quick window-title rename changelog through the package metadata, custom repository feed, and release notes.
+- Added gatherable and collectable browsing, planning, and filter improvements, including always-visible job/type/scrip filters with safer gatherable-only behavior.
+- Improved collectable support with base and bonus scrip tooltips in the main UI and missing items overlay, plus clearer base hand-in value labeling.
+- Fixed several UI issues across the missing items overlay and timed availability cards, including better material-column sizing and a two-stage orange-to-red timer warning.
+- Improved Artisan and AutoRetainer resume handling so interrupted recipes retry remaining crafts and completed recipes do not get re-queued after retainer interruptions.
+- Prepared Recipe Helper v1.1.21.0 for live publish with updated manifests, repo feed links, release notes, and package metadata.
+- Verification after preparing v1.1.21: sequential Debug and Release builds both succeeded with zero warnings and zero errors, both generated manifests report `1.1.21.0`, and the publish ZIP `artifacts\Release\DalamudRecipeHelper-v1.1.21.zip` was created with SHA-256 `01054404520222E9ACBDF13B37A1D1589D912166737D8897D835BD4C06F5D6B3`.
 
 ## Continuation checklist
 

@@ -138,6 +138,7 @@ public sealed class Plugin : IDalamudPlugin
         this.rawMaterialsOverlayWindow = new RawMaterialsOverlayWindow(
             this.pluginIntegrationService,
             aetherialReductionService,
+            recipeService,
             marketboardPriceService,
             inventoryService,
             this.configuration,

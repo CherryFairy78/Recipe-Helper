@@ -5,6 +5,7 @@ using System.Linq;
 using System.Reflection;
 using System.Text;
 using Dalamud.Plugin.Services;
+using Lumina.Excel;
 using Lumina.Excel.Sheets;
 
 namespace DalamudRecipeHelper;
@@ -44,7 +45,10 @@ public sealed class RecipeService
     private HashSet<uint>? gatherableItemIds;
     private HashSet<uint>? fishingItemIds;
     private HashSet<uint>? vendorItemIds;
+    private IReadOnlyDictionary<uint, string>? gatherableJobsByItemId;
+    private IReadOnlyDictionary<uint, CollectibleRewardInfo>? collectibleRewardsByItemId;
     private IReadOnlyDictionary<uint, IReadOnlyList<MaterialRecipeUsage>>? recipesByIngredient;
+    private IReadOnlyList<RecipeMatch>? browseAllSearchResults;
 
     public RecipeService(
         IDataManager dataManager,
@@ -58,31 +62,81 @@ public sealed class RecipeService
 
     public IReadOnlyList<RecipeMatch> Search(string query)
     {
+        this.EnsureItemSources();
         var recipes = this.dataManager.GetExcelSheet<Recipe>();
-        if (recipes is null)
+        var items = this.dataManager.GetExcelSheet<Item>();
+        if (recipes is null || items is null)
             return [];
 
         var cleanQuery = query.Trim();
         if (string.IsNullOrWhiteSpace(cleanQuery))
             return [];
 
-        var results = recipes
+        var recipeResults = recipes
             .Select(this.TryCreateMatch)
             .Where(match => match is not null)
             .Select(match => match!)
-            .Where(match =>
-                match.ResultName.Contains(cleanQuery, StringComparison.CurrentCultureIgnoreCase) ||
-                match.ResultItemId.ToString(CultureInfo.InvariantCulture) == cleanQuery)
+            .Where(match => this.MatchesSearchQuery(match, cleanQuery))
+            .ToList();
+        var supplementalResults = items
+            .Where(item =>
+                item.RowId != 0 &&
+                !recipeResults.Any(result => result.ResultItemId == item.RowId) &&
+                this.IsSupplementalSearchItem(item.RowId))
+            .Select(item => this.CreateSupplementalMatch(item))
+            .Where(match => !string.IsNullOrWhiteSpace(match.ResultName))
+            .Where(match => this.MatchesSearchQuery(match, cleanQuery))
+            .OrderBy(match => GetSearchKindSortOrder(match.ResultKind))
+            .ToList();
+        var results = recipeResults
+            .Concat(supplementalResults)
             .OrderBy(match => match.ResultName.StartsWith(cleanQuery, StringComparison.CurrentCultureIgnoreCase) ? 0 : 1)
             .ThenBy(match => match.ResultName)
+            .ThenBy(match => GetSearchKindSortOrder(match.ResultKind))
             .ToList();
-        this.fileLog.Info("Recipes", $"Search '{cleanQuery}' returned {results.Count} result(s).");
+        this.fileLog.Info(
+            "Recipes",
+            $"Search '{cleanQuery}' returned {results.Count} result(s): {recipeResults.Count} recipe and {supplementalResults.Count} gatherable/collectible.");
         return results;
+    }
+
+    public IReadOnlyList<RecipeMatch> BrowseAllSearchResults()
+    {
+        if (this.browseAllSearchResults is not null)
+            return this.browseAllSearchResults;
+
+        this.EnsureItemSources();
+        var recipes = this.dataManager.GetExcelSheet<Recipe>();
+        var items = this.dataManager.GetExcelSheet<Item>();
+        if (recipes is null || items is null)
+            return [];
+
+        var recipeResults = recipes
+            .Select(this.TryCreateMatch)
+            .Where(match => match is not null)
+            .Select(match => match!)
+            .ToList();
+        var supplementalResults = items
+            .Where(item =>
+                item.RowId != 0 &&
+                !recipeResults.Any(result => result.ResultItemId == item.RowId) &&
+                this.IsSupplementalSearchItem(item.RowId))
+            .Select(item => this.CreateSupplementalMatch(item))
+            .Where(match => !string.IsNullOrWhiteSpace(match.ResultName))
+            .OrderBy(match => GetSearchKindSortOrder(match.ResultKind))
+            .ToList();
+        this.browseAllSearchResults = recipeResults
+            .Concat(supplementalResults)
+            .OrderBy(match => match.ResultName)
+            .ThenBy(match => GetSearchKindSortOrder(match.ResultKind))
+            .ToList();
+        return this.browseAllSearchResults;
     }
 
     public IReadOnlyList<CraftableRecipeAvailability> GetCraftableRecipes(
         IReadOnlyDictionary<uint, OwnedInventoryItem> ownedItems)
     {
+        this.EnsureItemSources();
         var recipes = this.dataManager.GetExcelSheet<Recipe>();
         if (recipes is null || ownedItems.Count == 0)
             return [];
@@ -218,6 +272,28 @@ public sealed class RecipeService
             ingredients,
             rawMaterials,
             ingredients.Count == 0 ? CreateRecipeDebugInfo(recipe) : string.Empty);
+    }
+
+    public IngredientNeed? GetStandaloneIngredientNeed(
+        uint itemId,
+        uint desiredAmount,
+        IReadOnlyDictionary<uint, OwnedInventoryItem> ownedItems)
+    {
+        if (itemId == 0 || desiredAmount == 0)
+            return null;
+
+        return this.CreateIngredientNeeds(
+                [(itemId, desiredAmount)],
+                ownedItems)
+            .FirstOrDefault();
+    }
+
+    public CollectibleRewardInfo? GetCollectibleRewardInfo(uint itemId)
+    {
+        this.EnsureItemSources();
+        return this.collectibleRewardsByItemId!.TryGetValue(itemId, out var rewardInfo)
+            ? rewardInfo
+            : null;
     }
 
     public RecipePlanDetails GetPlanDetails(
@@ -1009,12 +1085,19 @@ public sealed class RecipeService
         if (this.craftableItemIds is not null)
             return;
 
-        this.craftableItemIds = this.dataManager.GetExcelSheet<Recipe>()?
+        var recipes = this.dataManager.GetExcelSheet<Recipe>();
+        var gatheringItems = this.dataManager.GetExcelSheet<GatheringItem>();
+        var gatheringPointBases = this.dataManager.GetExcelSheet<GatheringPointBase>();
+        var gatheringPoints = this.dataManager.GetExcelSheet<GatheringPoint>();
+        var gatheringItemPoints = this.dataManager.GetSubrowExcelSheet<GatheringItemPoint>();
+        var items = this.dataManager.GetExcelSheet<Item>();
+
+        this.craftableItemIds = recipes?
             .Select(recipe => this.ReadItemId(recipe, "ItemResult"))
             .Where(itemId => itemId != 0)
             .ToHashSet() ?? [];
 
-        this.gatherableItemIds = this.dataManager.GetExcelSheet<GatheringItem>()?
+        this.gatherableItemIds = gatheringItems?
             .Select(item => item.Item.RowId)
             .Where(itemId => itemId != 0)
             .ToHashSet() ?? [];
@@ -1030,14 +1113,24 @@ public sealed class RecipeService
         this.fishingItemIds.UnionWith(spearfishingItemIds);
         this.gatherableItemIds.UnionWith(this.fishingItemIds);
 
-        this.vendorItemIds = this.dataManager.GetExcelSheet<Item>()?
+        this.vendorItemIds = items?
             .Where(item => item.PriceMid > 0)
             .Select(item => item.RowId)
             .ToHashSet() ?? [];
 
+        this.gatherableJobsByItemId = BuildGatherableJobsByItemId(
+            gatheringItems,
+            gatheringPointBases,
+            gatheringPoints,
+            gatheringItemPoints,
+            this.fishingItemIds);
+        this.collectibleRewardsByItemId = BuildCollectibleRewardLabelsByItemId(
+            this.dataManager.GetSubrowExcelSheet<CollectablesShopItem>(),
+            this.gatherableItemIds);
+
         this.fileLog.Info(
             "Recipes",
-            $"Loaded source indexes: {this.craftableItemIds.Count} craftable, {this.gatherableItemIds.Count} gatherable, {this.fishingItemIds.Count} fishing, {this.vendorItemIds.Count} vendor.");
+            $"Loaded source indexes: {this.craftableItemIds.Count} craftable, {this.gatherableItemIds.Count} gatherable, {this.fishingItemIds.Count} fishing, {this.vendorItemIds.Count} vendor, {this.collectibleRewardsByItemId.Count} collectible reward entries.");
     }
 
     private IReadOnlyList<(uint ItemId, uint Amount)> ReadIngredients(Recipe recipe)
@@ -1089,12 +1182,20 @@ public sealed class RecipeService
             return null;
 
         var amount = this.ReadUInt(recipe, "AmountResult");
+        var collectibleRewardLabel = this.collectibleRewardsByItemId is not null &&
+                                     this.collectibleRewardsByItemId.TryGetValue(
+                                         resultItemId,
+                                         out var rewardInfo)
+            ? rewardInfo.DisplayLabel
+            : string.Empty;
         return new RecipeMatch(
             recipe.RowId,
             resultItemId,
             resultName,
             Math.Max(1, amount),
-            this.GetRecipeJobAbbreviations(recipe));
+            this.GetRecipeJobAbbreviations(recipe),
+            SearchResultKind.CraftedRecipe,
+            collectibleRewardLabel);
     }
 
     private string GetRecipeJobAbbreviations(Recipe recipe)
@@ -1154,6 +1255,232 @@ public sealed class RecipeService
                 .Split('/', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
+
+    private bool MatchesSearchQuery(RecipeMatch match, string query) =>
+        (!string.IsNullOrWhiteSpace(match.ResultName) &&
+         match.ResultName.Contains(query, StringComparison.CurrentCultureIgnoreCase)) ||
+        (!string.IsNullOrWhiteSpace(match.SearchMetadata) &&
+         match.SearchMetadata.Contains(query, StringComparison.CurrentCultureIgnoreCase)) ||
+        (!string.IsNullOrWhiteSpace(match.JobAbbreviations) &&
+         match.JobAbbreviations.Contains(query, StringComparison.CurrentCultureIgnoreCase)) ||
+        this.MatchesSearchAlias(match, query) ||
+        match.ResultItemId.ToString(CultureInfo.InvariantCulture) == query;
+
+    private bool MatchesSearchAlias(RecipeMatch match, string query)
+    {
+        var normalizedQuery = query.Trim();
+        if (string.IsNullOrWhiteSpace(normalizedQuery))
+            return false;
+
+        if (normalizedQuery.StartsWith("gather", StringComparison.CurrentCultureIgnoreCase))
+        {
+            return match.ResultKind == SearchResultKind.CollectibleItem &&
+                   match.SearchMetadata.Contains("Gatherers'", StringComparison.OrdinalIgnoreCase);
+        }
+
+        return false;
+    }
+
+    private bool IsSupplementalSearchItem(uint itemId) =>
+        this.collectibleRewardsByItemId!.ContainsKey(itemId) ||
+        this.gatherableItemIds!.Contains(itemId);
+
+    private RecipeMatch CreateSupplementalMatch(Item item)
+    {
+        var itemId = item.RowId;
+        var isCollectible = this.collectibleRewardsByItemId!.TryGetValue(itemId, out var collectibleRewardInfo);
+        var isGatherable = this.gatherableItemIds!.Contains(itemId);
+        var metadata = isCollectible
+            ? collectibleRewardInfo?.DisplayLabel ?? string.Empty
+            : string.Empty;
+        return new RecipeMatch(
+            CreateSupplementalSearchId(itemId, isCollectible
+                ? SearchResultKind.CollectibleItem
+                : SearchResultKind.GatherableItem),
+            itemId,
+            item.Name.ToString(),
+            1,
+            this.GetItemJobAbbreviations(itemId),
+            isCollectible
+                ? SearchResultKind.CollectibleItem
+                : SearchResultKind.GatherableItem,
+            metadata,
+            false);
+    }
+
+    private string GetItemJobAbbreviations(uint itemId)
+    {
+        if (this.gatherableJobsByItemId!.TryGetValue(itemId, out var jobs) &&
+            !string.IsNullOrWhiteSpace(jobs))
+            return jobs;
+
+        if (this.fishingItemIds!.Contains(itemId))
+            return "FSH";
+
+        return this.gatherableItemIds!.Contains(itemId)
+            ? "MIN / BTN"
+            : string.Empty;
+    }
+
+    private static uint CreateSupplementalSearchId(uint itemId, SearchResultKind kind) =>
+        kind switch
+        {
+            SearchResultKind.CollectibleItem => 4_000_000_000u + itemId,
+            SearchResultKind.GatherableItem => 3_000_000_000u + itemId,
+            _ => itemId,
+        };
+
+    private static int GetSearchKindSortOrder(SearchResultKind kind) =>
+        kind switch
+        {
+            SearchResultKind.CraftedRecipe => 0,
+            SearchResultKind.CollectibleItem => 1,
+            SearchResultKind.GatherableItem => 2,
+            _ => 3,
+        };
+
+    private static IReadOnlyDictionary<uint, string> BuildGatherableJobsByItemId(
+        ExcelSheet<GatheringItem>? gatheringItems,
+        ExcelSheet<GatheringPointBase>? gatheringPointBases,
+        ExcelSheet<GatheringPoint>? gatheringPoints,
+        SubrowExcelSheet<GatheringItemPoint>? gatheringItemPoints,
+        IReadOnlySet<uint> fishingItemIds)
+    {
+        if (gatheringItems is null)
+            return new Dictionary<uint, string>();
+
+        var gatheringItemIdsByRowId = gatheringItems
+            .Where(item => item.RowId != 0 && item.Item.RowId != 0)
+            .ToDictionary(item => item.RowId, item => item.Item.RowId);
+        var jobsByItemId = new Dictionary<uint, HashSet<string>>();
+
+        if (gatheringPointBases is not null)
+        {
+            foreach (var pointBase in gatheringPointBases.Where(pointBase => pointBase.RowId != 0))
+            {
+                var job = MapGatheringTypeToJob(pointBase.GatheringType.Value.Name.ToString());
+                if (string.IsNullOrWhiteSpace(job))
+                    continue;
+
+                foreach (var entry in pointBase.Item)
+                {
+                    if (gatheringItemIdsByRowId.TryGetValue(entry.RowId, out var itemId))
+                        AddGatheringJob(jobsByItemId, itemId, job);
+                }
+            }
+        }
+
+        if (gatheringPoints is not null && gatheringItemPoints is not null)
+        {
+            var jobsByPointId = gatheringPoints
+                .Where(point => point.RowId != 0)
+                .ToDictionary(
+                    point => point.RowId,
+                    point => MapGatheringTypeToJob(point.GatheringPointBase.Value.GatheringType.Value.Name.ToString()));
+            foreach (var row in gatheringItemPoints.SelectMany(rows => rows))
+            {
+                if (!gatheringItemIdsByRowId.TryGetValue(row.RowId, out var itemId) ||
+                    !jobsByPointId.TryGetValue(row.GatheringPoint.RowId, out var job) ||
+                    string.IsNullOrWhiteSpace(job))
+                    continue;
+
+                AddGatheringJob(jobsByItemId, itemId, job);
+            }
+        }
+
+        foreach (var itemId in fishingItemIds)
+            AddGatheringJob(jobsByItemId, itemId, "FSH");
+
+        return jobsByItemId.ToDictionary(
+            pair => pair.Key,
+            pair => string.Join(
+                " / ",
+                pair.Value.OrderBy(static job => job)));
+    }
+
+    private static IReadOnlyDictionary<uint, CollectibleRewardInfo> BuildCollectibleRewardLabelsByItemId(
+        SubrowExcelSheet<CollectablesShopItem>? collectableItems,
+        IReadOnlySet<uint>? gatherableItemIds)
+    {
+        if (collectableItems is null)
+            return new Dictionary<uint, CollectibleRewardInfo>();
+
+        return collectableItems
+            .SelectMany(rows => rows)
+            .Where(row => row.Item.RowId != 0)
+            .GroupBy(row => row.Item.RowId)
+            .Select(group =>
+            {
+                var selected = group
+                    .OrderByDescending(row => row.CollectablesShopRewardScrip.Value.LowReward)
+                    .ThenByDescending(row => row.LevelMax)
+                    .First();
+                return new
+                {
+                    ItemId = group.Key,
+                    RewardInfo = BuildCollectibleRewardLabel(
+                        group.Key,
+                        selected,
+                        gatherableItemIds ?? new HashSet<uint>()),
+                };
+            })
+            .Where(entry => entry.RewardInfo is not null)
+            .ToDictionary(
+                entry => entry.ItemId,
+                entry => entry.RewardInfo!);
+    }
+
+    private static CollectibleRewardInfo? BuildCollectibleRewardLabel(
+        uint itemId,
+        CollectablesShopItem row,
+        IReadOnlySet<uint> gatherableItemIds)
+    {
+        var rewardSheet = row.CollectablesShopRewardScrip.Value;
+        var baseReward = rewardSheet.LowReward;
+        if (baseReward == 0)
+            return null;
+
+        var isGatherer = gatherableItemIds.Contains(itemId);
+        var tier = row.LevelMin >= 100 || row.LevelMax >= 100
+            ? "Orange"
+            : "Purple";
+        var role = isGatherer
+            ? "Gatherers'"
+            : "Crafters'";
+        return new CollectibleRewardInfo(
+            $"{tier} {role} Scrips",
+            baseReward,
+            rewardSheet.MidReward,
+            rewardSheet.HighReward);
+    }
+
+    private static string MapGatheringTypeToJob(string gatheringTypeName)
+    {
+        if (string.IsNullOrWhiteSpace(gatheringTypeName))
+            return string.Empty;
+
+        return gatheringTypeName switch
+        {
+            "Quarrying" => "MIN",
+            "Logging" or "Harvesting" => "BTN",
+            _ when gatheringTypeName.Contains("銛", StringComparison.Ordinal) => "FSH",
+            _ => string.Empty,
+        };
+    }
+
+    private static void AddGatheringJob(
+        IDictionary<uint, HashSet<string>> jobsByItemId,
+        uint itemId,
+        string job)
+    {
+        if (!jobsByItemId.TryGetValue(itemId, out var jobs))
+        {
+            jobs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            jobsByItemId[itemId] = jobs;
+        }
+
+        jobs.Add(job);
+    }
 
     private string GetItemName(uint itemId)
     {

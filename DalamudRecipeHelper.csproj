@@ -1,8 +1,8 @@
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
-    <Version>1.1.20.0</Version>
+    <Version>1.1.21.0</Version>
     <Description>Plan multiple FFXIV recipes, compare combined materials with inventory and retainers, and hand crafting or gathering tasks to Artisan, Teamcraft, and GatherBuddy.</Description>
-    <Changelog>v1.1.20 renames the Artisan popup window to Recipe Helper Crafting Progress for clearer in-game identification.</Changelog>
+    <Changelog>v1.1.21 adds gatherable and collectable planning filters, collectible scrip tooltips, overlay and timer improvements, and Artisan/AutoRetainer crafting fixes.</Changelog>
     <PackageProjectUrl>https://github.com/CherryFairy78/Recipe-Helper</PackageProjectUrl>
     <Authors>Meghann</Authors>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>

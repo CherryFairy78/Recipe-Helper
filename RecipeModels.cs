@@ -4,12 +4,22 @@ using System.Linq;
 
 namespace DalamudRecipeHelper;
 
+public enum SearchResultKind
+{
+    CraftedRecipe,
+    CollectibleItem,
+    GatherableItem,
+}
+
 public sealed record RecipeMatch(
     uint RecipeId,
     uint ResultItemId,
     string ResultName,
     uint ResultAmount,
-    string JobAbbreviations);
+    string JobAbbreviations,
+    SearchResultKind ResultKind = SearchResultKind.CraftedRecipe,
+    string SearchMetadata = "",
+    bool CanAddToPlan = true);
 
 public sealed record CraftableRecipeAvailability(
     RecipeMatch Recipe,
@@ -55,6 +65,36 @@ public sealed record AetherialReductionSource(
     string Name,
     bool IsFishing,
     IReadOnlyList<EorzeaNodeWindow> Windows);
+
+public sealed record CollectibleRewardInfo(
+    string CurrencyLabel,
+    uint BaseReward,
+    uint BonusRewardOne,
+    uint BonusRewardTwo)
+{
+    public string DisplayLabel => $"{this.BaseReward} {this.CurrencyLabel}";
+
+    public string FormatTotal(uint quantity) =>
+        $"{Math.Min((ulong)this.BaseReward * quantity, uint.MaxValue)} {this.CurrencyLabel}";
+
+    public string GetTooltipText()
+    {
+        var lines = new List<string>
+        {
+            $"Base hand-in value: {this.BaseReward} {this.CurrencyLabel}",
+        };
+
+        if (this.BonusRewardOne > 0 && this.BonusRewardOne != this.BaseReward)
+            lines.Add($"Quality bonus 1: {this.BonusRewardOne} {this.CurrencyLabel}");
+
+        if (this.BonusRewardTwo > 0 &&
+            this.BonusRewardTwo != this.BonusRewardOne &&
+            this.BonusRewardTwo != this.BaseReward)
+            lines.Add($"Quality bonus 2: {this.BonusRewardTwo} {this.CurrencyLabel}");
+
+        return string.Join(Environment.NewLine, lines);
+    }
+}
 
 public sealed record StoredRetainerItem(uint NqQuantity, uint HqQuantity);
 

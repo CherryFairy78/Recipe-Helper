@@ -352,32 +352,35 @@ public sealed class PluginIntegrationService : IDisposable
                 this.craftAllPausedForAutoRetainer = false;
                 this.autoRetainerReleasedAt = DateTime.MinValue;
 
-                if (!this.craftAllEntryStarted)
+                var remainingCrafts = this.GetRemainingCraftCount(activeEntry);
+                if (remainingCrafts == 0)
                 {
                     this.fileLog.Info(
                         "Artisan",
-                        $"AutoRetainer interrupted recipe {activeEntry.RecipeId} before Artisan started. Retrying.");
-                    if (!this.TryDispatchNextCraft(out var retryAfterPauseError))
-                    {
-                        this.fileLog.Warning("Artisan", retryAfterPauseError);
-                        this.craftAllActive = false;
-                        this.craftAllQueue.Clear();
-                        this.activeCraftAllEntry = null;
-                        this.completedCraftAllEntries.Clear();
-                        this.craftAllEntryStarted = false;
-                        this.craftAllFinishedAt = DateTime.UtcNow;
-                        this.activeEntryBusySince = DateTime.MinValue;
-                        this.activeEntryBusyElapsed = TimeSpan.Zero;
-                        this.activeEntryCompletedCrafts = 0;
-                        this.activeEntryStopRequested = false;
-                    }
-
+                        $"AutoRetainer release found recipe {activeEntry.RecipeId} already complete. Finalizing entry.");
+                    this.CompleteActiveCraftAllEntry();
                     return;
                 }
 
                 this.fileLog.Info(
                     "Artisan",
-                    $"Artisan did not report busy again after AutoRetainer. Continuing Craft All tracking for recipe {activeEntry.RecipeId}.");
+                    $"AutoRetainer interrupted recipe {activeEntry.RecipeId}. Retrying the remaining {remainingCrafts:N0} craft(s).");
+                if (!this.TryDispatchNextCraft(out var retryAfterPauseError))
+                {
+                    this.fileLog.Warning("Artisan", retryAfterPauseError);
+                    this.craftAllActive = false;
+                    this.craftAllQueue.Clear();
+                    this.activeCraftAllEntry = null;
+                    this.completedCraftAllEntries.Clear();
+                    this.craftAllEntryStarted = false;
+                    this.craftAllFinishedAt = DateTime.UtcNow;
+                    this.activeEntryBusySince = DateTime.MinValue;
+                    this.activeEntryBusyElapsed = TimeSpan.Zero;
+                    this.activeEntryCompletedCrafts = 0;
+                    this.activeEntryStopRequested = false;
+                }
+
+                return;
             }
 
             if (artisanBusy)
@@ -424,21 +427,9 @@ public sealed class PluginIntegrationService : IDisposable
             this.fileLog.Info(
                 "Artisan",
                 $"Craft All completed recipe {activeEntry.RecipeId}, craft count {activeEntry.CraftCount}.");
-            this.completedCraftAllEntries.Add(activeEntry);
-            this.activeCraftAllEntry = null;
-            this.craftAllEntryStarted = false;
-            this.activeEntryBusySince = DateTime.MinValue;
-            this.activeEntryBusyElapsed = TimeSpan.Zero;
-            this.activeEntryCompletedCrafts = 0;
-            this.activeEntryStopRequested = false;
-            if (this.craftAllQueue.Count == 0)
-            {
-                this.craftAllActive = false;
-                this.CraftAllCompletionCount++;
-                this.craftAllFinishedAt = DateTime.UtcNow;
-                this.fileLog.Info("Artisan", "Craft All queue completed.");
+            this.CompleteActiveCraftAllEntry();
+            if (!this.craftAllActive)
                 return;
-            }
 
             if (!this.TryDispatchNextCraft(out var error))
             {
@@ -481,15 +472,23 @@ public sealed class PluginIntegrationService : IDisposable
         }
 
         var next = this.activeCraftAllEntry!;
+        var dispatchCraftCount = this.GetRemainingCraftCount(next);
+        if (dispatchCraftCount == 0)
+        {
+            error = string.Empty;
+            this.CompleteActiveCraftAllEntry();
+            return true;
+        }
+
         try
         {
-            this.artisanCraftItem.InvokeAction((ushort)next.RecipeId, (int)next.CraftCount);
+            this.artisanCraftItem.InvokeAction((ushort)next.RecipeId, (int)dispatchCraftCount);
             this.activeCraftAllDispatchedAt = DateTime.UtcNow;
             this.nextCraftAllCheck = DateTime.UtcNow.AddSeconds(2);
             this.craftAllQueue.Dequeue();
             this.fileLog.Info(
                 "Artisan",
-                $"Craft All sent recipe {next.RecipeId}, craft count {next.CraftCount}.");
+                $"Craft All sent recipe {next.RecipeId}, craft count {dispatchCraftCount}.");
             error = string.Empty;
             return true;
         }
@@ -636,6 +635,32 @@ public sealed class PluginIntegrationService : IDisposable
 
         this.activeEntryBusyElapsed += DateTime.UtcNow - this.activeEntryBusySince;
         this.activeEntryBusySince = DateTime.MinValue;
+    }
+
+    private uint GetRemainingCraftCount(ArtisanCraftQueueEntry entry) =>
+        this.activeCraftAllEntry is not null && this.activeCraftAllEntry.RecipeId == entry.RecipeId
+            ? Math.Max(0u, entry.CraftCount - this.activeEntryCompletedCrafts)
+            : entry.CraftCount;
+
+    private void CompleteActiveCraftAllEntry()
+    {
+        if (this.activeCraftAllEntry is not { } activeEntry)
+            return;
+
+        this.completedCraftAllEntries.Add(activeEntry);
+        this.activeCraftAllEntry = null;
+        this.craftAllEntryStarted = false;
+        this.activeEntryBusySince = DateTime.MinValue;
+        this.activeEntryBusyElapsed = TimeSpan.Zero;
+        this.activeEntryCompletedCrafts = 0;
+        this.activeEntryStopRequested = false;
+        if (this.craftAllQueue.Count != 0)
+            return;
+
+        this.craftAllActive = false;
+        this.CraftAllCompletionCount++;
+        this.craftAllFinishedAt = DateTime.UtcNow;
+        this.fileLog.Info("Artisan", "Craft All queue completed.");
     }
 
     private bool IsAutoRetainerBusy()

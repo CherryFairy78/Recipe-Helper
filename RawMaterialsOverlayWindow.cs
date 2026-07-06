@@ -19,6 +19,7 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
 
     private readonly PluginIntegrationService pluginIntegrationService;
     private readonly AetherialReductionService aetherialReductionService;
+    private readonly RecipeService recipeService;
     private readonly MarketboardPriceService marketboardPriceService;
     private readonly InventoryService inventoryService;
     private readonly Configuration configuration;
@@ -36,6 +37,7 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
     public RawMaterialsOverlayWindow(
         PluginIntegrationService pluginIntegrationService,
         AetherialReductionService aetherialReductionService,
+        RecipeService recipeService,
         MarketboardPriceService marketboardPriceService,
         InventoryService inventoryService,
         Configuration configuration,
@@ -45,6 +47,7 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
     {
         this.pluginIntegrationService = pluginIntegrationService;
         this.aetherialReductionService = aetherialReductionService;
+        this.recipeService = recipeService;
         this.marketboardPriceService = marketboardPriceService;
         this.inventoryService = inventoryService;
         this.configuration = configuration;
@@ -114,12 +117,12 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
         {
             ImGui.TextDisabled(
                 $"{this.selectedRecipeNames.Count} selected " +
-                (this.selectedRecipeNames.Count == 1 ? "recipe" : "recipes"));
+                (this.selectedRecipeNames.Count == 1 ? "target" : "targets"));
             if (ImGui.IsItemHovered())
             {
                 ImGui.BeginTooltip();
                 WindowTheme.ApplyTextScale(this.configuration);
-                ImGui.TextColored(this.configuration.AccentTextColor, "Selected recipes");
+                ImGui.TextColored(this.configuration.AccentTextColor, "Selected targets");
                 foreach (var recipeName in this.selectedRecipeNames)
                     ImGui.BulletText(recipeName);
                 ImGui.EndTooltip();
@@ -161,10 +164,10 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
                 ImGuiTableFlags.Resizable |
                 ImGuiTableFlags.SizingStretchProp))
         {
-            ImGui.TableSetupColumn("Material", ImGuiTableColumnFlags.WidthFixed, 148);
+            ImGui.TableSetupColumn("Material", ImGuiTableColumnFlags.WidthStretch, 1f);
             ImGui.TableSetupColumn("Missing", ImGuiTableColumnFlags.WidthFixed, 56);
             ImGui.TableSetupColumn("Available", ImGuiTableColumnFlags.WidthFixed, 88);
-            ImGui.TableSetupColumn("Travel", ImGuiTableColumnFlags.WidthStretch, 1);
+            ImGui.TableSetupColumn("Travel", ImGuiTableColumnFlags.WidthFixed, 76);
             ImGui.TableNextRow(ImGuiTableRowFlags.None, 22);
             ImGui.TableNextColumn();
             this.DrawHeaderCard("Material");
@@ -198,10 +201,13 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
                     string.Empty,
                     rowColor,
                     this.configuration.TextColor);
-                MaterialUsageTooltip.Draw(
-                    this.marketboardPriceService,
-                    this.configuration,
-                    material);
+                if (this.recipeService.GetCollectibleRewardInfo(material.ItemId) is { } rewardInfo)
+                    this.DrawCollectibleRewardTooltip(material.Name, rewardInfo);
+                else
+                    MaterialUsageTooltip.Draw(
+                        this.marketboardPriceService,
+                        this.configuration,
+                        material);
 
                 ImGui.TableNextColumn();
                 this.DrawValueCard(
@@ -537,18 +543,24 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
         var isNow = normalized.StartsWith("Now", StringComparison.OrdinalIgnoreCase);
         var displayText = FormatOverlayAvailability(normalized, isNow);
         var waitSeconds = GetOverlayWaitSeconds(normalized);
-        var isImminent = !isNow && waitSeconds is >= 0 and <= 60;
+        var isCritical = !isNow && waitSeconds is >= 0 and <= 60;
+        var isImminent = !isCritical && !isNow && waitSeconds is > 60 and <= 120;
+        var criticalPulseAlpha = 0.18f + (((float)Math.Sin(ImGui.GetTime() * 8f) + 1f) * 0.08f);
         var resolvedSize = ResolveCardSize(new Vector2(-1, 28), 28f);
         var position = ImGui.GetCursorScreenPos();
         ImGui.InvisibleButton(id, resolvedSize);
         var drawList = ImGui.GetWindowDrawList();
         var backgroundColor = isNow
             ? WithAlpha(this.configuration.SuccessTextColor, 0.20f)
+            : isCritical
+                ? WithAlpha(this.configuration.MissingTextColor, criticalPulseAlpha)
             : isImminent
                 ? WithAlpha(this.configuration.WarningTextColor, 0.22f)
                 : WithAlpha(this.configuration.AccentColor, 0.16f);
         var textColor = isNow
             ? this.configuration.SuccessTextColor
+            : isCritical
+                ? this.configuration.MissingTextColor
             : isImminent
                 ? this.configuration.WarningTextColor
                 : this.configuration.TextColor;
@@ -660,6 +672,19 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
             Math.Clamp(color.Y + amount, 0, 1),
             Math.Clamp(color.Z + amount, 0, 1),
             color.W);
+
+    private void DrawCollectibleRewardTooltip(string itemName, CollectibleRewardInfo rewardInfo)
+    {
+        if (!ImGui.IsItemHovered())
+            return;
+
+        ImGui.BeginTooltip();
+        WindowTheme.ApplyTextScale(this.configuration);
+        ImGui.TextColored(this.configuration.AccentTextColor, itemName);
+        ImGui.Separator();
+        ImGui.TextUnformatted(rewardInfo.GetTooltipText());
+        ImGui.EndTooltip();
+    }
 
     private static void DrawTooltipIfHovered(string text)
     {
