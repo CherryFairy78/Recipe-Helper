@@ -10,5 +10,5 @@
 
 ## Notes For Publish
 
-- Release asset name: `DalamudRecipeHelper-v1.1.24.zip`
+- Published package path: `releases/DalamudRecipeHelper-v1.1.24.zip`
 - Repo manifest target: `v1.1.24`

@@ -19,8 +19,8 @@
     "IsTestingExclusive": false,
     "AcceptsFeedback": true,
     "IconUrl": "https://raw.githubusercontent.com/CherryFairy78/Recipe-Helper/main/RecipeHelperIcon1.png",
-    "DownloadLinkInstall": "https://github.com/CherryFairy78/Recipe-Helper/releases/download/v1.1.24/DalamudRecipeHelper-v1.1.24.zip",
-    "DownloadLinkUpdate": "https://github.com/CherryFairy78/Recipe-Helper/releases/download/v1.1.24/DalamudRecipeHelper-v1.1.24.zip",
+    "DownloadLinkInstall": "https://raw.githubusercontent.com/CherryFairy78/Recipe-Helper/v1.1.24/releases/DalamudRecipeHelper-v1.1.24.zip",
+    "DownloadLinkUpdate": "https://raw.githubusercontent.com/CherryFairy78/Recipe-Helper/v1.1.24/releases/DalamudRecipeHelper-v1.1.24.zip",
     "LastUpdate": "1783327586"
   }
 ]
