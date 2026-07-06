@@ -456,6 +456,10 @@ Recipe Helper searches FFXIV recipes, calculates the materials required for a ch
 - Improved Artisan and AutoRetainer resume handling so interrupted recipes retry remaining crafts and completed recipes do not get re-queued after retainer interruptions.
 - Prepared Recipe Helper v1.1.21.0 for live publish with updated manifests, repo feed links, release notes, and package metadata.
 - Verification after preparing v1.1.21: sequential Debug and Release builds both succeeded with zero warnings and zero errors, both generated manifests report `1.1.21.0`, and the publish ZIP `artifacts\Release\DalamudRecipeHelper-v1.1.21.zip` was created with SHA-256 `01054404520222E9ACBDF13B37A1D1589D912166737D8897D835BD4C06F5D6B3`.
+- Fixed a gatherable job lookup crash triggered by invalid gathering point subcategory data while filtering gatherables or collectables.
+- Adjusted the gatherable job lookup to keep using the safer fallback path when explicit class-job data is unavailable.
+- Prepared Recipe Helper v1.1.22.0 as a quick stability follow-up release for the gatherable filter crash.
+- Verification after preparing v1.1.22: sequential Debug and Release builds both succeeded with zero warnings and zero errors, both generated manifests report `1.1.22.0`, and the publish ZIP `artifacts\Release\DalamudRecipeHelper-v1.1.22.zip` was created with SHA-256 `1489457ABF42C1F519834DE1CB989F24F3BF0F928CED348D11ADDD8EF31B1EFC`.
 
 ## Continuation checklist
 

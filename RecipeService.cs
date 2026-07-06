@@ -1353,6 +1353,26 @@ public sealed class RecipeService
             .Where(item => item.RowId != 0 && item.Item.RowId != 0)
             .ToDictionary(item => item.RowId, item => item.Item.RowId);
         var jobsByItemId = new Dictionary<uint, HashSet<string>>();
+        var itemsWithExplicitJobs = new HashSet<uint>();
+
+        if (gatheringPoints is not null && gatheringItemPoints is not null)
+        {
+            var jobsByPointId = gatheringPoints
+                .Where(point => point.RowId != 0)
+                .ToDictionary(
+                    point => point.RowId,
+                    GetGatheringPointJob);
+            foreach (var row in gatheringItemPoints.SelectMany(rows => rows))
+            {
+                if (!gatheringItemIdsByRowId.TryGetValue(row.RowId, out var itemId) ||
+                    !jobsByPointId.TryGetValue(row.GatheringPoint.RowId, out var job) ||
+                    string.IsNullOrWhiteSpace(job))
+                    continue;
+
+                AddGatheringJob(jobsByItemId, itemId, job);
+                itemsWithExplicitJobs.Add(itemId);
+            }
+        }
 
         if (gatheringPointBases is not null)
         {
@@ -1364,27 +1384,10 @@ public sealed class RecipeService
 
                 foreach (var entry in pointBase.Item)
                 {
-                    if (gatheringItemIdsByRowId.TryGetValue(entry.RowId, out var itemId))
+                    if (gatheringItemIdsByRowId.TryGetValue(entry.RowId, out var itemId) &&
+                        !itemsWithExplicitJobs.Contains(itemId))
                         AddGatheringJob(jobsByItemId, itemId, job);
                 }
-            }
-        }
-
-        if (gatheringPoints is not null && gatheringItemPoints is not null)
-        {
-            var jobsByPointId = gatheringPoints
-                .Where(point => point.RowId != 0)
-                .ToDictionary(
-                    point => point.RowId,
-                    point => MapGatheringTypeToJob(point.GatheringPointBase.Value.GatheringType.Value.Name.ToString()));
-            foreach (var row in gatheringItemPoints.SelectMany(rows => rows))
-            {
-                if (!gatheringItemIdsByRowId.TryGetValue(row.RowId, out var itemId) ||
-                    !jobsByPointId.TryGetValue(row.GatheringPoint.RowId, out var job) ||
-                    string.IsNullOrWhiteSpace(job))
-                    continue;
-
-                AddGatheringJob(jobsByItemId, itemId, job);
             }
         }
 
@@ -1396,6 +1399,23 @@ public sealed class RecipeService
             pair => string.Join(
                 " / ",
                 pair.Value.OrderBy(static job => job)));
+    }
+
+    private static string GetGatheringPointJob(GatheringPoint point)
+    {
+        try
+        {
+            var classJob = point.GatheringSubCategory.Value.ClassJob.Value;
+            var abbreviation = classJob.Abbreviation.ToString().Trim().ToUpperInvariant();
+            if (!string.IsNullOrWhiteSpace(abbreviation))
+                return abbreviation;
+        }
+        catch (InvalidOperationException)
+        {
+            // Some gathering points expose an unusable subcategory row ref; fall back to gathering type below.
+        }
+
+        return MapGatheringTypeToJob(point.GatheringPointBase.Value.GatheringType.Value.Name.ToString());
     }
 
     private static IReadOnlyDictionary<uint, CollectibleRewardInfo> BuildCollectibleRewardLabelsByItemId(
