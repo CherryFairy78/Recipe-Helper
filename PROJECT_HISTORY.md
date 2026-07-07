@@ -476,6 +476,9 @@ Recipe Helper searches FFXIV recipes, calculates the materials required for a ch
 - Reworked Gwen's Dream withdraw quantity confirmation to use a direct integer callback payload instead of `FireCallbackInt`, matching the safer callback pattern used by ECommons/AutoRetainer for numeric prompts.
 - Prepared Recipe Helper v1.1.27.0 as a follow-up Gwen's Dream crash-fix release.
 - Verification after preparing v1.1.27: Debug and Release builds both succeeded with zero warnings and zero errors, and the publish ZIP `releases\DalamudRecipeHelper-v1.1.27.zip` was created with SHA-256 `93E00380047A832A5DA1EBDFBA32CA078BAAE589FF8006471EA19BCEF6377182`.
+- Added flashing warning states to active timed-node `NOW` availability cards in both the main recipe window and the Missing Items Overlay, turning orange inside two minutes remaining and red inside one minute remaining.
+- Prepared Recipe Helper v1.1.28.0 as a timed-node warning follow-up release.
+- Verification after preparing v1.1.28: Debug and Release builds both succeeded with zero warnings and zero errors, the release safety script moved the local dev-plugin copy to `C:\Users\megha\AppData\Roaming\XIVLauncher\backups\RecipeHelper\20260708-092749`, and the publish ZIP `releases\DalamudRecipeHelper-v1.1.28.zip` was created with SHA-256 `E3A3EDA320EBEDBDDE6DC331203A58AF364F9C4AB737188050113474E661441C`.
 
 ## Continuation checklist
 

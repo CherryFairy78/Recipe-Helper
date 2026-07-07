@@ -386,13 +386,43 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
         if (string.IsNullOrWhiteSpace(availabilityText))
             return int.MaxValue;
 
+        availabilityText = NormalizeOverlayAvailabilityText(availabilityText);
+
         if (availabilityText.StartsWith("Now", StringComparison.OrdinalIgnoreCase))
             return 0;
 
         if (!availabilityText.StartsWith("In ", StringComparison.OrdinalIgnoreCase))
             return int.MaxValue;
 
-        var durationText = availabilityText[3..].Trim();
+        return ParseDurationSeconds(availabilityText[3..].Trim());
+    }
+
+    private static int GetOverlayWarningSeconds(string availabilityText)
+    {
+        availabilityText = NormalizeOverlayAvailabilityText(availabilityText);
+        if (availabilityText.StartsWith("Now", StringComparison.OrdinalIgnoreCase))
+        {
+            var leftIndex = availabilityText.LastIndexOf(" left", StringComparison.OrdinalIgnoreCase);
+            if (leftIndex <= 3)
+                return -1;
+
+            var remainingText = availabilityText[3..leftIndex].Trim().TrimStart('-', ' ');
+            return ParseDurationSeconds(remainingText);
+        }
+
+        return GetOverlayWaitSeconds(availabilityText);
+    }
+
+    private static string NormalizeOverlayAvailabilityText(string availabilityText) =>
+        availabilityText
+            .Replace("ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â·", "-")
+            .Replace("Ãƒâ€šÃ‚Â·", "-")
+            .Replace("Ã‚Â·", "-")
+            .Replace("Â·", "-")
+            .Trim();
+
+    private static int ParseDurationSeconds(string durationText)
+    {
         var parts = durationText.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         var hours = parts.Where(part => part.EndsWith('h')).Select(part => ParseTimePart(part, 'h')).DefaultIfEmpty(0).First();
         var minutes = parts.Where(part => part.EndsWith('m')).Select(part => ParseTimePart(part, 'm')).DefaultIfEmpty(0).First();
@@ -542,23 +572,31 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
         var normalized = timerText.Replace("Ã‚Â·", "-").Replace("Â·", "-").Trim();
         var isNow = normalized.StartsWith("Now", StringComparison.OrdinalIgnoreCase);
         var displayText = FormatOverlayAvailability(normalized, isNow);
-        var waitSeconds = GetOverlayWaitSeconds(normalized);
-        var isCritical = !isNow && waitSeconds is >= 0 and <= 60;
-        var isImminent = !isCritical && !isNow && waitSeconds is > 60 and <= 120;
-        var criticalPulseAlpha = 0.18f + (((float)Math.Sin(ImGui.GetTime() * 8f) + 1f) * 0.08f);
+        var warningSeconds = GetOverlayWarningSeconds(normalized);
+        var isCritical = warningSeconds is >= 0 and <= 60;
+        var isImminent = !isCritical && warningSeconds is > 60 and <= 120;
+        var pulseAlpha = 0.18f + (((float)Math.Sin(ImGui.GetTime() * 8f) + 1f) * 0.08f);
         var resolvedSize = ResolveCardSize(new Vector2(-1, 28), 28f);
         var position = ImGui.GetCursorScreenPos();
         ImGui.InvisibleButton(id, resolvedSize);
         var drawList = ImGui.GetWindowDrawList();
         var backgroundColor = isNow
-            ? WithAlpha(this.configuration.SuccessTextColor, 0.20f)
-            : isCritical
-                ? WithAlpha(this.configuration.MissingTextColor, criticalPulseAlpha)
+            ? isCritical
+                ? WithAlpha(this.configuration.MissingTextColor, pulseAlpha)
             : isImminent
-                ? WithAlpha(this.configuration.WarningTextColor, 0.22f)
+                ? WithAlpha(this.configuration.WarningTextColor, pulseAlpha)
+                : WithAlpha(this.configuration.SuccessTextColor, 0.20f)
+            : isCritical
+                ? WithAlpha(this.configuration.MissingTextColor, pulseAlpha)
+            : isImminent
+                ? WithAlpha(this.configuration.WarningTextColor, pulseAlpha)
                 : WithAlpha(this.configuration.AccentColor, 0.16f);
         var textColor = isNow
-            ? this.configuration.SuccessTextColor
+            ? isCritical
+                ? this.configuration.MissingTextColor
+            : isImminent
+                ? this.configuration.WarningTextColor
+                : this.configuration.SuccessTextColor
             : isCritical
                 ? this.configuration.MissingTextColor
             : isImminent

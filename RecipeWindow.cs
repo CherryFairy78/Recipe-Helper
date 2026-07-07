@@ -3849,23 +3849,31 @@ public sealed class RecipeWindow : Window, IDisposable
         }
 
         var displayText = FormatAvailabilityDisplay(timerText, out var tooltip, out var isAvailableNow);
-        var waitSeconds = GetAvailabilityWaitSeconds(timerText);
-        var isCritical = !isAvailableNow && waitSeconds is >= 0 and <= 60;
-        var isImminent = !isCritical && !isAvailableNow && waitSeconds is > 60 and <= 120;
-        var criticalPulseAlpha = 0.18f + (((float)Math.Sin(ImGui.GetTime() * 8f) + 1f) * 0.08f);
+        var warningSeconds = GetAvailabilityWarningSeconds(timerText);
+        var isCritical = warningSeconds is >= 0 and <= 60;
+        var isImminent = !isCritical && warningSeconds is > 60 and <= 120;
+        var pulseAlpha = 0.18f + (((float)Math.Sin(ImGui.GetTime() * 8f) + 1f) * 0.08f);
         var size = this.ResolveCardSize(new Vector2(-1, this.ScaleUi(36f)), 36f);
         var position = ImGui.GetCursorScreenPos();
         ImGui.InvisibleButton($"{tableId}-available-{ingredient.ItemId}", size);
         var drawList = ImGui.GetWindowDrawList();
         var backgroundColor = isAvailableNow
-            ? WithAlpha(this.configuration.SuccessTextColor, 0.20f)
-            : isCritical
-                ? WithAlpha(this.configuration.MissingTextColor, criticalPulseAlpha)
+            ? isCritical
+                ? WithAlpha(this.configuration.MissingTextColor, pulseAlpha)
             : isImminent
-                ? WithAlpha(this.configuration.WarningTextColor, 0.22f)
+                ? WithAlpha(this.configuration.WarningTextColor, pulseAlpha)
+                : WithAlpha(this.configuration.SuccessTextColor, 0.20f)
+            : isCritical
+                ? WithAlpha(this.configuration.MissingTextColor, pulseAlpha)
+            : isImminent
+                ? WithAlpha(this.configuration.WarningTextColor, pulseAlpha)
                 : WithAlpha(this.configuration.AccentColor, 0.16f);
         var textColor = isAvailableNow
-            ? this.configuration.SuccessTextColor
+            ? isCritical
+                ? this.configuration.MissingTextColor
+            : isImminent
+                ? this.configuration.WarningTextColor
+                : this.configuration.SuccessTextColor
             : isCritical
                 ? this.configuration.MissingTextColor
             : isImminent
@@ -3916,13 +3924,43 @@ public sealed class RecipeWindow : Window, IDisposable
 
     private static int GetAvailabilityWaitSeconds(string timerText)
     {
-        var normalized = timerText.Replace("Ã‚Â·", "-").Replace("Â·", "-").Trim();
+        timerText = NormalizeAvailabilityText(timerText);
+        var normalized = NormalizeAvailabilityText(timerText);
         if (normalized.StartsWith("Now", StringComparison.OrdinalIgnoreCase))
             return 0;
         if (!normalized.StartsWith("In ", StringComparison.OrdinalIgnoreCase))
             return -1;
 
-        var durationText = normalized[3..].Trim();
+        return ParseDurationSeconds(normalized[3..].Trim());
+    }
+
+    private static int GetAvailabilityWarningSeconds(string timerText)
+    {
+        timerText = NormalizeAvailabilityText(timerText);
+        var normalized = timerText.Replace("Ãƒâ€šÃ‚Â·", "-").Replace("Ã‚Â·", "-").Trim();
+        if (normalized.StartsWith("Now", StringComparison.OrdinalIgnoreCase))
+        {
+            var leftIndex = normalized.LastIndexOf(" left", StringComparison.OrdinalIgnoreCase);
+            if (leftIndex <= 3)
+                return -1;
+
+            var remainingText = normalized[3..leftIndex].Trim().TrimStart('-', ' ');
+            return ParseDurationSeconds(remainingText);
+        }
+
+        return GetAvailabilityWaitSeconds(normalized);
+    }
+
+    private static string NormalizeAvailabilityText(string timerText) =>
+        timerText
+            .Replace("ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â·", "-")
+            .Replace("Ãƒâ€šÃ‚Â·", "-")
+            .Replace("Ã‚Â·", "-")
+            .Replace("Â·", "-")
+            .Trim();
+
+    private static int ParseDurationSeconds(string durationText)
+    {
         var parts = durationText.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         var hours = parts.Where(part => part.EndsWith('h')).Select(part => ParseTimePart(part, 'h')).DefaultIfEmpty(0).First();
         var minutes = parts.Where(part => part.EndsWith('m')).Select(part => ParseTimePart(part, 'm')).DefaultIfEmpty(0).First();
