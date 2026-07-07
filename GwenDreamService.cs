@@ -1058,7 +1058,7 @@ public sealed unsafe class GwenDreamService : IDisposable
             ? unitBase->AtkValues[3].UInt
             : quantity;
         var requestedQuantity = (int)Math.Clamp(quantity, 1u, maxQuantity == 0 ? quantity : maxQuantity);
-        unitBase->FireCallbackInt(requestedQuantity);
+        this.FireIntCallback(unitBase, requestedQuantity, true);
 
         this.nextUiAdvanceAt = DateTime.UtcNow.AddMilliseconds(QuantityConfirmDelayMs);
         this.fileLog.Info("Dream", $"Confirmed withdraw quantity {requestedQuantity}.");
@@ -1845,6 +1845,21 @@ public sealed unsafe class GwenDreamService : IDisposable
         return unitBase is not null &&
                unitBase->IsVisible &&
                unitBase->IsReady;
+    }
+
+    private void FireIntCallback(AtkUnitBase* unitBase, int value, bool updateState = false)
+    {
+        Span<AtkValue> values = stackalloc AtkValue[1];
+        values[0] = new AtkValue
+        {
+            Type = AtkValueType.Int,
+            Int = value,
+        };
+
+        fixed (AtkValue* valuePointer = values)
+        {
+            unitBase->FireCallback(1, valuePointer, updateState);
+        }
     }
 
     private bool IsActualRetainerListVisible() => this.IsAddonVisible("RetainerList");

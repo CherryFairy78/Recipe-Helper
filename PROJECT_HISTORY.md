@@ -473,6 +473,9 @@ Recipe Helper searches FFXIV recipes, calculates the materials required for a ch
 - Hardened Gwen's Dream retainer UI callback handling so quantity confirmation and nearby retainer actions only operate on visible, ready add-ons.
 - Prepared Recipe Helper v1.1.26.0 as a quick Gwen's Dream crash-fix release.
 - Verification after preparing v1.1.26: Debug build succeeded with zero warnings and zero errors, Release compilation produced the fresh `1.1.26.0` DLL but the automated packager hit the known manifest file-lock on `DalamudRecipeHelper.json`, the Debug and Release manifests were refreshed manually from the root manifest, and the publish ZIP `artifacts\Release\DalamudRecipeHelper-v1.1.26.zip` was created with SHA-256 `D7D89C26F4E648C40B9F945DA60D8294B584DD0BADD15EE2B494488EEA188D39`.
+- Reworked Gwen's Dream withdraw quantity confirmation to use a direct integer callback payload instead of `FireCallbackInt`, matching the safer callback pattern used by ECommons/AutoRetainer for numeric prompts.
+- Prepared Recipe Helper v1.1.27.0 as a follow-up Gwen's Dream crash-fix release.
+- Verification after preparing v1.1.27: Debug and Release builds both succeeded with zero warnings and zero errors, and the publish ZIP `releases\DalamudRecipeHelper-v1.1.27.zip` was created with SHA-256 `93E00380047A832A5DA1EBDFBA32CA078BAAE589FF8006471EA19BCEF6377182`.
 
 ## Continuation checklist
 
