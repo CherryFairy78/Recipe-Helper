@@ -721,11 +721,9 @@ public sealed unsafe class GwenDreamService : IDisposable
         if (DateTime.UtcNow < this.nextUiAdvanceAt)
             return false;
 
-        var addon = this.gameGui.GetAddonByName("Talk", 1);
-        if (addon.Address == IntPtr.Zero)
+        if (!this.TryGetVisibleReadyAddon("Talk", out var unitBase))
             return false;
 
-        var unitBase = (AtkUnitBase*)addon.Address;
         unitBase->FireCallbackInt(0);
         this.nextUiAdvanceAt = DateTime.UtcNow.AddMilliseconds(750);
         this.fileLog.Info("Dream", "Advanced Talk prompt.");
@@ -737,11 +735,9 @@ public sealed unsafe class GwenDreamService : IDisposable
         if (DateTime.UtcNow < this.nextUiAdvanceAt)
             return false;
 
-        var addon = this.gameGui.GetAddonByName("Dialogue", 1);
-        if (addon.Address == IntPtr.Zero)
+        if (!this.TryGetVisibleReadyAddon("Dialogue", out var unitBase))
             return false;
 
-        var unitBase = (AtkUnitBase*)addon.Address;
         unitBase->FireCallbackInt(0);
         this.nextUiAdvanceAt = DateTime.UtcNow.AddMilliseconds(750);
         this.fileLog.Info("Dream", "Advanced Dialogue prompt.");
@@ -753,11 +749,9 @@ public sealed unsafe class GwenDreamService : IDisposable
         if (DateTime.UtcNow < this.nextUiAdvanceAt)
             return false;
 
-        var addon = this.gameGui.GetAddonByName("Talk", 1);
-        if (addon.Address == IntPtr.Zero)
+        if (!this.TryGetVisibleReadyAddon("Talk", out var unitBase))
             return false;
 
-        var unitBase = (AtkUnitBase*)addon.Address;
         unitBase->FireCallbackInt(0);
         this.nextUiAdvanceAt = DateTime.UtcNow.AddMilliseconds(150);
         this.fileLog.Info("Dream", "Advanced Talk prompt (fast).");
@@ -769,11 +763,9 @@ public sealed unsafe class GwenDreamService : IDisposable
         if (DateTime.UtcNow < this.nextUiAdvanceAt)
             return false;
 
-        var addon = this.gameGui.GetAddonByName("Dialogue", 1);
-        if (addon.Address == IntPtr.Zero)
+        if (!this.TryGetVisibleReadyAddon("Dialogue", out var unitBase))
             return false;
 
-        var unitBase = (AtkUnitBase*)addon.Address;
         unitBase->FireCallbackInt(0);
         this.nextUiAdvanceAt = DateTime.UtcNow.AddMilliseconds(150);
         this.fileLog.Info("Dream", "Advanced Dialogue prompt (fast).");
@@ -791,12 +783,7 @@ public sealed unsafe class GwenDreamService : IDisposable
             return true;
         }
 
-        var addon = this.gameGui.GetAddonByName("RetainerList", 1);
-        if (addon.Address == IntPtr.Zero)
-            return false;
-
-        var unitBase = (AtkUnitBase*)addon.Address;
-        if (!unitBase->IsVisible)
+        if (!this.TryGetVisibleReadyAddon("RetainerList", out var unitBase))
             return false;
 
         if (!this.IsRetainerListReadyForSelection(unitBase, retainerName))
@@ -1061,12 +1048,10 @@ public sealed unsafe class GwenDreamService : IDisposable
         if (DateTime.UtcNow < this.nextUiAdvanceAt)
             return false;
 
-        var addon = this.gameGui.GetAddonByName("InputNumeric", 1);
-        if (addon.Address == IntPtr.Zero)
+        if (!this.TryGetVisibleReadyAddon("InputNumeric", out var unitBase))
             return false;
 
-        var unitBase = (AtkUnitBase*)addon.Address;
-        if (!unitBase->IsVisible)
+        if (unitBase->AtkValuesCount <= 3)
             return false;
 
         var maxQuantity = unitBase->AtkValuesCount > 3
@@ -1414,14 +1399,10 @@ public sealed unsafe class GwenDreamService : IDisposable
         if (DateTime.UtcNow < this.nextUiAdvanceAt)
             return false;
 
-        var addon = this.gameGui.GetAddonByName("SelectString", 1);
-        if (addon.Address == IntPtr.Zero)
+        if (!this.TryGetVisibleReadyAddon("SelectString", out var unitBase))
             return false;
 
-        var selectString = (AddonSelectString*)addon.Address;
-        if (!selectString->AtkUnitBase.IsVisible)
-            return false;
-
+        var selectString = (AddonSelectString*)unitBase;
         var entryCount = selectString->PopupMenu.PopupMenu.EntryCount;
         if (entryCount <= 0)
             return false;
@@ -1464,7 +1445,7 @@ public sealed unsafe class GwenDreamService : IDisposable
                 continue;
 
             var unitBase = (AtkUnitBase*)addon.Address;
-            if (!unitBase->IsVisible)
+            if (!unitBase->IsVisible || !unitBase->IsReady)
                 continue;
 
             unitBase->Close(true);
@@ -1489,7 +1470,7 @@ public sealed unsafe class GwenDreamService : IDisposable
                 continue;
 
             var unitBase = (AtkUnitBase*)addon.Address;
-            if (!unitBase->IsVisible)
+            if (!unitBase->IsVisible || !unitBase->IsReady)
                 continue;
 
             unitBase->Close(true);
@@ -1506,12 +1487,7 @@ public sealed unsafe class GwenDreamService : IDisposable
         if (this.TryCloseRetainerListViaAutoRetainer())
             return true;
 
-        var addon = this.gameGui.GetAddonByName("RetainerList", 1);
-        if (addon.Address == IntPtr.Zero)
-            return false;
-
-        var unitBase = (AtkUnitBase*)addon.Address;
-        if (!unitBase->IsVisible)
+        if (!this.TryGetVisibleReadyAddon("RetainerList", out var unitBase))
             return false;
 
         unitBase->FireCallbackInt(-1);
@@ -1547,7 +1523,7 @@ public sealed unsafe class GwenDreamService : IDisposable
                 continue;
 
             var unitBase = (AtkUnitBase*)addon.Address;
-            if (!unitBase->IsVisible)
+            if (!unitBase->IsVisible || !unitBase->IsReady)
                 continue;
 
             unitBase->Close(true);
@@ -1586,7 +1562,7 @@ public sealed unsafe class GwenDreamService : IDisposable
         if (addon.Address != IntPtr.Zero)
         {
             var unitBase = (AtkUnitBase*)addon.Address;
-            if (unitBase->IsVisible)
+            if (unitBase->IsVisible && unitBase->IsReady)
             {
                 unitBase->FireCallbackInt(-1);
                 unitBase->Close(true);
@@ -1856,6 +1832,19 @@ public sealed unsafe class GwenDreamService : IDisposable
 
         var unitBase = (AtkUnitBase*)addon.Address;
         return unitBase->IsVisible;
+    }
+
+    private bool TryGetVisibleReadyAddon(string name, out AtkUnitBase* unitBase)
+    {
+        unitBase = null;
+        var addon = this.gameGui.GetAddonByName(name, 1);
+        if (addon.Address == IntPtr.Zero)
+            return false;
+
+        unitBase = (AtkUnitBase*)addon.Address;
+        return unitBase is not null &&
+               unitBase->IsVisible &&
+               unitBase->IsReady;
     }
 
     private bool IsActualRetainerListVisible() => this.IsAddonVisible("RetainerList");
