@@ -11,7 +11,7 @@
     "recipe",
     "inventory"
   ],
-  "Changelog": "v1.1.28 adds flashing NOW timer warnings when timed nodes are close to disappearing.",
+  "Changelog": "v1.1.29 adds right-click Recipe Helper search from inventory and marketboard item menus.",
   "InternalName": "DalamudRecipeHelper",
-  "AssemblyVersion": "1.1.28.0"
+  "AssemblyVersion": "1.1.29.0"
 }

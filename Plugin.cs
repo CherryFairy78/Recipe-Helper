@@ -1,5 +1,6 @@
 using System;
 using Dalamud.Game.Command;
+using Dalamud.Game.Gui.ContextMenu;
 using Dalamud.Interface.Windowing;
 using Dalamud.IoC;
 using Dalamud.Plugin;
@@ -53,6 +54,9 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService]
     internal static IObjectTable ObjectTable { get; private set; } = null!;
 
+    [PluginService]
+    internal static IContextMenu ContextMenu { get; private set; } = null!;
+
     private readonly WindowSystem windowSystem = new("DalamudRecipeHelper");
     private readonly RecipeWindow recipeWindow;
     private readonly SettingsWindow settingsWindow;
@@ -65,6 +69,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly Configuration configuration;
     private readonly FileLogService fileLog;
     private readonly SavedPlanStorageService savedPlanStorage;
+    private readonly ContextMenuSearchService contextMenuSearchService;
     private readonly string[] mainCommands;
     private readonly string overlayCommand;
     private bool debugWindowWasOpen;
@@ -149,6 +154,9 @@ public sealed class Plugin : IDalamudPlugin
             this.configuration,
             this.Open,
             this.SaveConfiguration);
+        this.contextMenuSearchService = new ContextMenuSearchService(
+            this.fileLog,
+            this.OpenWithSearch);
 
         this.recipeWindow = new RecipeWindow(
             this.fileLog,
@@ -202,6 +210,7 @@ public sealed class Plugin : IDalamudPlugin
         this.windowSystem.RemoveAllWindows();
         this.pluginIntegrationService.Dispose();
         this.gwenDreamService.Dispose();
+        this.contextMenuSearchService.Dispose();
         this.rawMaterialsOverlayWindow.Dispose();
         this.recipeWindow.Dispose();
         this.fileLog.ClearLogs();
@@ -234,6 +243,18 @@ public sealed class Plugin : IDalamudPlugin
     }
 
     private void Open() => this.recipeWindow.IsOpen = true;
+
+    private void OpenWithSearch(string searchText)
+    {
+        var trimmedSearchText = searchText.Trim();
+        if (!string.IsNullOrWhiteSpace(trimmedSearchText))
+        {
+            this.recipeWindow.SearchText = trimmedSearchText;
+            this.recipeWindow.RefreshSearch();
+        }
+
+        this.Open();
+    }
 
     private void OpenSettings() => this.settingsWindow.IsOpen = true;
 

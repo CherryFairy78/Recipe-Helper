@@ -12,6 +12,7 @@ Recipe Helper is a Dalamud plugin for planning multiple FFXIV recipes and tracki
 - Find recipes that can be crafted from combined inventory, saddlebags, and saved retainer stock, including craftable intermediate ingredients, with maximum craft and output totals.
 - Drag the divider beside the recipe search list to choose and retain a comfortable search-panel width.
 - Search without a fixed result limit.
+- Right-click inventory and marketboard items to search them directly in Recipe Helper.
 - Filter the current results, select or deselect multiple recipes with checkboxes, and clear a search without clearing the selected plan.
 - Resize saved-plan table columns to suit longer plan names or action controls.
 - See an estimated total craft duration in the plan summary and adjust the average seconds per craft in Settings.

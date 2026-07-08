@@ -4,16 +4,16 @@ This file is the durable hand-off record for Recipe Helper. Read it before makin
 
 ## Project snapshot
 
-- Last updated: 2026-06-29
+- Last updated: 2026-07-08
 - Plugin name: Recipe Helper
 - Internal name: `DalamudRecipeHelper`
-- Version: `1.1.6.0`
+- Version: `1.1.29.0`
 - Framework: Dalamud API 15
 - Target: `.NET 10` on Windows x64
 - Command: `/recipehelper`
 - Build command: `dotnet build .\DalamudRecipeHelper.csproj --no-restore`
 - Debug output: `bin\Debug\DalamudRecipeHelper.dll`
-- Last verified build: 2026-06-29, Debug build succeeded with zero warnings and zero errors; Release compilation succeeded, the automated packager hit a locked-directory error under `bin\Release\DalamudRecipeHelper`, and a manual `DalamudRecipeHelper-v1.1.6.zip` was created from the verified Release outputs instead
+- Last verified build: 2026-07-08, Debug build succeeded with zero warnings and zero errors; Release compilation succeeded, the automated packager hit a locked `DalamudRecipeHelper.json`, and `releases/DalamudRecipeHelper-v1.1.29.zip` was created manually from the verified Release outputs
 
 ## Purpose
 
@@ -24,6 +24,7 @@ Recipe Helper searches FFXIV recipes, calculates the materials required for a ch
 ### Recipes and quantities
 
 - Searches the FFXIV Lumina `Recipe` sheet by result name or item ID.
+- Adds a right-click `Search in Recipe Helper` action to inventory and marketboard item menus so item lookups can start from the game UI.
 - Lets the user add multiple search results to one recipe plan.
 - Lets the user set the desired number of finished items independently for every selected recipe and remove recipes from the plan.
 - Saves named recipe plans in the standard plugin configuration, preserving selected recipes and individual output quantities across restarts.
@@ -168,6 +169,13 @@ Recipe Helper searches FFXIV recipes, calculates the materials required for a ch
 - Before sharing a release broadly, personally test the packaged build in game and clearly disclose substantial AI-assisted development where the repository or community requires it.
 
 ## Change timeline
+
+### 2026-07-08
+
+- Added a shared context-menu search service that opens Recipe Helper from inventory item menus with the clicked item pre-searched.
+- Extended the same context-menu search flow to marketboard search results using the hovered market item from supported marketboard addons.
+- Added release notes for `v1.1.29` and refreshed the repo manifest, package target, and changelog text for publishing.
+- Verification: Debug build succeeded with zero warnings and zero errors; Release compilation produced verified output but the automated packager hit a locked `DalamudRecipeHelper.json`, so `releases/DalamudRecipeHelper-v1.1.29.zip` was created manually from the verified Release output.
 
 ### 2026-06-27
 

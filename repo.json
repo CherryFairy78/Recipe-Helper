@@ -5,7 +5,7 @@
     "Punchline": "Plan recipes and find every material you still need.",
     "Description": "Build a combined plan from multiple FFXIV recipes, compare NQ and HQ requirements with live inventory and saved retainer snapshots, track timed gathering materials, and hand crafting or travel actions to Artisan, Teamcraft, and GatherBuddy.",
     "InternalName": "DalamudRecipeHelper",
-    "AssemblyVersion": "1.1.28.0",
+    "AssemblyVersion": "1.1.29.0",
     "RepoUrl": "https://github.com/CherryFairy78/Recipe-Helper",
     "ApplicableVersion": "any",
     "DalamudApiLevel": 15,
@@ -14,13 +14,13 @@
       "recipe",
       "inventory"
     ],
-    "Changelog": "v1.1.28 adds flashing NOW timer warnings when timed nodes are close to disappearing.",
+    "Changelog": "v1.1.29 adds right-click Recipe Helper search from inventory and marketboard item menus.",
     "IsHide": false,
     "IsTestingExclusive": false,
     "AcceptsFeedback": true,
     "IconUrl": "https://raw.githubusercontent.com/CherryFairy78/Recipe-Helper/main/RecipeHelperIcon1.png",
-    "DownloadLinkInstall": "https://raw.githubusercontent.com/CherryFairy78/Recipe-Helper/v1.1.28/releases/DalamudRecipeHelper-v1.1.28.zip",
-    "DownloadLinkUpdate": "https://raw.githubusercontent.com/CherryFairy78/Recipe-Helper/v1.1.28/releases/DalamudRecipeHelper-v1.1.28.zip",
-    "LastUpdate": "1783466814"
+    "DownloadLinkInstall": "https://raw.githubusercontent.com/CherryFairy78/Recipe-Helper/v1.1.29/releases/DalamudRecipeHelper-v1.1.29.zip",
+    "DownloadLinkUpdate": "https://raw.githubusercontent.com/CherryFairy78/Recipe-Helper/v1.1.29/releases/DalamudRecipeHelper-v1.1.29.zip",
+    "LastUpdate": "1783546997"
   }
 ]
