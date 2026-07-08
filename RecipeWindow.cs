@@ -104,6 +104,7 @@ public sealed class RecipeWindow : Window, IDisposable
     private string integrationMessage = string.Empty;
     private bool integrationError;
     private uint observedCraftAllCompletionCount;
+    private uint observedCraftAllStopCount;
     private uint observedDreamCompletionSequence;
     private bool observedArtisanProgressActive;
     private bool dreamCraftPending;
@@ -171,6 +172,8 @@ public sealed class RecipeWindow : Window, IDisposable
         this.gwenDreamService = gwenDreamService;
         this.observedCraftAllCompletionCount =
             pluginIntegrationService.CraftAllCompletionCount;
+        this.observedCraftAllStopCount =
+            pluginIntegrationService.CraftAllStopCount;
         this.observedDreamCompletionSequence =
             gwenDreamService.CompletionSequence;
         this.aetherialReductionService = aetherialReductionService;
@@ -536,6 +539,15 @@ public sealed class RecipeWindow : Window, IDisposable
             this.observedCraftAllCompletionCount =
                 this.pluginIntegrationService.CraftAllCompletionCount;
             this.integrationMessage = string.Empty;
+            this.integrationError = false;
+        }
+
+        if (this.observedCraftAllStopCount !=
+            this.pluginIntegrationService.CraftAllStopCount)
+        {
+            this.observedCraftAllStopCount =
+                this.pluginIntegrationService.CraftAllStopCount;
+            this.integrationMessage = "Stopped Artisan after the current craft.";
             this.integrationError = false;
         }
 
@@ -1081,7 +1093,6 @@ public sealed class RecipeWindow : Window, IDisposable
 
         var canShowCraftAll =
             this.artisanCraftQueue.Count > 0 &&
-            details.Ingredients.All(ingredient => ingredient.HasEnough) &&
             (details.Recipes.Count > 1 ||
              this.artisanCraftQueue.Any(recipe => recipe.IsIntermediate));
         var hasDreamFeature = this.gwenDreamService.IsAutoRetainerAvailable;
@@ -1126,26 +1137,11 @@ public sealed class RecipeWindow : Window, IDisposable
                 if (canShowCraftAll)
                     DrawTooltipIfHovered("Queue every selected recipe in Artisan, including required pre-crafts.");
 
-                if (canShowCraftAll)
-                    ImGui.SameLine();
-                var artisanProgressActive = this.pluginIntegrationService.GetCraftAllProgressSnapshot().IsActive;
-                if (artisanProgressActive)
-                    ImGui.PushStyleColor(ImGuiCol.Button, WithAlpha(this.configuration.AccentColor, 0.70f));
-                if (WindowTheme.ShadowedButton("Artisan popup", new Vector2(this.ScaleUi(132f), 0)))
+                if (hasDreamFeature)
                 {
-                    if (this.artisanCraftOverlayWindow.IsOpen)
-                    {
-                        this.artisanCraftOverlayWindow.IsOpen = false;
-                    }
-                    else
-                    {
-                        this.artisanCraftOverlayWindow.OpenOverMainWindow(
-                            ImGui.GetWindowPos());
-                    }
+                    if (canShowCraftAll)
+                        ImGui.SameLine();
                 }
-                if (artisanProgressActive)
-                    ImGui.PopStyleColor();
-                DrawTooltipIfHovered("Open or close the Artisan progress popup.");
 
                 if (hasDreamFeature)
                     ImGui.SameLine();

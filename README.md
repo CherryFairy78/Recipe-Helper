@@ -2,6 +2,16 @@
 
 Recipe Helper is a Dalamud plugin for planning multiple FFXIV recipes and tracking the combined materials you still need.
 
+## Recommended companion plugins
+
+Recipe Helper works best alongside a few other Dalamud plugins that cover the actions it can hand off:
+
+- **Artisan** for direct recipe crafting, Craft All queue handoff, and the in-progress crafting popup.
+- **GatherBuddy** for opening gather locations, markers, and travel help for missing materials.
+- **Auto-Retainer** for Gwen's Dream, which can withdraw required materials from retainers before starting Artisan.
+
+Auto-Retainer is only needed if you want Recipe Helper to automate retainer withdrawals. If you are happy to withdraw materials manually, Recipe Helper still remains fully useful without it.
+
 ## Features
 
 - Add multiple recipes to a shared plan and set an individual output quantity for each.
@@ -55,7 +65,7 @@ Published builds use:
 
 Plugins loaded through Dalamud's **Dev Plugins** screen use `/recipehelperdev`, `/rchelpdev`, and `/rhoverlaydev` instead, preventing command conflicts when development and published copies are loaded together.
 
-Recipe Helper is distributed through a third-party custom repository and is not part of the official Dalamud plugin catalogue. It targets Dalamud API 15. Artisan and GatherBuddy are optional; their related buttons fall back or report when those plugins are unavailable.
+Recipe Helper is distributed through a third-party custom repository and is not part of the official Dalamud plugin catalogue. It targets Dalamud API 15. Its plugin handoff features are most effective with Artisan and GatherBuddy installed, while Auto-Retainer is only needed for automatic retainer withdrawals.
 
 ## Retainer snapshots
 

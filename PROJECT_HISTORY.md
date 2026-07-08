@@ -7,13 +7,13 @@ This file is the durable hand-off record for Recipe Helper. Read it before makin
 - Last updated: 2026-07-08
 - Plugin name: Recipe Helper
 - Internal name: `DalamudRecipeHelper`
-- Version: `1.1.30.0`
+- Version: `1.1.31.0`
 - Framework: Dalamud API 15
 - Target: `.NET 10` on Windows x64
 - Command: `/recipehelper`
 - Build command: `dotnet build .\DalamudRecipeHelper.csproj --no-restore`
 - Debug output: `bin\Debug\DalamudRecipeHelper.dll`
-- Last verified build: 2026-07-08, Debug and Release builds succeeded with zero warnings and zero errors, and `releases/DalamudRecipeHelper-v1.1.30.zip` was created from the verified Release output
+- Last verified build: 2026-07-08, Debug and Release builds succeeded with zero warnings and zero errors, and `releases/DalamudRecipeHelper-v1.1.31.zip` was created from the verified Release output
 
 ## Purpose
 
@@ -172,6 +172,13 @@ Recipe Helper searches FFXIV recipes, calculates the materials required for a ch
 
 ### 2026-07-08
 
+- Fixed Gwen's Dream large retainer withdrawals so requests that span multiple stacks continue chunk-by-chunk instead of timing out or advancing early.
+- Fixed Gwen's Dream withdraw completion checks so Dream only advances after a real retainer transfer has actually been issued and observed.
+- Updated the main window integration message when a Craft All queue is manually stopped after the current craft finishes.
+- Removed the manual `Artisan popup` button now that the crafting progress window opens automatically when Artisan starts.
+- Restored `Craft all with Artisan` visibility when the dependency queue can be built from available raw materials even if direct ingredients are not already crafted.
+- Updated the GitHub README to explain that Recipe Helper works best with Artisan, GatherBuddy, and optionally Auto-Retainer for automatic retainer withdrawals.
+- Added release notes for `v1.1.31` and refreshed the versioned manifests, package target, changelog text, and release zip for publishing.
 - Improved the Artisan progress overlay with a `Stop After Craft` control that ends the Recipe Helper queue after the current craft finishes.
 - Refined overlay messaging so pre-craft warnings only describe later blocked recipes instead of contradicting an active final craft.
 - Kept the overlay action row available after the queue stops, preserved queue order with numbered steps, and made repeated pre-crafts easier to understand.
@@ -180,6 +187,7 @@ Recipe Helper searches FFXIV recipes, calculates the materials required for a ch
 - Added a shared context-menu search service that opens Recipe Helper from inventory item menus with the clicked item pre-searched.
 - Extended the same context-menu search flow to marketboard search results using the hovered market item from supported marketboard addons.
 - Added release notes for `v1.1.29` and refreshed the repo manifest, package target, and changelog text for publishing.
+- Verification: Debug and Release builds both succeeded with zero warnings and zero errors, and `releases/DalamudRecipeHelper-v1.1.31.zip` was created from the verified Release output.
 - Verification: Debug and Release builds both succeeded with zero warnings and zero errors, and `releases/DalamudRecipeHelper-v1.1.30.zip` was created from the verified Release output.
 - Verification: Debug build succeeded with zero warnings and zero errors; Release compilation produced verified output but the automated packager hit a locked `DalamudRecipeHelper.json`, so `releases/DalamudRecipeHelper-v1.1.29.zip` was created manually from the verified Release output.
 

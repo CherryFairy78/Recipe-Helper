@@ -56,6 +56,8 @@ public sealed unsafe class GwenDreamService : IDisposable
     private DateTime nextRetainerListDiagnosticAt;
     private int retainerSelectAttempt;
     private uint initialLiveQuantity;
+    private uint activeTargetRemainingQuantity;
+    private uint pendingWithdrawQuantity;
     private bool withdrawIssued;
     private uint completionSequence;
 
@@ -359,6 +361,9 @@ public sealed unsafe class GwenDreamService : IDisposable
             case DreamStep.WaitingForWithdraw:
                 if (this.HasWithdrawCompleted())
                 {
+                    if (this.TryContinueActiveTarget())
+                        return;
+
                     if (this.TryAdvanceToNextTarget())
                         return;
 
@@ -370,7 +375,7 @@ public sealed unsafe class GwenDreamService : IDisposable
 
                 if (this.IsAddonVisible("InputNumeric"))
                 {
-                    if (this.TryConfirmWithdrawQuantity(this.activeTarget.WithdrawQuantity))
+                    if (this.TryConfirmWithdrawQuantity(this.activeTargetRemainingQuantity))
                     {
                         this.UpdateStatus(
                             $"Confirming withdraw quantity for {this.activeTarget.ItemName}.",
@@ -920,8 +925,10 @@ public sealed unsafe class GwenDreamService : IDisposable
         if (!this.TryFindRetainerItemSlot(target.ItemId, out var inventoryType, out var slot, out var slotQuantity, out _))
             return false;
 
-        if (target.WithdrawQuantity < slotQuantity && this.TryOpenRetrieveQuantity(slot, inventoryType, target.ItemName))
+        if (this.activeTargetRemainingQuantity < slotQuantity &&
+            this.TryOpenRetrieveQuantity(slot, inventoryType, target.ItemName))
         {
+            this.pendingWithdrawQuantity = this.activeTargetRemainingQuantity;
             this.nextUiAdvanceAt = DateTime.UtcNow.AddMilliseconds(QuantityFlowOpenDelayMs);
             return true;
         }
@@ -970,6 +977,7 @@ public sealed unsafe class GwenDreamService : IDisposable
                 return false;
 
             method.Invoke(memoryInstance, [agentModule, slot, inventoryType, 0u, command]);
+            this.pendingWithdrawQuantity = Math.Min(this.activeTargetRemainingQuantity, slotQuantity);
             this.nextUiAdvanceAt = DateTime.UtcNow.AddMilliseconds(WithdrawRequestDelayMs);
             this.fileLog.Info(
                 "Dream",
@@ -1067,12 +1075,40 @@ public sealed unsafe class GwenDreamService : IDisposable
 
     private bool HasWithdrawCompleted()
     {
-        if (this.activeTarget is null)
+        if (this.activeTarget is null ||
+            !this.withdrawIssued ||
+            this.pendingWithdrawQuantity == 0)
+        {
             return false;
+        }
 
         var updatedQuantity = this.inventoryService.GetLiveOwnedItems()
             .GetValueOrDefault(this.activeTarget.ItemId)?.Quantity ?? 0;
-        return updatedQuantity >= this.initialLiveQuantity + this.activeTarget.WithdrawQuantity;
+        return updatedQuantity >= this.initialLiveQuantity + this.pendingWithdrawQuantity;
+    }
+
+    private bool TryContinueActiveTarget()
+    {
+        if (this.activeTarget is null ||
+            this.pendingWithdrawQuantity == 0 ||
+            this.activeTargetRemainingQuantity <= this.pendingWithdrawQuantity)
+        {
+            return false;
+        }
+
+        this.activeTargetRemainingQuantity -= this.pendingWithdrawQuantity;
+        this.pendingWithdrawQuantity = 0;
+        this.withdrawIssued = false;
+        this.initialLiveQuantity = this.inventoryService.GetLiveOwnedItems()
+            .GetValueOrDefault(this.activeTarget.ItemId)?.Quantity ?? 0;
+        this.stepStartedAt = DateTime.UtcNow;
+        this.UpdateStatus(
+            $"Continuing {this.activeTarget.ItemName} in {this.activeTarget.RetainerName}: {this.activeTargetRemainingQuantity:N0} still needed.",
+            false);
+        this.fileLog.Info(
+            "Dream",
+            $"Continuing withdraw for {this.activeTarget.ItemName} from {this.activeTarget.RetainerName}; {this.activeTargetRemainingQuantity:N0} remaining.");
+        return true;
     }
 
     private bool TryAdvanceToNextTarget()
@@ -1104,6 +1140,8 @@ public sealed unsafe class GwenDreamService : IDisposable
     {
         this.activeTargetIndex = index;
         this.activeTarget = this.pendingTargets[index];
+        this.activeTargetRemainingQuantity = this.activeTarget.WithdrawQuantity;
+        this.pendingWithdrawQuantity = 0;
         this.retainerSelectAttempt = 0;
         this.withdrawIssued = false;
         this.initialLiveQuantity = this.inventoryService.GetLiveOwnedItems()
@@ -2094,6 +2132,8 @@ public sealed unsafe class GwenDreamService : IDisposable
         if (nextStep != DreamStep.WaitingForRetainerSelection)
             this.nextRetainerListDiagnosticAt = DateTime.MinValue;
         if (nextStep != DreamStep.WaitingForWithdraw)
+            this.pendingWithdrawQuantity = 0;
+        if (nextStep != DreamStep.WaitingForWithdraw)
             this.withdrawIssued = false;
         this.UpdateStatus(message, false);
         this.fileLog.Info("Dream", $"Step -> {nextStep}: {message}");
@@ -2102,6 +2142,8 @@ public sealed unsafe class GwenDreamService : IDisposable
     private bool Fail(string message)
     {
         this.activeTarget = null;
+        this.activeTargetRemainingQuantity = 0;
+        this.pendingWithdrawQuantity = 0;
         this.pendingTargets.Clear();
         this.activeTargetIndex = 0;
         this.retainerSelectAttempt = 0;

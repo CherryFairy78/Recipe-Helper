@@ -49,6 +49,8 @@ public sealed unsafe class PluginIntegrationService : IDisposable
 
     public uint CraftAllCompletionCount { get; private set; }
 
+    public uint CraftAllStopCount { get; private set; }
+
     public PluginIntegrationService(
         IDalamudPluginInterface pluginInterface,
         ICommandManager commandManager,
@@ -767,6 +769,7 @@ public sealed unsafe class PluginIntegrationService : IDisposable
         this.activeEntryStopRequested = false;
         this.stopAfterCurrentCraftRequested = false;
         this.autoRetainerReleasedAt = DateTime.MinValue;
+        this.CraftAllStopCount++;
         this.TryCloseCraftingWindows();
         this.fileLog.Info("Artisan", "Stopped Craft All queue after the current craft.");
     }
