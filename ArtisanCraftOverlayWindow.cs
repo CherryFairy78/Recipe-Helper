@@ -280,6 +280,8 @@ public sealed class ArtisanCraftOverlayWindow : Window
                 : Math.Min(currentEntry.CraftCount, completedCrafts + 1);
             var currentStatus = snapshot.IsPausedForAutoRetainer
                 ? $"Paused ({completedCrafts:N0}/{currentEntry.CraftCount:N0})"
+                : snapshot.IsPausedForRetainerRefill
+                    ? $"Refilling ({completedCrafts:N0}/{currentEntry.CraftCount:N0})"
                 : snapshot.StopAfterCurrentCraftRequested
                     ? snapshot.CurrentEntryStarted
                         ? $"Stopping ({currentCraftIndex:N0}/{currentEntry.CraftCount:N0})"
@@ -293,7 +295,7 @@ public sealed class ArtisanCraftOverlayWindow : Window
                 remainingCrafts.ToString("N0"),
                 currentStatus,
                 AdjustColor(this.configuration.WindowBackgroundColor, 0.10f),
-                snapshot.IsPausedForAutoRetainer
+                snapshot.IsPausedForAutoRetainer || snapshot.IsPausedForRetainerRefill
                     ? this.configuration.WarningTextColor
                     : this.configuration.AccentColor));
         }
@@ -339,6 +341,8 @@ public sealed class ArtisanCraftOverlayWindow : Window
                     : Math.Min(currentEntry.CraftCount, completedCrafts + 1);
                 var currentStatus = snapshot.IsPausedForAutoRetainer
                     ? $"Paused ({completedCrafts:N0}/{currentEntry.CraftCount:N0})"
+                    : snapshot.IsPausedForRetainerRefill
+                        ? $"Refilling ({completedCrafts:N0}/{currentEntry.CraftCount:N0})"
                     : snapshot.StopAfterCurrentCraftRequested
                         ? snapshot.CurrentEntryStarted
                             ? $"Stopping ({currentCraftIndex:N0}/{currentEntry.CraftCount:N0})"
@@ -352,7 +356,7 @@ public sealed class ArtisanCraftOverlayWindow : Window
                     remainingCrafts.ToString("N0"),
                     currentStatus,
                     AdjustColor(this.configuration.WindowBackgroundColor, 0.10f),
-                    snapshot.IsPausedForAutoRetainer
+                    snapshot.IsPausedForAutoRetainer || snapshot.IsPausedForRetainerRefill
                         ? this.configuration.WarningTextColor
                         : this.configuration.AccentColor));
                 continue;
@@ -433,6 +437,8 @@ public sealed class ArtisanCraftOverlayWindow : Window
     {
         var summaryText = snapshot.IsPausedForAutoRetainer
             ? "Paused for AutoRetainer"
+            : snapshot.IsPausedForRetainerRefill
+                ? "Refilling crystals from retainer"
             : snapshot.StopAfterCurrentCraftRequested
                 ? "Stopping after current craft"
             : snapshot.CurrentEntry is { } currentEntry

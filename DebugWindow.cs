@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Numerics;
 using System.Text;
 using Dalamud.Bindings.ImGui;
@@ -18,6 +20,7 @@ public sealed class DebugWindow : Window
     private DateTimeOffset generatedAtUtc;
     private DateTime copyMessageExpiresAtUtc;
     private DateTime clearMessageExpiresAtUtc;
+    private Dictionary<string, string> retainerAliases = new(StringComparer.OrdinalIgnoreCase);
 
     public DebugWindow(
         Configuration configuration,
@@ -127,6 +130,7 @@ public sealed class DebugWindow : Window
         var dreamSnapshot = this.gwenDreamService.GetDebugSnapshot();
         var latestLogPath = this.fileLog.GetLatestLogPath();
         var recentLogLines = this.fileLog.GetRecentLines(80);
+        this.retainerAliases = BuildRetainerAliases(storedRetainers);
 
         this.generatedAtUtc = DateTimeOffset.UtcNow;
         var builder = new StringBuilder();
@@ -134,10 +138,10 @@ public sealed class DebugWindow : Window
         builder.AppendLine($"GeneratedUtc: {this.generatedAtUtc:O}");
         builder.AppendLine($"PluginVersion: {typeof(Plugin).Assembly.GetName().Version?.ToString() ?? "unknown"}");
         builder.AppendLine($"PluginMode: {(Plugin.PluginInterface.IsDev ? "Development" : "Published")}");
-        builder.AppendLine($"ConfigDirectory: {this.pluginConfigDirectory}");
-        builder.AppendLine($"LogDirectory: {this.fileLog.LogDirectory}");
-        builder.AppendLine($"LatestLogFile: {ValueOrNone(latestLogPath)}");
-        builder.AppendLine($"RetainerSnapshotFile: {DescribeFile(this.inventoryService.RetainerSnapshotPath)}");
+        builder.AppendLine($"ConfigDirectory: {SanitizePath(this.pluginConfigDirectory, this.pluginConfigDirectory)}");
+        builder.AppendLine($"LogDirectory: {SanitizePath(this.fileLog.LogDirectory, this.pluginConfigDirectory)}");
+        builder.AppendLine($"LatestLogFile: {ValueOrNone(SanitizeText(latestLogPath))}");
+        builder.AppendLine($"RetainerSnapshotFile: {DescribeFile(this.inventoryService.RetainerSnapshotPath, this.pluginConfigDirectory)}");
         builder.AppendLine();
         builder.AppendLine("[Inventory]");
         builder.AppendLine($"LastScannedContainers: {this.inventoryService.LastScannedContainers}");
@@ -147,7 +151,7 @@ public sealed class DebugWindow : Window
         foreach (var retainer in storedRetainers)
         {
             builder.AppendLine(
-                $"- {retainer.Name} | captured {retainer.CapturedAt.LocalDateTime:yyyy-MM-dd HH:mm:ss} | unique items {retainer.Items.Count}");
+                $"- {this.GetRetainerAlias(retainer.Name)} | captured {retainer.CapturedAt.LocalDateTime:yyyy-MM-dd HH:mm:ss} | unique items {retainer.Items.Count}");
         }
 
         if (storedRetainers.Count == 0)
@@ -159,18 +163,18 @@ public sealed class DebugWindow : Window
         builder.AppendLine($"AutoRetainerBusy: {dreamSnapshot.AutoRetainerBusy}");
         builder.AppendLine($"IsActive: {dreamSnapshot.IsActive}");
         builder.AppendLine($"CurrentStep: {dreamSnapshot.StepName}");
-        builder.AppendLine($"OpenRetainerName: {ValueOrNone(dreamSnapshot.OpenRetainerName)}");
+        builder.AppendLine($"OpenRetainerName: {ValueOrNone(SanitizeText(dreamSnapshot.OpenRetainerName))}");
         builder.AppendLine($"PendingTargets: {dreamSnapshot.PendingTargets}");
         builder.AppendLine($"ActiveTargetIndex: {dreamSnapshot.ActiveTargetIndex}");
-        builder.AppendLine($"ActiveTarget: {ValueOrNone(dreamSnapshot.ActiveTargetSummary)}");
+        builder.AppendLine($"ActiveTarget: {ValueOrNone(SanitizeText(dreamSnapshot.ActiveTargetSummary))}");
         builder.AppendLine($"RetainerSelectAttempt: {dreamSnapshot.RetainerSelectAttempt}");
         builder.AppendLine($"WithdrawIssued: {dreamSnapshot.WithdrawIssued}");
         builder.AppendLine($"StepElapsedSeconds: {dreamSnapshot.StepElapsed.TotalSeconds:F1}");
         builder.AppendLine($"LastRunSucceeded: {dreamSnapshot.LastRunSucceeded}");
         builder.AppendLine($"CompletionSequence: {dreamSnapshot.CompletionSequence}");
         builder.AppendLine($"StatusIsError: {dreamSnapshot.StatusIsError}");
-        builder.AppendLine($"StatusMessage: {ValueOrNone(dreamSnapshot.StatusMessage)}");
-        builder.AppendLine($"VisibleRetainerAddons: {dreamSnapshot.VisibleRetainerAddons}");
+        builder.AppendLine($"StatusMessage: {ValueOrNone(SanitizeText(dreamSnapshot.StatusMessage))}");
+        builder.AppendLine($"VisibleRetainerAddons: {SanitizeText(dreamSnapshot.VisibleRetainerAddons)}");
 
         builder.AppendLine();
         builder.AppendLine("[Configuration]");
@@ -191,13 +195,13 @@ public sealed class DebugWindow : Window
         else
         {
             foreach (var line in recentLogLines)
-                builder.AppendLine(line);
+                builder.AppendLine(SanitizeText(line));
         }
 
         this.debugReport = builder.ToString();
     }
 
-    private static string DescribeFile(string path)
+    private static string DescribeFile(string path, string pluginConfigDirectory)
     {
         if (string.IsNullOrWhiteSpace(path))
             return "none";
@@ -206,15 +210,67 @@ public sealed class DebugWindow : Window
         {
             var fileInfo = new FileInfo(path);
             if (!fileInfo.Exists)
-                return $"{path} (missing)";
+                return $"{SanitizePath(path, pluginConfigDirectory)} (missing)";
 
             return
-                $"{path} ({fileInfo.Length:N0} bytes, updated {fileInfo.LastWriteTime:yyyy-MM-dd HH:mm:ss})";
+                $"{SanitizePath(path, pluginConfigDirectory)} ({fileInfo.Length:N0} bytes, updated {fileInfo.LastWriteTime:yyyy-MM-dd HH:mm:ss})";
         }
         catch (Exception exception)
         {
-            return $"{path} (unavailable: {exception.GetType().Name}: {exception.Message})";
+            return $"{SanitizePath(path, pluginConfigDirectory)} (unavailable: {exception.GetType().Name}: {exception.Message})";
         }
+    }
+
+    private static Dictionary<string, string> BuildRetainerAliases(
+        IReadOnlyList<StoredRetainerInventory> storedRetainers)
+    {
+        var aliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        for (var index = 0; index < storedRetainers.Count; index++)
+        {
+            var name = storedRetainers[index].Name;
+            if (!string.IsNullOrWhiteSpace(name) && !aliases.ContainsKey(name))
+                aliases[name] = $"Retainer {index + 1}";
+        }
+
+        return aliases;
+    }
+
+    private string GetRetainerAlias(string? retainerName)
+    {
+        if (string.IsNullOrWhiteSpace(retainerName))
+            return "none";
+
+        return this.retainerAliases.TryGetValue(retainerName, out var alias)
+            ? alias
+            : "Open Retainer";
+    }
+
+    private string SanitizeText(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return string.Empty;
+
+        var sanitized = SanitizePath(text, this.pluginConfigDirectory);
+        foreach (var (retainerName, alias) in this.retainerAliases.OrderByDescending(entry => entry.Key.Length))
+            sanitized = sanitized.Replace(retainerName, alias, StringComparison.OrdinalIgnoreCase);
+
+        return sanitized;
+    }
+
+    private static string SanitizePath(string? path, string pluginConfigDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return string.Empty;
+
+        var sanitized = path;
+        if (!string.IsNullOrWhiteSpace(pluginConfigDirectory))
+            sanitized = sanitized.Replace(pluginConfigDirectory, "<PluginConfig>", StringComparison.OrdinalIgnoreCase);
+
+        var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (!string.IsNullOrWhiteSpace(userProfile))
+            sanitized = sanitized.Replace(userProfile, "<UserProfile>", StringComparison.OrdinalIgnoreCase);
+
+        return sanitized;
     }
 
     private static string ValueOrNone(string? value) =>

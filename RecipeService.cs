@@ -12,6 +12,7 @@ namespace DalamudRecipeHelper;
 
 public sealed class RecipeService
 {
+    private const uint CrystalInventoryCap = 9999;
     private static readonly IReadOnlyDictionary<uint, string> CraftingJobAbbreviationsByCraftTypeId =
         new Dictionary<uint, string>
         {
@@ -382,8 +383,15 @@ public sealed class RecipeService
         var plannedTargets = new List<RetainerWithdrawalTarget>();
         foreach (var ingredient in details.Ingredients
                      .GroupBy(ingredient => ingredient.ItemId)
-                     .Select(group => group.First()))
+                     .Select(group => group.First())
+                     .Where(ingredient => !IsElementalCatalystItem(ingredient.ItemId)))
             this.PlanRetainerWithdrawalsForNeed(ingredient, liveStock, retainerStates, plannedTargets);
+
+        foreach (var catalyst in details.RawMaterials
+                     .Where(material => IsElementalCatalystItem(material.ItemId))
+                     .GroupBy(material => material.ItemId)
+                     .Select(group => group.First()))
+            this.PlanRetainerWithdrawalsForNeed(catalyst, liveStock, retainerStates, plannedTargets);
 
         foreach (var finalRecipe in details.Recipes)
         {
@@ -422,8 +430,9 @@ public sealed class RecipeService
     {
         liveStock.TryGetValue(need.ItemId, out var liveOwned);
         var missing = need.Required > liveOwned
-            ? need.Required - liveOwned
+            ? (uint)Math.Min((ulong)need.Required - liveOwned, uint.MaxValue)
             : 0u;
+        missing = CapInitialCatalystWithdrawal(need.ItemId, liveOwned, missing);
         if (missing == 0)
             return;
 
@@ -498,6 +507,129 @@ public sealed class RecipeService
         return true;
     }
 
+    public uint GetMaximumCraftableCountFromCurrentCatalysts(
+        uint recipeId,
+        uint desiredCraftCount,
+        IReadOnlyDictionary<uint, OwnedInventoryItem> liveOwnedItems,
+        out bool usesCatalysts)
+    {
+        usesCatalysts = false;
+        if (desiredCraftCount == 0)
+            return 0;
+
+        if (!this.TryGetRecipe(recipeId, out var recipe))
+            return desiredCraftCount;
+
+        var catalystRequirements = this.GetElementalCatalystRequirements(recipe);
+        if (catalystRequirements.Count == 0)
+            return desiredCraftCount;
+
+        usesCatalysts = true;
+        var maxCraftCount = desiredCraftCount;
+        foreach (var catalyst in catalystRequirements)
+        {
+            var ownedQuantity = liveOwnedItems.GetValueOrDefault(catalyst.ItemId)?.Quantity ?? 0;
+            var supportedCrafts = catalyst.AmountPerCraft == 0
+                ? desiredCraftCount
+                : ownedQuantity / catalyst.AmountPerCraft;
+            maxCraftCount = Math.Min(maxCraftCount, supportedCrafts);
+            if (maxCraftCount == 0)
+                break;
+        }
+
+        return maxCraftCount;
+    }
+
+    public bool TryBuildDreamCatalystTopUpTargets(
+        uint recipeId,
+        uint remainingCraftCount,
+        IReadOnlyDictionary<uint, OwnedInventoryItem> liveOwnedItems,
+        IReadOnlyList<StoredRetainerInventory> storedRetainers,
+        out IReadOnlyList<RetainerWithdrawalTarget> targets,
+        out string error)
+    {
+        targets = [];
+        error = string.Empty;
+
+        if (remainingCraftCount == 0)
+            return true;
+
+        if (!this.TryGetRecipe(recipeId, out var recipe))
+        {
+            error = $"Recipe data for recipe #{recipeId} is not available.";
+            return false;
+        }
+
+        var catalystRequirements = this.GetElementalCatalystRequirements(recipe);
+        if (catalystRequirements.Count == 0)
+            return true;
+
+        if (storedRetainers.Count == 0)
+        {
+            error = "No retainer snapshot is available for crystal top-ups.";
+            return false;
+        }
+
+        var liveStock = liveOwnedItems.ToDictionary(
+            entry => entry.Key,
+            entry => (ulong)entry.Value.Quantity);
+        var retainerStates = storedRetainers
+            .Select(retainer => new RetainerStockState(retainer))
+            .ToList();
+        var plannedTargets = new List<RetainerWithdrawalTarget>();
+
+        foreach (var catalyst in catalystRequirements)
+        {
+            var currentOwned = liveOwnedItems.GetValueOrDefault(catalyst.ItemId)?.Quantity ?? 0;
+            if (currentOwned >= CrystalInventoryCap)
+                continue;
+
+            var totalRequired = MultiplySaturating((ulong)catalyst.AmountPerCraft, remainingCraftCount);
+            var missing = totalRequired > currentOwned
+                ? totalRequired - currentOwned
+                : 0UL;
+            if (missing == 0)
+                continue;
+
+            var topUpQuantity = (uint)Math.Min((ulong)(CrystalInventoryCap - currentOwned), missing);
+            if (topUpQuantity == 0)
+                continue;
+
+            this.PlanRetainerWithdrawalsForNeed(
+                new IngredientNeed(
+                    catalyst.ItemId,
+                    catalyst.Name,
+                    AddSaturating(currentOwned, topUpQuantity),
+                    currentOwned,
+                    0,
+                    string.Empty,
+                    false,
+                    false,
+                    [],
+                    []),
+                liveStock,
+                retainerStates,
+                plannedTargets);
+        }
+
+        foreach (var catalyst in catalystRequirements)
+        {
+            var currentOwned = liveOwnedItems.GetValueOrDefault(catalyst.ItemId)?.Quantity ?? 0;
+            var plannedTopUp = plannedTargets
+                .Where(target => target.ItemId == catalyst.ItemId)
+                .Aggregate(0u, (total, target) => AddSaturating(total, target.WithdrawQuantity));
+            if (AddSaturating(currentOwned, plannedTopUp) >= catalyst.AmountPerCraft)
+                continue;
+
+            error = $"Not enough {catalyst.Name} is available on retainers to continue crafting.";
+            targets = [];
+            return false;
+        }
+
+        targets = plannedTargets;
+        return true;
+    }
+
     private bool TryPlanDreamRecipe(
         Recipe recipe,
         ulong craftCount,
@@ -529,6 +661,9 @@ public sealed class RecipeService
                              0UL,
                              (total, item) => AddSaturating(total, item.Amount)))))
         {
+            if (IsElementalCatalystItem(ingredient.ItemId))
+                continue;
+
             var required = MultiplySaturating(ingredient.Amount, craftCount);
             if (!this.TryPlanDreamItem(
                     ingredient.ItemId,
@@ -620,12 +755,14 @@ public sealed class RecipeService
         if (!canPlan)
             return false;
 
-        var produced = MultiplySaturating((ulong)resultAmount, ingredientCrafts);
-        if (produced > missing)
+        liveStock.TryGetValue(itemId, out available);
+        if (available < missing)
         {
-            liveStock.TryGetValue(itemId, out var remaining);
-            liveStock[itemId] = AddSaturating(remaining, produced - missing);
+            error = $"Could not plan enough {this.GetItemName(itemId)}.";
+            return false;
         }
+
+        liveStock[itemId] = available - missing;
 
         error = string.Empty;
         return true;
@@ -1028,6 +1165,35 @@ public sealed class RecipeService
                 owned?.HqLocations ?? [],
                 ReductionSources: reductionSources);
         }).ToList();
+    }
+
+    private bool TryGetRecipe(uint recipeId, out Recipe recipe)
+    {
+        recipe = default;
+        var recipes = this.dataManager.GetExcelSheet<Recipe>();
+        if (recipes is null)
+            return false;
+
+        var recipeRow = recipes.GetRowOrDefault(recipeId);
+        if (recipeRow is not { } resolvedRecipe)
+            return false;
+
+        recipe = resolvedRecipe;
+        return true;
+    }
+
+    private IReadOnlyList<(uint ItemId, string Name, uint AmountPerCraft)> GetElementalCatalystRequirements(Recipe recipe)
+    {
+        return this.ReadIngredients(recipe)
+            .Where(ingredient => IsElementalCatalystItem(ingredient.ItemId))
+            .GroupBy(ingredient => ingredient.ItemId)
+            .Select(group => (
+                group.Key,
+                this.GetItemName(group.Key),
+                (uint)Math.Min(
+                    group.Aggregate(0UL, (total, ingredient) => AddSaturating(total, ingredient.Amount)),
+                    uint.MaxValue)))
+            .ToList();
     }
 
     private IReadOnlyList<IngredientNeed> CombineMaterialRequirements(
@@ -1604,6 +1770,20 @@ public sealed class RecipeService
 
     private static uint AddSaturating(uint left, uint right) =>
         uint.MaxValue - left < right ? uint.MaxValue : left + right;
+
+    private static uint CapInitialCatalystWithdrawal(uint itemId, ulong liveOwned, uint missing)
+    {
+        if (!IsElementalCatalystItem(itemId))
+            return missing;
+
+        if (liveOwned >= CrystalInventoryCap)
+            return 0;
+
+        return (uint)Math.Min((ulong)missing, CrystalInventoryCap - liveOwned);
+    }
+
+    private static bool IsElementalCatalystItem(uint itemId) =>
+        itemId is >= 2 and <= 19;
 
     private static void AddOrMergeDreamTarget(
         IList<RetainerWithdrawalTarget> targets,

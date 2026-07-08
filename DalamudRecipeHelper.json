@@ -11,7 +11,7 @@
     "recipe",
     "inventory"
   ],
-  "Changelog": "v1.1.31 fixes Gwen's Dream retainer withdrawals so large stacked requests only advance after real item transfers.",
+  "Changelog": "v1.1.32 adds crystal top-ups for Gwen's Dream, improves hover pricing and collectible totals, and tightens Artisan button availability to live inventory.",
   "InternalName": "DalamudRecipeHelper",
-  "AssemblyVersion": "1.1.31.0"
+  "AssemblyVersion": "1.1.32.0"
 }

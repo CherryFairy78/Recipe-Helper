@@ -30,10 +30,15 @@ public sealed unsafe class PluginIntegrationService : IDisposable
     private readonly Queue<ArtisanCraftQueueEntry> craftAllQueue = new();
     private readonly List<ArtisanCraftQueueEntry> orderedCraftAllEntries = [];
     private readonly List<ArtisanCraftQueueEntry> completedCraftAllEntries = [];
+    private RecipeService? recipeService;
+    private InventoryService? inventoryService;
+    private GwenDreamService? gwenDreamService;
     private ArtisanCraftQueueEntry? activeCraftAllEntry;
     private bool craftAllActive;
     private bool craftAllEntryStarted;
     private bool craftAllPausedForAutoRetainer;
+    private bool craftAllPausedForRetainerRefill;
+    private bool dreamRetainerRefillEnabled;
     private DateTime craftAllStartedAt;
     private DateTime craftAllFinishedAt;
     private DateTime activeCraftAllDispatchedAt;
@@ -45,6 +50,7 @@ public sealed unsafe class PluginIntegrationService : IDisposable
     private DateTime autoRetainerReleasedAt;
     private DateTime nextCraftAllCheck;
     private bool wasCraftingConditionActive;
+    private uint observedDreamCompletionSequence;
     private static readonly TimeSpan AutoRetainerResumeGracePeriod = TimeSpan.FromSeconds(8);
 
     public uint CraftAllCompletionCount { get; private set; }
@@ -84,6 +90,17 @@ public sealed unsafe class PluginIntegrationService : IDisposable
         this.gameInventory.InventoryChanged -= this.OnInventoryChanged;
     }
 
+    public void AttachDreamSupport(
+        RecipeService recipeService,
+        InventoryService inventoryService,
+        GwenDreamService gwenDreamService)
+    {
+        this.recipeService = recipeService;
+        this.inventoryService = inventoryService;
+        this.gwenDreamService = gwenDreamService;
+        this.observedDreamCompletionSequence = gwenDreamService.CompletionSequence;
+    }
+
     public ArtisanCraftProgressSnapshot GetCraftAllProgressSnapshot()
     {
         var pendingEntries = new List<ArtisanCraftQueueEntry>();
@@ -111,6 +128,7 @@ public sealed unsafe class PluginIntegrationService : IDisposable
             this.craftAllEntryStarted,
             this.activeEntryCompletedCrafts,
             this.craftAllPausedForAutoRetainer,
+            this.craftAllPausedForRetainerRefill,
             this.stopAfterCurrentCraftRequested,
             elapsed,
             currentEntryElapsed,
@@ -232,6 +250,7 @@ public sealed unsafe class PluginIntegrationService : IDisposable
     public bool CraftAllWithArtisan(
         IReadOnlyList<ArtisanCraftQueueEntry> recipes,
         int recipePlanCount,
+        bool enableDreamRetainerRefill,
         out string message)
     {
         if (recipes.Count == 0)
@@ -255,6 +274,7 @@ public sealed unsafe class PluginIntegrationService : IDisposable
         }
 
         this.ResetTrackedCraftState();
+        this.dreamRetainerRefillEnabled = enableDreamRetainerRefill;
         var queueSequence = 1;
         foreach (var recipe in recipes)
         {
@@ -327,7 +347,13 @@ public sealed unsafe class PluginIntegrationService : IDisposable
     {
         this.UpdateCraftingStateFromGameState();
 
-        if (!this.craftAllActive || DateTime.UtcNow < this.nextCraftAllCheck)
+        if (!this.craftAllActive)
+            return;
+
+        if (this.TryHandleDreamRetainerRefillPause())
+            return;
+
+        if (DateTime.UtcNow < this.nextCraftAllCheck)
             return;
 
         bool artisanBusy;
@@ -415,8 +441,8 @@ public sealed unsafe class PluginIntegrationService : IDisposable
                     return;
                 }
 
-                var remainingCrafts = this.GetRemainingCraftCount(activeEntry);
-                if (remainingCrafts == 0)
+                var remainingCraftsAfterPause = this.GetRemainingCraftCount(activeEntry);
+                if (remainingCraftsAfterPause == 0)
                 {
                     this.fileLog.Info(
                         "Artisan",
@@ -427,7 +453,7 @@ public sealed unsafe class PluginIntegrationService : IDisposable
 
                 this.fileLog.Info(
                     "Artisan",
-                    $"AutoRetainer interrupted recipe {activeEntry.RecipeId}. Retrying the remaining {remainingCrafts:N0} craft(s).");
+                    $"AutoRetainer interrupted recipe {activeEntry.RecipeId}. Retrying the remaining {remainingCraftsAfterPause:N0} craft(s).");
                 if (!this.TryDispatchNextCraft(out var retryAfterPauseError))
                 {
                     this.fileLog.Warning("Artisan", retryAfterPauseError);
@@ -504,6 +530,21 @@ public sealed unsafe class PluginIntegrationService : IDisposable
                 return;
             }
 
+            var remainingCrafts = this.GetRemainingCraftCount(activeEntry);
+            if (remainingCrafts > 0)
+            {
+                this.fileLog.Info(
+                    "Artisan",
+                    $"Craft All batch for recipe {activeEntry.RecipeId} finished {this.activeEntryCompletedCrafts:N0}/{activeEntry.CraftCount:N0} craft(s). Continuing the remaining {remainingCrafts:N0}.");
+                if (!this.TryDispatchNextCraft(out var partialError))
+                {
+                    this.fileLog.Warning("Artisan", partialError);
+                    this.AbortCraftAllQueue();
+                }
+
+                return;
+            }
+
             this.fileLog.Info(
                 "Artisan",
                 $"Craft All completed recipe {activeEntry.RecipeId}, craft count {activeEntry.CraftCount}.");
@@ -555,7 +596,16 @@ public sealed unsafe class PluginIntegrationService : IDisposable
         }
 
         var next = this.activeCraftAllEntry!;
+        var shouldDequeueQueuedEntry =
+            this.craftAllQueue.TryPeek(out var queuedEntryForDispatch) &&
+            queuedEntryForDispatch.QueueSequence == next.QueueSequence;
         var dispatchCraftCount = this.GetRemainingCraftCount(next);
+        if (!this.TryPrepareDispatchCraftCount(next, ref dispatchCraftCount, out var pausedForRetainerRefill, out error))
+            return false;
+
+        if (pausedForRetainerRefill)
+            return true;
+
         if (dispatchCraftCount == 0)
         {
             error = string.Empty;
@@ -565,10 +615,13 @@ public sealed unsafe class PluginIntegrationService : IDisposable
 
         try
         {
+            this.craftAllEntryStarted = false;
+            this.activeEntryBusySince = DateTime.MinValue;
             this.artisanCraftItem.InvokeAction((ushort)next.RecipeId, (int)dispatchCraftCount);
             this.activeCraftAllDispatchedAt = DateTime.UtcNow;
             this.nextCraftAllCheck = DateTime.UtcNow.AddSeconds(2);
-            this.craftAllQueue.Dequeue();
+            if (shouldDequeueQueuedEntry)
+                this.craftAllQueue.Dequeue();
             this.fileLog.Info(
                 "Artisan",
                 $"Craft All sent recipe {next.RecipeId}, craft count {dispatchCraftCount}.");
@@ -602,6 +655,80 @@ public sealed unsafe class PluginIntegrationService : IDisposable
         }
     }
 
+    private bool TryPrepareDispatchCraftCount(
+        ArtisanCraftQueueEntry entry,
+        ref uint dispatchCraftCount,
+        out bool pausedForRetainerRefill,
+        out string error)
+    {
+        pausedForRetainerRefill = false;
+        error = string.Empty;
+
+        if (!this.dreamRetainerRefillEnabled ||
+            this.recipeService is null ||
+            this.inventoryService is null ||
+            this.gwenDreamService is null)
+        {
+            return true;
+        }
+
+        var liveOwnedItems = this.inventoryService.GetLiveOwnedItems();
+        var maxCraftableNow = this.recipeService.GetMaximumCraftableCountFromCurrentCatalysts(
+            entry.RecipeId,
+            dispatchCraftCount,
+            liveOwnedItems,
+            out var usesCatalysts);
+        if (!usesCatalysts)
+            return true;
+
+        if (maxCraftableNow > 0)
+        {
+            if (maxCraftableNow < dispatchCraftCount)
+            {
+                this.fileLog.Info(
+                    "Artisan",
+                    $"Limiting recipe {entry.RecipeId} to {maxCraftableNow:N0} craft(s) until more crystals are withdrawn.");
+                dispatchCraftCount = maxCraftableNow;
+            }
+
+            return true;
+        }
+
+        if (!this.recipeService.TryBuildDreamCatalystTopUpTargets(
+                entry.RecipeId,
+                dispatchCraftCount,
+                liveOwnedItems,
+                this.inventoryService.GetStoredRetainers(),
+                out var targets,
+                out error))
+        {
+            return false;
+        }
+
+        if (targets.Count == 0)
+        {
+            error = $"No retainer crystal top-up is available for {entry.ResultName}.";
+            return false;
+        }
+
+        if (!this.gwenDreamService.TryStartTargets(targets))
+        {
+            error = string.IsNullOrWhiteSpace(this.gwenDreamService.StatusMessage)
+                ? $"Could not start a crystal top-up for {entry.ResultName}."
+                : this.gwenDreamService.StatusMessage;
+            return false;
+        }
+
+        this.craftAllPausedForRetainerRefill = true;
+        this.observedDreamCompletionSequence = this.gwenDreamService.CompletionSequence;
+        this.nextCraftAllCheck = DateTime.UtcNow.AddMilliseconds(500);
+        this.fileLog.Info(
+            "Artisan",
+            $"Paused Craft All so Gwen's Dream can top up crystals for recipe {entry.RecipeId}.");
+        pausedForRetainerRefill = true;
+        return true;
+    }
+
     private void ResetTrackedCraftState()
     {
         this.craftAllQueue.Clear();
@@ -610,6 +737,8 @@ public sealed unsafe class PluginIntegrationService : IDisposable
         this.activeCraftAllEntry = null;
         this.craftAllEntryStarted = false;
         this.craftAllPausedForAutoRetainer = false;
+        this.craftAllPausedForRetainerRefill = false;
+        this.dreamRetainerRefillEnabled = false;
         this.craftAllStartedAt = DateTime.UtcNow;
         this.craftAllFinishedAt = DateTime.MinValue;
         this.activeEntryBusySince = DateTime.MinValue;
@@ -742,10 +871,12 @@ public sealed unsafe class PluginIntegrationService : IDisposable
         this.activeEntryCompletedCrafts = 0;
         this.activeEntryStopRequested = false;
         this.stopAfterCurrentCraftRequested = false;
+        this.craftAllPausedForRetainerRefill = false;
         if (this.craftAllQueue.Count != 0)
             return;
 
         this.craftAllActive = false;
+        this.dreamRetainerRefillEnabled = false;
         this.CraftAllCompletionCount++;
         this.craftAllFinishedAt = DateTime.UtcNow;
         this.TryCloseCraftingWindows();
@@ -762,6 +893,7 @@ public sealed unsafe class PluginIntegrationService : IDisposable
         this.craftAllActive = false;
         this.craftAllEntryStarted = false;
         this.craftAllPausedForAutoRetainer = false;
+        this.craftAllPausedForRetainerRefill = false;
         this.craftAllFinishedAt = DateTime.UtcNow;
         this.activeEntryBusySince = DateTime.MinValue;
         this.activeEntryBusyElapsed = TimeSpan.Zero;
@@ -769,9 +901,60 @@ public sealed unsafe class PluginIntegrationService : IDisposable
         this.activeEntryStopRequested = false;
         this.stopAfterCurrentCraftRequested = false;
         this.autoRetainerReleasedAt = DateTime.MinValue;
+        this.dreamRetainerRefillEnabled = false;
         this.CraftAllStopCount++;
         this.TryCloseCraftingWindows();
         this.fileLog.Info("Artisan", "Stopped Craft All queue after the current craft.");
+    }
+
+    private void AbortCraftAllQueue()
+    {
+        this.craftAllQueue.Clear();
+        this.activeCraftAllEntry = null;
+        this.craftAllActive = false;
+        this.craftAllEntryStarted = false;
+        this.craftAllPausedForAutoRetainer = false;
+        this.craftAllPausedForRetainerRefill = false;
+        this.craftAllFinishedAt = DateTime.UtcNow;
+        this.activeEntryBusySince = DateTime.MinValue;
+        this.activeEntryBusyElapsed = TimeSpan.Zero;
+        this.activeEntryCompletedCrafts = 0;
+        this.activeEntryStopRequested = false;
+        this.stopAfterCurrentCraftRequested = false;
+        this.autoRetainerReleasedAt = DateTime.MinValue;
+        this.dreamRetainerRefillEnabled = false;
+        this.TryCloseCraftingWindows();
+    }
+
+    private bool TryHandleDreamRetainerRefillPause()
+    {
+        if (!this.craftAllPausedForRetainerRefill || this.gwenDreamService is null)
+            return false;
+
+        if (this.gwenDreamService.IsActive)
+        {
+            this.nextCraftAllCheck = DateTime.UtcNow.AddMilliseconds(500);
+            return true;
+        }
+
+        if (this.observedDreamCompletionSequence == this.gwenDreamService.CompletionSequence)
+        {
+            this.nextCraftAllCheck = DateTime.UtcNow.AddMilliseconds(500);
+            return true;
+        }
+
+        this.observedDreamCompletionSequence = this.gwenDreamService.CompletionSequence;
+        if (!this.gwenDreamService.LastRunSucceeded)
+        {
+            this.fileLog.Warning("Artisan", "Crystal top-up failed. Stopping Craft All.");
+            this.AbortCraftAllQueue();
+            return true;
+        }
+
+        this.craftAllPausedForRetainerRefill = false;
+        this.fileLog.Info("Artisan", "Crystal top-up completed. Resuming Craft All.");
+        this.nextCraftAllCheck = DateTime.UtcNow;
+        return false;
     }
 
     private void TryCloseCraftingWindows()

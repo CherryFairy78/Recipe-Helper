@@ -89,6 +89,7 @@ public sealed class RecipeWindow : Window, IDisposable
     private readonly HashSet<SavedRecipePlan> selectedSavedPlans = [];
     private IReadOnlyList<ArtisanCraftQueueEntry> artisanCraftQueue = [];
     private string artisanCraftQueueError = string.Empty;
+    private bool canCraftAllFromLiveInventory;
     private string searchText = string.Empty;
     private string resultFilter = string.Empty;
     private string selectedJobFilter = string.Empty;
@@ -462,15 +463,19 @@ public sealed class RecipeWindow : Window, IDisposable
                         false);
                     drawList.PopClipRect();
 
-                    if (ImGui.IsItemHovered())
+                    var rewardInfo = this.recipeService.GetCollectibleRewardInfo(result.ResultItemId);
+                    if (rewardInfo is not null)
                     {
-                        var tooltip = this.GetSearchResultTooltip(result);
-                        if (!string.IsNullOrWhiteSpace(tooltip))
-                        {
-                            ImGui.BeginTooltip();
-                            ImGui.TextUnformatted(tooltip);
-                            ImGui.EndTooltip();
-                        }
+                        this.DrawCollectibleRewardTooltip(result.ResultName, rewardInfo, 1);
+                    }
+                    else
+                    {
+                        MaterialUsageTooltip.Draw(
+                            this.marketboardPriceService,
+                            this.configuration,
+                            result.ResultItemId,
+                            result.ResultName,
+                            this.GetSearchResultTooltip(result));
                     }
 
                     ImGui.PopID();
@@ -971,6 +976,7 @@ public sealed class RecipeWindow : Window, IDisposable
             this.recipePlanDetails = null;
             this.artisanCraftQueue = [];
             this.artisanCraftQueueError = string.Empty;
+            this.canCraftAllFromLiveInventory = false;
             this.UpdateOverlayMaterials();
             return;
         }
@@ -987,12 +993,20 @@ public sealed class RecipeWindow : Window, IDisposable
                     out this.artisanCraftQueueError))
                 this.artisanCraftQueue = [];
 
+            this.canCraftAllFromLiveInventory =
+                this.recipeService.TryBuildArtisanCraftQueue(
+                    details.Recipes,
+                    this.inventoryService.GetLiveOwnedItems(),
+                    out _,
+                    out _);
+
             this.rawMaterialsOverlayWindow.SetMaterials(
                 this.BuildOverlaySourceNames(details),
                 this.BuildOverlayMaterials(details));
         }
         else
         {
+            this.canCraftAllFromLiveInventory = false;
             this.UpdateOverlayMaterials();
         }
     }
@@ -1095,9 +1109,15 @@ public sealed class RecipeWindow : Window, IDisposable
             this.artisanCraftQueue.Count > 0 &&
             (details.Recipes.Count > 1 ||
              this.artisanCraftQueue.Any(recipe => recipe.IsIntermediate));
+        var craftAllTooltip = this.canCraftAllFromLiveInventory
+            ? "Crafts all pre-crafts and recipes with Artisan."
+            : "Only activates when all items are already in inventory. Use Refresh Inventory if needed.";
         var hasDreamFeature = this.gwenDreamService.IsAutoRetainerAvailable;
         var canUseDreamWithdrawals = hasDreamFeature && this.gwenDreamService.CanUseForSelection(this.recipePlanDetails);
         var canUseDream = hasDreamFeature && (canUseDreamWithdrawals || canShowCraftAll);
+        var dreamTooltip = canUseDream
+            ? "Will automatically withdraw all materials from retainers and craft all pre-crafts and recipes - ultimate laziness!"
+            : "Only activates when all required raw materials and/or pre-crafts are available.";
 
         if (this.DrawCollapsibleSection(
                 "SELECTED RECIPES",
@@ -1124,7 +1144,9 @@ public sealed class RecipeWindow : Window, IDisposable
                 var craftAllClicked = false;
                 if (canShowCraftAll)
                 {
+                    ImGui.BeginDisabled(!this.canCraftAllFromLiveInventory);
                     craftAllClicked = WindowTheme.ShadowedButton("Craft all with Artisan", new Vector2(this.ScaleUi(160f), 0));
+                    ImGui.EndDisabled();
                 }
                 if (craftAllClicked)
                 {
@@ -1132,10 +1154,11 @@ public sealed class RecipeWindow : Window, IDisposable
                         !this.pluginIntegrationService.CraftAllWithArtisan(
                             this.artisanCraftQueue,
                             0,
+                            false,
                             out this.integrationMessage);
                 }
                 if (canShowCraftAll)
-                    DrawTooltipIfHovered("Queue every selected recipe in Artisan, including required pre-crafts.");
+                    DrawTooltipIfHovered(craftAllTooltip, allowWhenDisabled: true);
 
                 if (hasDreamFeature)
                 {
@@ -1162,7 +1185,7 @@ public sealed class RecipeWindow : Window, IDisposable
                         }
                     }
                     ImGui.EndDisabled();
-                    DrawTooltipIfHovered("Will automatically withdraw all materials from retainers and craft all pre-crafts and recipes - ultimate laziness!");
+                    DrawTooltipIfHovered(dreamTooltip, allowWhenDisabled: true);
 
                     if (!string.IsNullOrWhiteSpace(this.integrationMessage))
                         ImGui.SameLine();
@@ -1786,7 +1809,11 @@ public sealed class RecipeWindow : Window, IDisposable
                 .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
                 .Where(part => !string.Equals(part, label, StringComparison.OrdinalIgnoreCase)));
 
-    private void DrawCollectibleRewardTooltip(string itemName, CollectibleRewardInfo rewardInfo, uint quantity)
+    private void DrawCollectibleRewardTooltip(
+        string itemName,
+        CollectibleRewardInfo rewardInfo,
+        uint quantity,
+        bool showTotalValue = false)
     {
         if (!ImGui.IsItemHovered())
             return;
@@ -1795,7 +1822,16 @@ public sealed class RecipeWindow : Window, IDisposable
         WindowTheme.ApplyTextScale(this.configuration);
         ImGui.TextColored(this.configuration.AccentTextColor, itemName);
         ImGui.Separator();
-        ImGui.TextUnformatted(rewardInfo.GetTooltipText());
+        if (showTotalValue && quantity > 1)
+        {
+            ImGui.TextDisabled($"Scaled for quantity: {quantity:N0}");
+            ImGui.Spacing();
+            ImGui.TextUnformatted(rewardInfo.GetTotalTooltipText(quantity));
+        }
+        else
+        {
+            ImGui.TextUnformatted(rewardInfo.GetTooltipText());
+        }
         ImGui.EndTooltip();
     }
 
@@ -1840,6 +1876,7 @@ public sealed class RecipeWindow : Window, IDisposable
             !this.pluginIntegrationService.CraftAllWithArtisan(
                 this.artisanCraftQueue,
                 this.recipePlanDetails?.Recipes.Count ?? 0,
+                true,
                 out this.integrationMessage);
     }
 
@@ -3055,6 +3092,7 @@ public sealed class RecipeWindow : Window, IDisposable
             !this.pluginIntegrationService.CraftAllWithArtisan(
                 this.artisanCraftQueue,
                 plans.Count,
+                false,
                 out this.integrationMessage);
     }
 
@@ -3107,7 +3145,26 @@ public sealed class RecipeWindow : Window, IDisposable
                     recipe.ResultName,
                     $"Yield {recipe.ResultAmount}",
                     AdjustColor(this.configuration.WindowBackgroundColor, 0.16f),
-                    this.configuration.TextColor);
+                    this.configuration.TextColor,
+                    showOverflowTooltip: false);
+                var collectableRewardInfo = this.recipeService.GetCollectibleRewardInfo(recipe.ResultItemId);
+                if (collectableRewardInfo is not null)
+                {
+                    this.DrawCollectibleRewardTooltip(
+                        recipe.ResultName,
+                        collectableRewardInfo,
+                        recipe.DesiredAmount,
+                        showTotalValue: true);
+                }
+                else
+                {
+                    MaterialUsageTooltip.Draw(
+                        this.marketboardPriceService,
+                        this.configuration,
+                        recipe.ResultItemId,
+                        recipe.ResultName,
+                        quantity: recipe.DesiredAmount);
+                }
 
                 ImGui.TableNextColumn();
                 var quantityCursor = ImGui.GetCursorPos();
@@ -3678,7 +3735,8 @@ public sealed class RecipeWindow : Window, IDisposable
         string title,
         string subtitle,
         Vector4 backgroundColor,
-        Vector4 textColor)
+        Vector4 textColor,
+        bool showOverflowTooltip = true)
     {
         var resolvedSize = this.ResolveCardSize(size, 42f);
         var position = ImGui.GetCursorScreenPos();
@@ -3700,7 +3758,9 @@ public sealed class RecipeWindow : Window, IDisposable
             this.ScaleUi(2f),
             0f,
             false);
-        if ((title.Length > safeTitle.Length || subtitle.Length > safeSubtitle.Length) && ImGui.IsItemHovered())
+        if (showOverflowTooltip &&
+            (title.Length > safeTitle.Length || subtitle.Length > safeSubtitle.Length) &&
+            ImGui.IsItemHovered())
             ImGui.SetTooltip($"{title}\n{subtitle}");
     }
 
@@ -4140,9 +4200,12 @@ public sealed class RecipeWindow : Window, IDisposable
 
     private void OnInventoryChanged() => this.inventoryRefreshRequested = true;
 
-    private void DrawTooltipIfHovered(string text)
+    private void DrawTooltipIfHovered(string text, bool allowWhenDisabled = false)
     {
-        if (!ImGui.IsItemHovered())
+        var hovered = allowWhenDisabled
+            ? ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)
+            : ImGui.IsItemHovered();
+        if (!hovered)
             return;
 
         ImGui.BeginTooltip();

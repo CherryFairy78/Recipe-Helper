@@ -4,16 +4,16 @@ This file is the durable hand-off record for Recipe Helper. Read it before makin
 
 ## Project snapshot
 
-- Last updated: 2026-07-08
+- Last updated: 2026-07-09
 - Plugin name: Recipe Helper
 - Internal name: `DalamudRecipeHelper`
-- Version: `1.1.31.0`
+- Version: `1.1.32.0`
 - Framework: Dalamud API 15
 - Target: `.NET 10` on Windows x64
 - Command: `/recipehelper`
 - Build command: `dotnet build .\DalamudRecipeHelper.csproj --no-restore`
 - Debug output: `bin\Debug\DalamudRecipeHelper.dll`
-- Last verified build: 2026-07-08, Debug and Release builds succeeded with zero warnings and zero errors, and `releases/DalamudRecipeHelper-v1.1.31.zip` was created from the verified Release output
+- Last verified build: 2026-07-09, Debug and Release builds succeeded with zero warnings and zero errors, and `releases/DalamudRecipeHelper-v1.1.32.zip` was created from the verified Release output
 
 ## Purpose
 
@@ -169,6 +169,18 @@ Recipe Helper searches FFXIV recipes, calculates the materials required for a ch
 - Before sharing a release broadly, personally test the packaged build in game and clearly disclose substantial AI-assisted development where the repository or community requires it.
 
 ## Change timeline
+
+### 2026-07-09
+
+- Added Gwen's Dream crystal top-ups so large queues can pause for retainer crystal refills and continue instead of timing out at the crystal inventory cap.
+- Fixed Dream's capped crystal quantity handling so partial retainer withdrawals continue from the actual confirmed amount.
+- Added marketboard hover data to search results and selected recipe-plan rows, with quantity-scaled totals for planned outputs.
+- Switched selected collectable recipe hovers to total scrip values instead of marketboard data.
+- Reworked hover pricing layouts to remove internal scrolling, show NQ and HQ world prices side by side, and highlight unit prices more clearly.
+- Tightened `Craft all with Artisan` so it only activates when every required ingredient is already in live inventory, and improved disabled hover guidance for both Artisan and Gwen's Dream.
+- Redacted local file paths and retainer names in debug reports before sharing.
+- Added release notes for `v1.1.32`, refreshed the manifests and package metadata, and prepared the next release zip for publishing.
+- Verification: Debug and Release builds both succeeded with zero warnings and zero errors, and `releases/DalamudRecipeHelper-v1.1.32.zip` was created from the verified Release output.
 
 ### 2026-07-08
 

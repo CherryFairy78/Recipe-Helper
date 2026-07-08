@@ -200,6 +200,7 @@ public sealed record ArtisanCraftProgressSnapshot(
     bool CurrentEntryStarted,
     uint CurrentEntryCompletedCrafts,
     bool IsPausedForAutoRetainer,
+    bool IsPausedForRetainerRefill,
     bool StopAfterCurrentCraftRequested,
     TimeSpan Elapsed,
     TimeSpan CurrentEntryElapsed,

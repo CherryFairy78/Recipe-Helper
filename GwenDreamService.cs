@@ -172,6 +172,40 @@ public sealed unsafe class GwenDreamService : IDisposable
         return true;
     }
 
+    public bool TryStartTargets(IReadOnlyList<RetainerWithdrawalTarget> targets)
+    {
+        this.LastRunSucceeded = false;
+        if (targets.Count == 0)
+            return this.Fail("No retainer material is needed right now.");
+
+        if (this.TryGetAutoRetainerBusyMessage(out var busyMessage))
+            return this.Fail(busyMessage);
+
+        if (!this.EnsureSummoningBellTargeted())
+            return this.Fail("Stand near a summoning bell and try again.");
+
+        this.pendingTargets = targets
+            .Select(target => new DreamTarget(
+                target.RetainerId,
+                target.RetainerName,
+                target.ItemId,
+                target.ItemName,
+                target.WithdrawQuantity,
+                target.SnapshotQuantity))
+            .ToList();
+        this.activeTargetIndex = 0;
+        this.SetActiveTarget(0);
+        this.MoveToStep(DreamStep.WaitingForRetainerList, this.BuildStartMessage());
+
+        if (!this.TryInteractWithTargetedBell())
+            return this.Fail("Could not interact with the summoning bell.");
+
+        this.fileLog.Info(
+            "Dream",
+            $"Started dream flow with {targets.Count} target(s). First target: {this.activeTarget!.RetainerName} -> {this.activeTarget.WithdrawQuantity} {this.activeTarget.ItemName}.");
+        return true;
+    }
+
     private void OnFrameworkUpdate(IFramework framework)
     {
         if (this.activeTarget is null || this.step is DreamStep.Idle or DreamStep.Completed or DreamStep.Failed)
@@ -1066,6 +1100,7 @@ public sealed unsafe class GwenDreamService : IDisposable
             ? unitBase->AtkValues[3].UInt
             : quantity;
         var requestedQuantity = (int)Math.Clamp(quantity, 1u, maxQuantity == 0 ? quantity : maxQuantity);
+        this.pendingWithdrawQuantity = (uint)requestedQuantity;
         this.FireIntCallback(unitBase, requestedQuantity, true);
 
         this.nextUiAdvanceAt = DateTime.UtcNow.AddMilliseconds(QuantityConfirmDelayMs);

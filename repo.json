@@ -5,7 +5,7 @@
     "Punchline": "Plan recipes and find every material you still need.",
     "Description": "Build a combined plan from multiple FFXIV recipes, compare NQ and HQ requirements with live inventory and saved retainer snapshots, track timed gathering materials, and hand crafting or travel actions to Artisan, Teamcraft, and GatherBuddy.",
     "InternalName": "DalamudRecipeHelper",
-    "AssemblyVersion": "1.1.31.0",
+    "AssemblyVersion": "1.1.32.0",
     "RepoUrl": "https://github.com/CherryFairy78/Recipe-Helper",
     "ApplicableVersion": "any",
     "DalamudApiLevel": 15,
@@ -14,13 +14,13 @@
       "recipe",
       "inventory"
     ],
-    "Changelog": "v1.1.31 fixes Gwen's Dream retainer withdrawals so large stacked requests only advance after real item transfers.",
+    "Changelog": "v1.1.32 adds crystal top-ups for Gwen's Dream, improves hover pricing and collectible totals, and tightens Artisan button availability to live inventory.",
     "IsHide": false,
     "IsTestingExclusive": false,
     "AcceptsFeedback": true,
     "IconUrl": "https://raw.githubusercontent.com/CherryFairy78/Recipe-Helper/main/RecipeHelperIcon1.png",
-    "DownloadLinkInstall": "https://raw.githubusercontent.com/CherryFairy78/Recipe-Helper/v1.1.31/releases/DalamudRecipeHelper-v1.1.31.zip",
-    "DownloadLinkUpdate": "https://raw.githubusercontent.com/CherryFairy78/Recipe-Helper/v1.1.31/releases/DalamudRecipeHelper-v1.1.31.zip",
-    "LastUpdate": "1783517446"
+    "DownloadLinkInstall": "https://raw.githubusercontent.com/CherryFairy78/Recipe-Helper/v1.1.32/releases/DalamudRecipeHelper-v1.1.32.zip",
+    "DownloadLinkUpdate": "https://raw.githubusercontent.com/CherryFairy78/Recipe-Helper/v1.1.32/releases/DalamudRecipeHelper-v1.1.32.zip",
+    "LastUpdate": "1783548736"
   }
 ]

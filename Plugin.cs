@@ -127,6 +127,10 @@ public sealed class Plugin : IDalamudPlugin
             GameGui,
             TargetManager,
             ObjectTable);
+        this.pluginIntegrationService.AttachDreamSupport(
+            recipeService,
+            inventoryService,
+            this.gwenDreamService);
         this.appearanceSettingsWindow = new AppearanceSettingsWindow(
             this.configuration,
             this.SaveConfiguration);
