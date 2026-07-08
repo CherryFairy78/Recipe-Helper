@@ -188,7 +188,8 @@ public sealed record ArtisanCraftQueueEntry(
     string ResultName,
     uint ResultAmount,
     uint CraftCount,
-    bool IsIntermediate)
+    bool IsIntermediate,
+    int QueueSequence = 0)
 {
     public ulong TotalQuantity => (ulong)this.ResultAmount * this.CraftCount;
 }
@@ -199,8 +200,10 @@ public sealed record ArtisanCraftProgressSnapshot(
     bool CurrentEntryStarted,
     uint CurrentEntryCompletedCrafts,
     bool IsPausedForAutoRetainer,
+    bool StopAfterCurrentCraftRequested,
     TimeSpan Elapsed,
     TimeSpan CurrentEntryElapsed,
+    IReadOnlyList<ArtisanCraftQueueEntry> OrderedEntries,
     IReadOnlyList<ArtisanCraftQueueEntry> PendingEntries,
     IReadOnlyList<ArtisanCraftQueueEntry> CompletedEntries);
 

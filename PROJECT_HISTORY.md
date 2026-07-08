@@ -7,13 +7,13 @@ This file is the durable hand-off record for Recipe Helper. Read it before makin
 - Last updated: 2026-07-08
 - Plugin name: Recipe Helper
 - Internal name: `DalamudRecipeHelper`
-- Version: `1.1.29.0`
+- Version: `1.1.30.0`
 - Framework: Dalamud API 15
 - Target: `.NET 10` on Windows x64
 - Command: `/recipehelper`
 - Build command: `dotnet build .\DalamudRecipeHelper.csproj --no-restore`
 - Debug output: `bin\Debug\DalamudRecipeHelper.dll`
-- Last verified build: 2026-07-08, Debug build succeeded with zero warnings and zero errors; Release compilation succeeded, the automated packager hit a locked `DalamudRecipeHelper.json`, and `releases/DalamudRecipeHelper-v1.1.29.zip` was created manually from the verified Release outputs
+- Last verified build: 2026-07-08, Debug and Release builds succeeded with zero warnings and zero errors, and `releases/DalamudRecipeHelper-v1.1.30.zip` was created from the verified Release output
 
 ## Purpose
 
@@ -172,9 +172,15 @@ Recipe Helper searches FFXIV recipes, calculates the materials required for a ch
 
 ### 2026-07-08
 
+- Improved the Artisan progress overlay with a `Stop After Craft` control that ends the Recipe Helper queue after the current craft finishes.
+- Refined overlay messaging so pre-craft warnings only describe later blocked recipes instead of contradicting an active final craft.
+- Kept the overlay action row available after the queue stops, preserved queue order with numbered steps, and made repeated pre-crafts easier to understand.
+- Closing the Recipe Helper queue now closes the in-game crafting windows after the current craft stops or the queue completes.
+- Added release notes for `v1.1.30` and refreshed the versioned manifests, package target, changelog text, and release zip for publishing.
 - Added a shared context-menu search service that opens Recipe Helper from inventory item menus with the clicked item pre-searched.
 - Extended the same context-menu search flow to marketboard search results using the hovered market item from supported marketboard addons.
 - Added release notes for `v1.1.29` and refreshed the repo manifest, package target, and changelog text for publishing.
+- Verification: Debug and Release builds both succeeded with zero warnings and zero errors, and `releases/DalamudRecipeHelper-v1.1.30.zip` was created from the verified Release output.
 - Verification: Debug build succeeded with zero warnings and zero errors; Release compilation produced verified output but the automated packager hit a locked `DalamudRecipeHelper.json`, so `releases/DalamudRecipeHelper-v1.1.29.zip` was created manually from the verified Release output.
 
 ### 2026-06-27

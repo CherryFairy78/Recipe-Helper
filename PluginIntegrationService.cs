@@ -4,20 +4,23 @@ using System.Linq;
 using System.Reflection;
 using System.Text;
 using Dalamud.Game.ClientState.Conditions;
+using Dalamud.Game.Gui;
 using Dalamud.Game.Inventory;
 using Dalamud.Game.Inventory.InventoryEventArgTypes;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Ipc;
 using Dalamud.Plugin.Services;
 using Dalamud.Utility;
+using FFXIVClientStructs.FFXIV.Component.GUI;
 
 namespace DalamudRecipeHelper;
 
-public sealed class PluginIntegrationService : IDisposable
+public sealed unsafe class PluginIntegrationService : IDisposable
 {
     private readonly ICommandManager commandManager;
     private readonly ICondition condition;
     private readonly IFramework framework;
+    private readonly IGameGui gameGui;
     private readonly IGameInventory gameInventory;
     private readonly ICallGateSubscriber<ushort, int, object> artisanCraftItem;
     private readonly ICallGateSubscriber<bool> artisanIsBusy;
@@ -25,6 +28,7 @@ public sealed class PluginIntegrationService : IDisposable
     private readonly ICallGateSubscriber<bool> autoRetainerIsBusy;
     private readonly FileLogService fileLog;
     private readonly Queue<ArtisanCraftQueueEntry> craftAllQueue = new();
+    private readonly List<ArtisanCraftQueueEntry> orderedCraftAllEntries = [];
     private readonly List<ArtisanCraftQueueEntry> completedCraftAllEntries = [];
     private ArtisanCraftQueueEntry? activeCraftAllEntry;
     private bool craftAllActive;
@@ -37,6 +41,7 @@ public sealed class PluginIntegrationService : IDisposable
     private TimeSpan activeEntryBusyElapsed;
     private uint activeEntryCompletedCrafts;
     private bool activeEntryStopRequested;
+    private bool stopAfterCurrentCraftRequested;
     private DateTime autoRetainerReleasedAt;
     private DateTime nextCraftAllCheck;
     private bool wasCraftingConditionActive;
@@ -50,12 +55,14 @@ public sealed class PluginIntegrationService : IDisposable
         ICondition condition,
         IFramework framework,
         IGameInventory gameInventory,
+        IGameGui gameGui,
         FileLogService fileLog)
     {
         this.commandManager = commandManager;
         this.condition = condition;
         this.framework = framework;
         this.gameInventory = gameInventory;
+        this.gameGui = gameGui;
         this.fileLog = fileLog;
         this.artisanCraftItem =
             pluginInterface.GetIpcSubscriber<ushort, int, object>("Artisan.CraftItem");
@@ -102,10 +109,46 @@ public sealed class PluginIntegrationService : IDisposable
             this.craftAllEntryStarted,
             this.activeEntryCompletedCrafts,
             this.craftAllPausedForAutoRetainer,
+            this.stopAfterCurrentCraftRequested,
             elapsed,
             currentEntryElapsed,
+            this.orderedCraftAllEntries.ToList(),
             pendingEntries,
             this.completedCraftAllEntries.ToList());
+    }
+
+    public bool RequestStopAfterCurrentCraft(out string message)
+    {
+        if (!this.craftAllActive || this.activeCraftAllEntry is null)
+        {
+            message = "There is no active Artisan craft to stop.";
+            return false;
+        }
+
+        if (this.stopAfterCurrentCraftRequested)
+        {
+            message = "Artisan is already set to stop after the current craft.";
+            return false;
+        }
+
+        try
+        {
+            this.artisanSetEnduranceStatus.InvokeAction(false);
+            this.stopAfterCurrentCraftRequested = true;
+            this.activeEntryStopRequested = true;
+            this.fileLog.Info(
+                "Artisan",
+                $"Requested stop after the current craft for recipe {this.activeCraftAllEntry.RecipeId}.");
+            message = "Artisan will stop after the current craft.";
+            return true;
+        }
+        catch (Exception exception)
+        {
+            Plugin.Log.Warning(exception, "Could not request Artisan stop after the current craft.");
+            this.fileLog.Error("Artisan", "Could not request stop after the current craft.", exception);
+            message = "Artisan did not accept the stop request.";
+            return false;
+        }
     }
 
     public bool GatherWithGatherBuddy(string itemName, bool isFishing, out string message)
@@ -146,7 +189,8 @@ public sealed class PluginIntegrationService : IDisposable
         try
         {
             this.ResetTrackedCraftState();
-            this.activeCraftAllEntry = recipe;
+            this.activeCraftAllEntry = recipe with { QueueSequence = 1 };
+            this.orderedCraftAllEntries.Add(this.activeCraftAllEntry);
             this.craftAllActive = true;
             this.activeCraftAllDispatchedAt = DateTime.UtcNow;
             this.nextCraftAllCheck = DateTime.UtcNow.AddSeconds(2);
@@ -163,6 +207,7 @@ public sealed class PluginIntegrationService : IDisposable
             this.activeEntryBusySince = DateTime.MinValue;
             this.activeEntryBusyElapsed = TimeSpan.Zero;
             this.activeEntryStopRequested = false;
+            this.stopAfterCurrentCraftRequested = false;
             Plugin.Log.Warning(exception, "Could not send recipe {RecipeId} to Artisan.", recipe.RecipeId);
             this.fileLog.Error("Artisan", $"Could not send recipe {recipe.RecipeId}.", exception);
             message = "Artisan is not loaded or did not accept this recipe.";
@@ -178,7 +223,8 @@ public sealed class PluginIntegrationService : IDisposable
                 $"Recipe {recipeId}",
                 1,
                 craftCount,
-                false),
+                false,
+                1),
             out message);
 
     public bool CraftAllWithArtisan(
@@ -207,8 +253,13 @@ public sealed class PluginIntegrationService : IDisposable
         }
 
         this.ResetTrackedCraftState();
+        var queueSequence = 1;
         foreach (var recipe in recipes)
-            this.craftAllQueue.Enqueue(recipe);
+        {
+            var queuedRecipe = recipe with { QueueSequence = queueSequence++ };
+            this.craftAllQueue.Enqueue(queuedRecipe);
+            this.orderedCraftAllEntries.Add(queuedRecipe);
+        }
 
         this.craftAllActive = true;
         if (!this.TryDispatchNextCraft(out var dispatchError))
@@ -216,11 +267,13 @@ public sealed class PluginIntegrationService : IDisposable
             this.craftAllActive = false;
             this.craftAllQueue.Clear();
             this.activeCraftAllEntry = null;
+            this.orderedCraftAllEntries.Clear();
             this.completedCraftAllEntries.Clear();
             this.craftAllEntryStarted = false;
             this.craftAllPausedForAutoRetainer = false;
             this.craftAllFinishedAt = DateTime.UtcNow;
             this.autoRetainerReleasedAt = DateTime.MinValue;
+            this.stopAfterCurrentCraftRequested = false;
             message = dispatchError;
             return false;
         }
@@ -289,6 +342,7 @@ public sealed class PluginIntegrationService : IDisposable
             this.craftAllActive = false;
             this.craftAllQueue.Clear();
             this.activeCraftAllEntry = null;
+            this.orderedCraftAllEntries.Clear();
             this.completedCraftAllEntries.Clear();
             this.craftAllEntryStarted = false;
             this.craftAllPausedForAutoRetainer = false;
@@ -296,6 +350,7 @@ public sealed class PluginIntegrationService : IDisposable
             this.activeEntryBusySince = DateTime.MinValue;
             this.activeEntryBusyElapsed = TimeSpan.Zero;
             this.activeEntryStopRequested = false;
+            this.stopAfterCurrentCraftRequested = false;
             this.autoRetainerReleasedAt = DateTime.MinValue;
             return;
         }
@@ -352,6 +407,12 @@ public sealed class PluginIntegrationService : IDisposable
                 this.craftAllPausedForAutoRetainer = false;
                 this.autoRetainerReleasedAt = DateTime.MinValue;
 
+                if (this.stopAfterCurrentCraftRequested)
+                {
+                    this.StopCraftAllQueue(false);
+                    return;
+                }
+
                 var remainingCrafts = this.GetRemainingCraftCount(activeEntry);
                 if (remainingCrafts == 0)
                 {
@@ -371,6 +432,7 @@ public sealed class PluginIntegrationService : IDisposable
                     this.craftAllActive = false;
                     this.craftAllQueue.Clear();
                     this.activeCraftAllEntry = null;
+                    this.orderedCraftAllEntries.Clear();
                     this.completedCraftAllEntries.Clear();
                     this.craftAllEntryStarted = false;
                     this.craftAllFinishedAt = DateTime.UtcNow;
@@ -378,6 +440,7 @@ public sealed class PluginIntegrationService : IDisposable
                     this.activeEntryBusyElapsed = TimeSpan.Zero;
                     this.activeEntryCompletedCrafts = 0;
                     this.activeEntryStopRequested = false;
+                    this.stopAfterCurrentCraftRequested = false;
                 }
 
                 return;
@@ -402,6 +465,12 @@ public sealed class PluginIntegrationService : IDisposable
 
             if (!this.craftAllEntryStarted)
             {
+                if (this.stopAfterCurrentCraftRequested)
+                {
+                    this.StopCraftAllQueue(false);
+                    return;
+                }
+
                 this.fileLog.Warning(
                     "Artisan",
                     $"Craft All batch {activeEntry.RecipeId} did not start. Retrying.");
@@ -411,6 +480,7 @@ public sealed class PluginIntegrationService : IDisposable
                     this.craftAllActive = false;
                     this.craftAllQueue.Clear();
                     this.activeCraftAllEntry = null;
+                    this.orderedCraftAllEntries.Clear();
                     this.completedCraftAllEntries.Clear();
                     this.craftAllEntryStarted = false;
                     this.craftAllPausedForAutoRetainer = false;
@@ -418,9 +488,17 @@ public sealed class PluginIntegrationService : IDisposable
                     this.activeEntryBusyElapsed = TimeSpan.Zero;
                     this.activeEntryCompletedCrafts = 0;
                     this.activeEntryStopRequested = false;
+                    this.stopAfterCurrentCraftRequested = false;
                     this.autoRetainerReleasedAt = DateTime.MinValue;
                 }
 
+                return;
+            }
+
+            if (this.stopAfterCurrentCraftRequested)
+            {
+                var completedActiveEntry = this.activeEntryCompletedCrafts >= activeEntry.CraftCount;
+                this.StopCraftAllQueue(completedActiveEntry);
                 return;
             }
 
@@ -436,6 +514,7 @@ public sealed class PluginIntegrationService : IDisposable
                 this.fileLog.Warning("Artisan", error);
                 this.craftAllActive = false;
                 this.craftAllQueue.Clear();
+                this.orderedCraftAllEntries.Clear();
                 this.completedCraftAllEntries.Clear();
                 this.craftAllPausedForAutoRetainer = false;
                 this.craftAllFinishedAt = DateTime.UtcNow;
@@ -443,6 +522,7 @@ public sealed class PluginIntegrationService : IDisposable
                 this.activeEntryBusyElapsed = TimeSpan.Zero;
                 this.activeEntryCompletedCrafts = 0;
                 this.activeEntryStopRequested = false;
+                this.stopAfterCurrentCraftRequested = false;
                 this.autoRetainerReleasedAt = DateTime.MinValue;
             }
 
@@ -469,6 +549,7 @@ public sealed class PluginIntegrationService : IDisposable
             this.activeEntryBusyElapsed = TimeSpan.Zero;
             this.activeEntryCompletedCrafts = 0;
             this.activeEntryStopRequested = false;
+            this.stopAfterCurrentCraftRequested = false;
         }
 
         var next = this.activeCraftAllEntry!;
@@ -504,6 +585,7 @@ public sealed class PluginIntegrationService : IDisposable
                 exception);
             error = "Artisan is not loaded or did not accept the Craft All queue.";
             this.activeCraftAllEntry = null;
+            this.orderedCraftAllEntries.Clear();
             this.completedCraftAllEntries.Clear();
             this.craftAllEntryStarted = false;
             this.craftAllPausedForAutoRetainer = false;
@@ -512,6 +594,7 @@ public sealed class PluginIntegrationService : IDisposable
             this.activeEntryBusyElapsed = TimeSpan.Zero;
             this.activeEntryCompletedCrafts = 0;
             this.activeEntryStopRequested = false;
+            this.stopAfterCurrentCraftRequested = false;
             this.autoRetainerReleasedAt = DateTime.MinValue;
             return false;
         }
@@ -520,6 +603,7 @@ public sealed class PluginIntegrationService : IDisposable
     private void ResetTrackedCraftState()
     {
         this.craftAllQueue.Clear();
+        this.orderedCraftAllEntries.Clear();
         this.completedCraftAllEntries.Clear();
         this.activeCraftAllEntry = null;
         this.craftAllEntryStarted = false;
@@ -530,6 +614,7 @@ public sealed class PluginIntegrationService : IDisposable
         this.activeEntryBusyElapsed = TimeSpan.Zero;
         this.activeEntryCompletedCrafts = 0;
         this.activeEntryStopRequested = false;
+        this.stopAfterCurrentCraftRequested = false;
         this.autoRetainerReleasedAt = DateTime.MinValue;
         this.wasCraftingConditionActive = false;
     }
@@ -654,13 +739,69 @@ public sealed class PluginIntegrationService : IDisposable
         this.activeEntryBusyElapsed = TimeSpan.Zero;
         this.activeEntryCompletedCrafts = 0;
         this.activeEntryStopRequested = false;
+        this.stopAfterCurrentCraftRequested = false;
         if (this.craftAllQueue.Count != 0)
             return;
 
         this.craftAllActive = false;
         this.CraftAllCompletionCount++;
         this.craftAllFinishedAt = DateTime.UtcNow;
+        this.TryCloseCraftingWindows();
         this.fileLog.Info("Artisan", "Craft All queue completed.");
+    }
+
+    private void StopCraftAllQueue(bool includeActiveEntryAsCompleted)
+    {
+        if (includeActiveEntryAsCompleted && this.activeCraftAllEntry is { } activeEntry)
+            this.completedCraftAllEntries.Add(activeEntry);
+
+        this.craftAllQueue.Clear();
+        this.activeCraftAllEntry = null;
+        this.craftAllActive = false;
+        this.craftAllEntryStarted = false;
+        this.craftAllPausedForAutoRetainer = false;
+        this.craftAllFinishedAt = DateTime.UtcNow;
+        this.activeEntryBusySince = DateTime.MinValue;
+        this.activeEntryBusyElapsed = TimeSpan.Zero;
+        this.activeEntryCompletedCrafts = 0;
+        this.activeEntryStopRequested = false;
+        this.stopAfterCurrentCraftRequested = false;
+        this.autoRetainerReleasedAt = DateTime.MinValue;
+        this.TryCloseCraftingWindows();
+        this.fileLog.Info("Artisan", "Stopped Craft All queue after the current craft.");
+    }
+
+    private void TryCloseCraftingWindows()
+    {
+        var closedAnyWindow =
+            this.TryCloseAddon("RecipeNote") |
+            this.TryCloseAddon("WKSRecipeNotebook") |
+            this.TryCloseAddon("RecipeTree") |
+            this.TryCloseAddon("RecipeMaterialList");
+        if (closedAnyWindow)
+            this.fileLog.Info("Artisan", "Closed the in-game crafting windows after Artisan stopped.");
+    }
+
+    private bool TryCloseAddon(string addonName)
+    {
+        try
+        {
+            var addon = this.gameGui.GetAddonByName(addonName, 1);
+            if (addon.Address == IntPtr.Zero)
+                return false;
+
+            var unitBase = (AtkUnitBase*)addon.Address;
+            if (!unitBase->IsVisible)
+                return false;
+
+            unitBase->Close(true);
+            return true;
+        }
+        catch (Exception exception)
+        {
+            this.fileLog.Warning("Artisan", $"Could not close {addonName}: {exception.Message}");
+            return false;
+        }
     }
 
     private bool IsAutoRetainerBusy()

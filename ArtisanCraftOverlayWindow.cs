@@ -19,6 +19,11 @@ public sealed class ArtisanCraftOverlayWindow : Window
         Vector4 RowColor,
         Vector4 StatusColor);
 
+    private sealed record ActionButtonDefinition(
+        string Label,
+        Action Action,
+        bool IsEnabled = true);
+
     private readonly PluginIntegrationService pluginIntegrationService;
     private readonly Configuration configuration;
     private readonly Action openRecipeHelper;
@@ -115,12 +120,6 @@ public sealed class ArtisanCraftOverlayWindow : Window
             ? CompactOverlayWidth
             : Math.Clamp(ImGui.GetWindowSize().X, 380, 620);
 
-        if (!snapshot.IsActive && snapshot.PendingEntries.Count == 0 && snapshot.CompletedEntries.Count == 0)
-        {
-            ImGui.TextDisabled("No Artisan queue is running.");
-            return;
-        }
-
         if (this.compactMode)
         {
             this.DrawCompactView(snapshot);
@@ -128,15 +127,21 @@ public sealed class ArtisanCraftOverlayWindow : Window
         }
 
         this.DrawSessionTimerCard(snapshot.Elapsed);
-        this.DrawOverlayActions();
+        this.DrawOverlayActions(snapshot);
 
-        if (snapshot.PendingEntries.Any(entry => entry.IsIntermediate) &&
-            snapshot.PendingEntries.Any(entry => !entry.IsIntermediate))
+        if (!snapshot.IsActive && snapshot.PendingEntries.Count == 0 && snapshot.CompletedEntries.Count == 0)
+        {
+            ImGui.TextDisabled("No Artisan queue is running.");
+            return;
+        }
+
+        var preCraftBannerText = this.GetPreCraftBannerText(snapshot);
+        if (preCraftBannerText is not null)
         {
             ImGui.Spacing();
             ImGui.TextColored(
                 this.configuration.WarningTextColor,
-                "Waiting on pre-crafts before final recipes continue.");
+                preCraftBannerText);
         }
 
         var rows = this.BuildRows(snapshot);
@@ -261,6 +266,9 @@ public sealed class ArtisanCraftOverlayWindow : Window
 
     private List<ProgressRow> BuildRows(ArtisanCraftProgressSnapshot snapshot)
     {
+        if (snapshot.OrderedEntries.Count > 0)
+            return this.BuildOrderedRows(snapshot);
+
         var rows = new List<ProgressRow>();
         if (snapshot.CurrentEntry is { } currentEntry)
         {
@@ -272,6 +280,10 @@ public sealed class ArtisanCraftOverlayWindow : Window
                 : Math.Min(currentEntry.CraftCount, completedCrafts + 1);
             var currentStatus = snapshot.IsPausedForAutoRetainer
                 ? $"Paused ({completedCrafts:N0}/{currentEntry.CraftCount:N0})"
+                : snapshot.StopAfterCurrentCraftRequested
+                    ? snapshot.CurrentEntryStarted
+                        ? $"Stopping ({currentCraftIndex:N0}/{currentEntry.CraftCount:N0})"
+                        : $"Stopping ({completedCrafts:N0}/{currentEntry.CraftCount:N0})"
                 : snapshot.CurrentEntryStarted
                     ? $"Crafting ({currentCraftIndex:N0}/{currentEntry.CraftCount:N0})"
                     : $"Starting (0/{currentEntry.CraftCount:N0})";
@@ -308,12 +320,77 @@ public sealed class ArtisanCraftOverlayWindow : Window
         return rows;
     }
 
+    private List<ProgressRow> BuildOrderedRows(ArtisanCraftProgressSnapshot snapshot)
+    {
+        var rows = new List<ProgressRow>(snapshot.OrderedEntries.Count);
+        var completedSequences = snapshot.CompletedEntries
+            .Select(entry => entry.QueueSequence)
+            .ToHashSet();
+        foreach (var entry in snapshot.OrderedEntries.OrderBy(entry => entry.QueueSequence))
+        {
+            if (snapshot.CurrentEntry is { } currentEntry &&
+                entry.QueueSequence == currentEntry.QueueSequence)
+            {
+                var completedCrafts = Math.Min(snapshot.CurrentEntryCompletedCrafts, currentEntry.CraftCount);
+                var remainingCrafts = Math.Max(0u, currentEntry.CraftCount - completedCrafts);
+                var remainingQuantity = (ulong)remainingCrafts * currentEntry.ResultAmount;
+                var currentCraftIndex = currentEntry.CraftCount == 0
+                    ? 0u
+                    : Math.Min(currentEntry.CraftCount, completedCrafts + 1);
+                var currentStatus = snapshot.IsPausedForAutoRetainer
+                    ? $"Paused ({completedCrafts:N0}/{currentEntry.CraftCount:N0})"
+                    : snapshot.StopAfterCurrentCraftRequested
+                        ? snapshot.CurrentEntryStarted
+                            ? $"Stopping ({currentCraftIndex:N0}/{currentEntry.CraftCount:N0})"
+                            : $"Stopping ({completedCrafts:N0}/{currentEntry.CraftCount:N0})"
+                    : snapshot.CurrentEntryStarted
+                        ? $"Crafting ({currentCraftIndex:N0}/{currentEntry.CraftCount:N0})"
+                        : $"Starting (0/{currentEntry.CraftCount:N0})";
+                rows.Add(new ProgressRow(
+                    this.GetDisplayName(currentEntry),
+                    remainingQuantity.ToString("N0"),
+                    remainingCrafts.ToString("N0"),
+                    currentStatus,
+                    AdjustColor(this.configuration.WindowBackgroundColor, 0.10f),
+                    snapshot.IsPausedForAutoRetainer
+                        ? this.configuration.WarningTextColor
+                        : this.configuration.AccentColor));
+                continue;
+            }
+
+            if (completedSequences.Contains(entry.QueueSequence))
+            {
+                rows.Add(new ProgressRow(
+                    this.GetDisplayName(entry),
+                    "0",
+                    "0",
+                    $"Done ({entry.CraftCount:N0}/{entry.CraftCount:N0})",
+                    this.configuration.EnoughRowColor,
+                    this.configuration.SuccessTextColor));
+                continue;
+            }
+
+            rows.Add(new ProgressRow(
+                this.GetDisplayName(entry),
+                FormatQuantity(entry),
+                FormatCrafts(entry),
+                $"Queued (0/{entry.CraftCount:N0})",
+                AdjustColor(this.configuration.WindowBackgroundColor, 0.05f),
+                this.configuration.AccentColor));
+        }
+
+        return rows;
+    }
+
     private string GetDisplayName(ArtisanCraftQueueEntry entry)
     {
-        if (entry.IsIntermediate)
-            return $"Pre-craft: {entry.ResultName}";
+        var baseName = entry.IsIntermediate
+            ? $"Pre-craft: {entry.ResultName}"
+            : entry.ResultName;
+        if (entry.QueueSequence <= 0)
+            return baseName;
 
-        return entry.ResultName;
+        return $"{entry.QueueSequence}. {baseName}";
     }
 
     private float CalculateOverlayHeight()
@@ -328,11 +405,9 @@ public sealed class ArtisanCraftOverlayWindow : Window
         var windowPadding = style.WindowPadding.Y * 2;
         var timerHeight = 44f + style.ItemSpacing.Y;
         var actionsHeight = ImGui.GetFrameHeight() + style.ItemSpacing.Y;
-        var waitingHeight =
-            snapshot.PendingEntries.Any(entry => entry.IsIntermediate) &&
-            snapshot.PendingEntries.Any(entry => !entry.IsIntermediate)
-                ? ImGui.GetTextLineHeight() + style.ItemSpacing.Y
-                : 0f;
+        var waitingHeight = this.GetPreCraftBannerText(snapshot) is not null
+            ? ImGui.GetTextLineHeight() + style.ItemSpacing.Y
+            : 0f;
         var collapsedHeaderHeight = ImGui.GetFrameHeight() + style.ItemSpacing.Y;
         var fixedHeight =
             titleBarHeight +
@@ -358,62 +433,101 @@ public sealed class ArtisanCraftOverlayWindow : Window
     {
         var summaryText = snapshot.IsPausedForAutoRetainer
             ? "Paused for AutoRetainer"
+            : snapshot.StopAfterCurrentCraftRequested
+                ? "Stopping after current craft"
             : snapshot.CurrentEntry is { } currentEntry
                 ? TrimTextToWidth(currentEntry.ResultName, Math.Max(100f, ImGui.GetContentRegionAvail().X - 12f))
-                : "Crafting in progress";
+                : "No Artisan queue is running.";
 
         ImGui.TextColored(this.configuration.AccentTextColor, summaryText);
         ImGui.Spacing();
         this.DrawSessionTimerCard(snapshot.Elapsed);
         this.DrawActionButtons(
-            "Details",
-            () => this.compactMode = false,
-            "Open Recipe Helper",
-            this.openRecipeHelper);
+            new ActionButtonDefinition("Details", () => this.compactMode = false),
+            this.GetStopButton(snapshot),
+            new ActionButtonDefinition("Open Recipe Helper", this.openRecipeHelper));
     }
 
-    private void DrawOverlayActions()
+    private string? GetPreCraftBannerText(ArtisanCraftProgressSnapshot snapshot)
+    {
+        if (snapshot.StopAfterCurrentCraftRequested)
+            return "Stopping after the current craft finishes.";
+
+        var queuedEntries = snapshot.PendingEntries
+            .Skip(snapshot.CurrentEntry is null ? 0 : 1)
+            .ToList();
+        var laterPreCraftsQueued = queuedEntries.Any(entry => entry.IsIntermediate);
+        var laterFinalRecipesQueued = queuedEntries.Any(entry => !entry.IsIntermediate);
+        if (!laterPreCraftsQueued || !laterFinalRecipesQueued)
+            return null;
+
+        return snapshot.CurrentEntry is { IsIntermediate: false }
+            ? "Current recipe is crafting. Later final recipes are still waiting on pre-crafts."
+            : "Waiting on pre-crafts before later final recipes continue.";
+    }
+
+    private void DrawOverlayActions(ArtisanCraftProgressSnapshot snapshot)
     {
         this.DrawActionButtons(
-            "Compact",
-            () => this.compactMode = true,
-            "Open Recipe Helper",
-            this.openRecipeHelper);
+            new ActionButtonDefinition("Compact", () => this.compactMode = true),
+            this.GetStopButton(snapshot),
+            new ActionButtonDefinition("Open Recipe Helper", this.openRecipeHelper));
     }
 
-    private void DrawActionButtons(
-        string leftLabel,
-        Action leftAction,
-        string rightLabel,
-        Action rightAction)
+    private void DrawActionButtons(params ActionButtonDefinition?[] actions)
     {
+        var visibleActions = actions
+            .Where(action => action is not null)
+            .Select(action => action!)
+            .ToArray();
+        if (visibleActions.Length == 0)
+            return;
+
         var scale = WindowTheme.GetMainInterfaceScale(this.configuration);
         var spacing = ImGui.GetStyle().ItemSpacing.X;
         var availableWidth = Math.Max(1f, ImGui.GetContentRegionAvail().X);
-        var leftWidth = this.GetActionButtonWidth(leftLabel, scale);
-        var rightWidth = this.GetActionButtonWidth(rightLabel, scale);
-        var totalWidth = leftWidth + spacing + rightWidth;
+        var widths = visibleActions
+            .Select(action => this.GetActionButtonWidth(action.Label, scale))
+            .ToArray();
+        var totalWidth = widths.Sum() + (spacing * Math.Max(0, visibleActions.Length - 1));
         if (totalWidth > availableWidth)
         {
             var halfWidth = Math.Max(
                 96f * scale,
-                (availableWidth - spacing) / 2f);
-            leftWidth = halfWidth;
-            rightWidth = halfWidth;
-            totalWidth = leftWidth + spacing + rightWidth;
+                (availableWidth - (spacing * Math.Max(0, visibleActions.Length - 1))) / visibleActions.Length);
+            for (var index = 0; index < widths.Length; index++)
+                widths[index] = halfWidth;
+            totalWidth = widths.Sum() + (spacing * Math.Max(0, visibleActions.Length - 1));
         }
 
         WindowTheme.PushButtonStyle(this.configuration, scale);
         ImGui.SetCursorPosX(Math.Max(
             ImGui.GetCursorPosX(),
             ImGui.GetWindowContentRegionMax().X - totalWidth));
-        if (WindowTheme.ShadowedButton(leftLabel, new Vector2(leftWidth, 0)))
-            leftAction();
-        ImGui.SameLine();
-        if (WindowTheme.ShadowedButton(rightLabel, new Vector2(rightWidth, 0)))
-            rightAction();
+        for (var index = 0; index < visibleActions.Length; index++)
+        {
+            var action = visibleActions[index];
+            if (index > 0)
+                ImGui.SameLine();
+            ImGui.BeginDisabled(!action.IsEnabled);
+            if (WindowTheme.ShadowedButton(action.Label, new Vector2(widths[index], 0)) && action.IsEnabled)
+                action.Action();
+            ImGui.EndDisabled();
+        }
         WindowTheme.PopButtonStyle();
         ImGui.Spacing();
+    }
+
+    private ActionButtonDefinition? GetStopButton(ArtisanCraftProgressSnapshot snapshot)
+    {
+        if (snapshot.CurrentEntry is null)
+            return null;
+
+        return snapshot.StopAfterCurrentCraftRequested
+            ? new ActionButtonDefinition("Stopping...", () => { }, false)
+            : new ActionButtonDefinition(
+                "Stop After Craft",
+                () => this.pluginIntegrationService.RequestStopAfterCurrentCraft(out _));
     }
 
     private Vector4 GetReadableStatusTextColor(Vector4 backgroundColor, Vector4 preferredColor)

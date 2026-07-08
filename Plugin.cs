@@ -106,6 +106,7 @@ public sealed class Plugin : IDalamudPlugin
                 Condition,
                 Framework,
                 GameInventory,
+                GameGui,
                 this.fileLog);
         var retainerSnapshotService = new RetainerSnapshotService(
             Framework,

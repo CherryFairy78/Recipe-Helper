@@ -1,8 +1,8 @@
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
-    <Version>1.1.29.0</Version>
+    <Version>1.1.30.0</Version>
     <Description>Plan multiple FFXIV recipes, compare combined materials with inventory and retainers, and hand crafting or gathering tasks to Artisan, Teamcraft, and GatherBuddy.</Description>
-    <Changelog>v1.1.29 adds right-click Recipe Helper search from inventory and marketboard item menus.</Changelog>
+    <Changelog>v1.1.30 improves the Artisan progress overlay with stop controls, ordered queue steps, and cleaner post-craft window handling.</Changelog>
     <PackageProjectUrl>https://github.com/CherryFairy78/Recipe-Helper</PackageProjectUrl>
     <Authors>Meghann</Authors>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>

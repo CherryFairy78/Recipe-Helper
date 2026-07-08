@@ -11,7 +11,7 @@
     "recipe",
     "inventory"
   ],
-  "Changelog": "v1.1.29 adds right-click Recipe Helper search from inventory and marketboard item menus.",
+  "Changelog": "v1.1.30 improves the Artisan progress overlay with stop controls, ordered queue steps, and cleaner post-craft window handling.",
   "InternalName": "DalamudRecipeHelper",
-  "AssemblyVersion": "1.1.29.0"
+  "AssemblyVersion": "1.1.30.0"
 }
