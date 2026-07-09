@@ -700,7 +700,7 @@ public sealed unsafe class GwenDreamService : IDisposable
             return [];
         }
 
-        var liveOwnedItems = this.inventoryService.GetLiveOwnedItems();
+        var liveOwnedItems = this.inventoryService.GetImmediatelyUsableItems();
         if (!this.recipeService.TryBuildDreamTargets(
                 details,
                 liveOwnedItems,
@@ -1117,7 +1117,7 @@ public sealed unsafe class GwenDreamService : IDisposable
             return false;
         }
 
-        var updatedQuantity = this.inventoryService.GetLiveOwnedItems()
+        var updatedQuantity = this.inventoryService.GetImmediatelyUsableItems()
             .GetValueOrDefault(this.activeTarget.ItemId)?.Quantity ?? 0;
         return updatedQuantity >= this.initialLiveQuantity + this.pendingWithdrawQuantity;
     }
@@ -1134,7 +1134,7 @@ public sealed unsafe class GwenDreamService : IDisposable
         this.activeTargetRemainingQuantity -= this.pendingWithdrawQuantity;
         this.pendingWithdrawQuantity = 0;
         this.withdrawIssued = false;
-        this.initialLiveQuantity = this.inventoryService.GetLiveOwnedItems()
+        this.initialLiveQuantity = this.inventoryService.GetImmediatelyUsableItems()
             .GetValueOrDefault(this.activeTarget.ItemId)?.Quantity ?? 0;
         this.stepStartedAt = DateTime.UtcNow;
         this.UpdateStatus(
@@ -1179,7 +1179,7 @@ public sealed unsafe class GwenDreamService : IDisposable
         this.pendingWithdrawQuantity = 0;
         this.retainerSelectAttempt = 0;
         this.withdrawIssued = false;
-        this.initialLiveQuantity = this.inventoryService.GetLiveOwnedItems()
+        this.initialLiveQuantity = this.inventoryService.GetImmediatelyUsableItems()
             .GetValueOrDefault(this.activeTarget.ItemId)?.Quantity ?? 0;
     }
 

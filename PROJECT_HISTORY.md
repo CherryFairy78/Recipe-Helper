@@ -7,13 +7,21 @@ This file is the durable hand-off record for Recipe Helper. Read it before makin
 - Last updated: 2026-07-09
 - Plugin name: Recipe Helper
 - Internal name: `DalamudRecipeHelper`
-- Version: `1.1.32.0`
+- Version: `1.1.33.0`
 - Framework: Dalamud API 15
 - Target: `.NET 10` on Windows x64
 - Command: `/recipehelper`
 - Build command: `dotnet build .\DalamudRecipeHelper.csproj --no-restore`
 - Debug output: `bin\Debug\DalamudRecipeHelper.dll`
-- Last verified build: 2026-07-09, Debug and Release builds succeeded with zero warnings and zero errors, and `releases/DalamudRecipeHelper-v1.1.32.zip` was created from the verified Release output
+- Last verified build: 2026-07-09, Debug and Release builds succeeded with zero warnings and zero errors, and `releases/DalamudRecipeHelper-v1.1.33.zip` was created from the verified Release output
+
+## Recent release
+
+- Version: `1.1.33.0`
+- Fixed Craft All progress tracking so a missed inventory event no longer queues one extra final craft.
+- Stopped Artisan from endlessly retrying a craft that can no longer start because the required materials are gone.
+- Added an immediately usable inventory view for Dream and Artisan planning so saddlebags are no longer treated as craft-ready stock.
+- Verification: Debug and Release builds succeeded with zero warnings and zero errors, and `releases/DalamudRecipeHelper-v1.1.33.zip` was created from the verified Release output.
 
 ## Purpose
 

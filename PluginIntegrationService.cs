@@ -45,6 +45,8 @@ public sealed unsafe class PluginIntegrationService : IDisposable
     private DateTime activeEntryBusySince;
     private TimeSpan activeEntryBusyElapsed;
     private uint activeEntryCompletedCrafts;
+    private uint activeEntryCompletedCraftsAtDispatchStart;
+    private uint activeEntryResultQuantityAtDispatchStart;
     private bool activeEntryStopRequested;
     private bool stopAfterCurrentCraftRequested;
     private DateTime autoRetainerReleasedAt;
@@ -212,6 +214,7 @@ public sealed unsafe class PluginIntegrationService : IDisposable
             this.activeCraftAllEntry = recipe with { QueueSequence = 1 };
             this.orderedCraftAllEntries.Add(this.activeCraftAllEntry);
             this.craftAllActive = true;
+            this.PrepareDispatchInventoryBaseline();
             this.activeCraftAllDispatchedAt = DateTime.UtcNow;
             this.nextCraftAllCheck = DateTime.UtcNow.AddSeconds(2);
             this.artisanCraftItem.InvokeAction((ushort)recipe.RecipeId, (int)recipe.CraftCount);
@@ -226,6 +229,8 @@ public sealed unsafe class PluginIntegrationService : IDisposable
             this.craftAllFinishedAt = DateTime.UtcNow;
             this.activeEntryBusySince = DateTime.MinValue;
             this.activeEntryBusyElapsed = TimeSpan.Zero;
+            this.activeEntryCompletedCraftsAtDispatchStart = 0;
+            this.activeEntryResultQuantityAtDispatchStart = 0;
             this.activeEntryStopRequested = false;
             this.stopAfterCurrentCraftRequested = false;
             Plugin.Log.Warning(exception, "Could not send recipe {RecipeId} to Artisan.", recipe.RecipeId);
@@ -434,6 +439,7 @@ public sealed unsafe class PluginIntegrationService : IDisposable
 
                 this.craftAllPausedForAutoRetainer = false;
                 this.autoRetainerReleasedAt = DateTime.MinValue;
+                this.SyncActiveEntryProgressFromInventory();
 
                 if (this.stopAfterCurrentCraftRequested)
                 {
@@ -467,6 +473,8 @@ public sealed unsafe class PluginIntegrationService : IDisposable
                     this.activeEntryBusySince = DateTime.MinValue;
                     this.activeEntryBusyElapsed = TimeSpan.Zero;
                     this.activeEntryCompletedCrafts = 0;
+                    this.activeEntryCompletedCraftsAtDispatchStart = 0;
+                    this.activeEntryResultQuantityAtDispatchStart = 0;
                     this.activeEntryStopRequested = false;
                     this.stopAfterCurrentCraftRequested = false;
                 }
@@ -483,6 +491,7 @@ public sealed unsafe class PluginIntegrationService : IDisposable
             }
 
             this.UpdateActiveEntryBusyTime(false);
+            this.SyncActiveEntryProgressFromInventory();
 
             if (!this.craftAllEntryStarted &&
                 DateTime.UtcNow - this.activeCraftAllDispatchedAt < TimeSpan.FromSeconds(8))
@@ -497,6 +506,22 @@ public sealed unsafe class PluginIntegrationService : IDisposable
                 {
                     this.StopCraftAllQueue(false);
                     return;
+                }
+
+                if (this.recipeService is not null && this.inventoryService is not null)
+                {
+                    var maxCraftableNow = this.recipeService.GetMaximumCraftableCountFromCurrentInventory(
+                        activeEntry.RecipeId,
+                        1,
+                        this.inventoryService.GetImmediatelyUsableItems());
+                    if (maxCraftableNow == 0)
+                    {
+                        this.fileLog.Warning(
+                            "Artisan",
+                            $"Craft All batch {activeEntry.RecipeId} could not start because the required materials are no longer in inventory. Stopping the queue.");
+                        this.StopCraftAllQueue(false);
+                        return;
+                    }
                 }
 
                 this.fileLog.Warning(
@@ -515,6 +540,8 @@ public sealed unsafe class PluginIntegrationService : IDisposable
                     this.activeEntryBusySince = DateTime.MinValue;
                     this.activeEntryBusyElapsed = TimeSpan.Zero;
                     this.activeEntryCompletedCrafts = 0;
+                    this.activeEntryCompletedCraftsAtDispatchStart = 0;
+                    this.activeEntryResultQuantityAtDispatchStart = 0;
                     this.activeEntryStopRequested = false;
                     this.stopAfterCurrentCraftRequested = false;
                     this.autoRetainerReleasedAt = DateTime.MinValue;
@@ -564,6 +591,8 @@ public sealed unsafe class PluginIntegrationService : IDisposable
                 this.activeEntryBusySince = DateTime.MinValue;
                 this.activeEntryBusyElapsed = TimeSpan.Zero;
                 this.activeEntryCompletedCrafts = 0;
+                this.activeEntryCompletedCraftsAtDispatchStart = 0;
+                this.activeEntryResultQuantityAtDispatchStart = 0;
                 this.activeEntryStopRequested = false;
                 this.stopAfterCurrentCraftRequested = false;
                 this.autoRetainerReleasedAt = DateTime.MinValue;
@@ -591,6 +620,8 @@ public sealed unsafe class PluginIntegrationService : IDisposable
             this.activeEntryBusySince = DateTime.MinValue;
             this.activeEntryBusyElapsed = TimeSpan.Zero;
             this.activeEntryCompletedCrafts = 0;
+            this.activeEntryCompletedCraftsAtDispatchStart = 0;
+            this.activeEntryResultQuantityAtDispatchStart = 0;
             this.activeEntryStopRequested = false;
             this.stopAfterCurrentCraftRequested = false;
         }
@@ -617,6 +648,7 @@ public sealed unsafe class PluginIntegrationService : IDisposable
         {
             this.craftAllEntryStarted = false;
             this.activeEntryBusySince = DateTime.MinValue;
+            this.PrepareDispatchInventoryBaseline();
             this.artisanCraftItem.InvokeAction((ushort)next.RecipeId, (int)dispatchCraftCount);
             this.activeCraftAllDispatchedAt = DateTime.UtcNow;
             this.nextCraftAllCheck = DateTime.UtcNow.AddSeconds(2);
@@ -648,6 +680,8 @@ public sealed unsafe class PluginIntegrationService : IDisposable
             this.activeEntryBusySince = DateTime.MinValue;
             this.activeEntryBusyElapsed = TimeSpan.Zero;
             this.activeEntryCompletedCrafts = 0;
+            this.activeEntryCompletedCraftsAtDispatchStart = 0;
+            this.activeEntryResultQuantityAtDispatchStart = 0;
             this.activeEntryStopRequested = false;
             this.stopAfterCurrentCraftRequested = false;
             this.autoRetainerReleasedAt = DateTime.MinValue;
@@ -672,7 +706,7 @@ public sealed unsafe class PluginIntegrationService : IDisposable
             return true;
         }
 
-        var liveOwnedItems = this.inventoryService.GetLiveOwnedItems();
+        var liveOwnedItems = this.inventoryService.GetImmediatelyUsableItems();
         var maxCraftableNow = this.recipeService.GetMaximumCraftableCountFromCurrentCatalysts(
             entry.RecipeId,
             dispatchCraftCount,
@@ -744,6 +778,8 @@ public sealed unsafe class PluginIntegrationService : IDisposable
         this.activeEntryBusySince = DateTime.MinValue;
         this.activeEntryBusyElapsed = TimeSpan.Zero;
         this.activeEntryCompletedCrafts = 0;
+        this.activeEntryCompletedCraftsAtDispatchStart = 0;
+        this.activeEntryResultQuantityAtDispatchStart = 0;
         this.activeEntryStopRequested = false;
         this.stopAfterCurrentCraftRequested = false;
         this.autoRetainerReleasedAt = DateTime.MinValue;
@@ -788,9 +824,54 @@ public sealed unsafe class PluginIntegrationService : IDisposable
         this.activeEntryCompletedCrafts = Math.Min(
             this.activeCraftAllEntry.CraftCount,
             this.activeEntryCompletedCrafts + completedCrafts);
+        this.SyncActiveEntryProgressFromInventory();
 
         if (this.activeEntryCompletedCrafts >= this.activeCraftAllEntry.CraftCount)
             this.TryStopArtisanForCompletedEntry();
+    }
+
+    private void PrepareDispatchInventoryBaseline()
+    {
+        this.activeEntryCompletedCraftsAtDispatchStart = this.activeEntryCompletedCrafts;
+        this.activeEntryResultQuantityAtDispatchStart = this.GetLiveResultQuantityForActiveEntry();
+    }
+
+    private void SyncActiveEntryProgressFromInventory()
+    {
+        if (this.activeCraftAllEntry is not { } activeEntry ||
+            activeEntry.ResultItemId == 0 ||
+            activeEntry.ResultAmount == 0)
+        {
+            return;
+        }
+
+        var currentQuantity = this.GetLiveResultQuantityForActiveEntry();
+        if (currentQuantity < this.activeEntryResultQuantityAtDispatchStart)
+            return;
+
+        var producedQuantity = currentQuantity - this.activeEntryResultQuantityAtDispatchStart;
+        var observedCrafts = producedQuantity / activeEntry.ResultAmount;
+        if (observedCrafts == 0)
+            return;
+
+        var syncedCrafts = Math.Min(
+            activeEntry.CraftCount,
+            this.activeEntryCompletedCraftsAtDispatchStart + observedCrafts);
+        if (syncedCrafts <= this.activeEntryCompletedCrafts)
+            return;
+
+        this.activeEntryCompletedCrafts = syncedCrafts;
+    }
+
+    private uint GetLiveResultQuantityForActiveEntry()
+    {
+        if (this.inventoryService is null || this.activeCraftAllEntry is not { } activeEntry)
+            return 0;
+
+        return this.inventoryService
+            .GetImmediatelyUsableItems()
+            .GetValueOrDefault(activeEntry.ResultItemId)?
+            .Quantity ?? 0;
     }
 
     private uint GetCraftedQuantityDelta(InventoryEventArgs inventoryEvent, uint resultItemId)
@@ -869,6 +950,8 @@ public sealed unsafe class PluginIntegrationService : IDisposable
         this.activeEntryBusySince = DateTime.MinValue;
         this.activeEntryBusyElapsed = TimeSpan.Zero;
         this.activeEntryCompletedCrafts = 0;
+        this.activeEntryCompletedCraftsAtDispatchStart = 0;
+        this.activeEntryResultQuantityAtDispatchStart = 0;
         this.activeEntryStopRequested = false;
         this.stopAfterCurrentCraftRequested = false;
         this.craftAllPausedForRetainerRefill = false;
@@ -898,6 +981,8 @@ public sealed unsafe class PluginIntegrationService : IDisposable
         this.activeEntryBusySince = DateTime.MinValue;
         this.activeEntryBusyElapsed = TimeSpan.Zero;
         this.activeEntryCompletedCrafts = 0;
+        this.activeEntryCompletedCraftsAtDispatchStart = 0;
+        this.activeEntryResultQuantityAtDispatchStart = 0;
         this.activeEntryStopRequested = false;
         this.stopAfterCurrentCraftRequested = false;
         this.autoRetainerReleasedAt = DateTime.MinValue;
@@ -919,6 +1004,8 @@ public sealed unsafe class PluginIntegrationService : IDisposable
         this.activeEntryBusySince = DateTime.MinValue;
         this.activeEntryBusyElapsed = TimeSpan.Zero;
         this.activeEntryCompletedCrafts = 0;
+        this.activeEntryCompletedCraftsAtDispatchStart = 0;
+        this.activeEntryResultQuantityAtDispatchStart = 0;
         this.activeEntryStopRequested = false;
         this.stopAfterCurrentCraftRequested = false;
         this.autoRetainerReleasedAt = DateTime.MinValue;

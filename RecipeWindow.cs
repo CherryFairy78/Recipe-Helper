@@ -996,7 +996,7 @@ public sealed class RecipeWindow : Window, IDisposable
             this.canCraftAllFromLiveInventory =
                 this.recipeService.TryBuildArtisanCraftQueue(
                     details.Recipes,
-                    this.inventoryService.GetLiveOwnedItems(),
+                    this.inventoryService.GetImmediatelyUsableItems(),
                     out _,
                     out _);
 

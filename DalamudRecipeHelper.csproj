@@ -1,8 +1,8 @@
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
-    <Version>1.1.32.0</Version>
+    <Version>1.1.33.0</Version>
     <Description>Plan multiple FFXIV recipes, compare combined materials with inventory and retainers, and hand crafting or gathering tasks to Artisan, Teamcraft, and GatherBuddy.</Description>
-    <Changelog>v1.1.32 adds crystal top-ups for Gwen's Dream, improves hover pricing and collectible totals, and tightens Artisan button availability to live inventory.</Changelog>
+    <Changelog>v1.1.33 fixes final-craft Artisan retries, improves completed-craft tracking, and limits Dream and Artisan planning to immediately usable inventory.</Changelog>
     <PackageProjectUrl>https://github.com/CherryFairy78/Recipe-Helper</PackageProjectUrl>
     <Authors>Meghann</Authors>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>

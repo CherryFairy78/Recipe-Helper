@@ -540,6 +540,33 @@ public sealed class RecipeService
         return maxCraftCount;
     }
 
+    public uint GetMaximumCraftableCountFromCurrentInventory(
+        uint recipeId,
+        uint desiredCraftCount,
+        IReadOnlyDictionary<uint, OwnedInventoryItem> liveOwnedItems)
+    {
+        if (desiredCraftCount == 0)
+            return 0;
+
+        if (!this.TryGetRecipe(recipeId, out var recipe))
+            return desiredCraftCount;
+
+        var maxCraftCount = desiredCraftCount;
+        foreach (var ingredient in this.ReadIngredients(recipe))
+        {
+            if (ingredient.Amount == 0 || IsElementalCatalystItem(ingredient.ItemId))
+                continue;
+
+            var ownedQuantity = liveOwnedItems.GetValueOrDefault(ingredient.ItemId)?.Quantity ?? 0;
+            var supportedCrafts = ownedQuantity / ingredient.Amount;
+            maxCraftCount = Math.Min(maxCraftCount, supportedCrafts);
+            if (maxCraftCount == 0)
+                break;
+        }
+
+        return maxCraftCount;
+    }
+
     public bool TryBuildDreamCatalystTopUpTargets(
         uint recipeId,
         uint remainingCraftCount,

@@ -12,6 +12,15 @@ public sealed unsafe class InventoryService : IDisposable
     private readonly FileLogService fileLog;
     private readonly RetainerSnapshotService retainerSnapshotService;
     private readonly IGameInventory gameInventory;
+    private static readonly InventoryType[] ImmediatelyUsableInventories =
+    [
+        InventoryType.Inventory1,
+        InventoryType.Inventory2,
+        InventoryType.Inventory3,
+        InventoryType.Inventory4,
+        InventoryType.Crystals,
+    ];
+
     private static readonly InventoryType[] PlayerInventories =
     [
         InventoryType.Inventory1,
@@ -60,6 +69,12 @@ public sealed unsafe class InventoryService : IDisposable
     public IReadOnlyDictionary<uint, OwnedInventoryItem> GetLiveOwnedItems() =>
         this.GetOwnedItems(includeStoredRetainers: false, updateStats: false);
 
+    public IReadOnlyDictionary<uint, OwnedInventoryItem> GetImmediatelyUsableItems() =>
+        this.GetOwnedItems(
+            includeStoredRetainers: false,
+            updateStats: false,
+            inventoryTypes: ImmediatelyUsableInventories);
+
     public IReadOnlyList<StoredRetainerInventory> GetStoredRetainers() =>
         this.retainerSnapshotService.GetSnapshots();
 
@@ -67,7 +82,8 @@ public sealed unsafe class InventoryService : IDisposable
 
     private IReadOnlyDictionary<uint, OwnedInventoryItem> GetOwnedItems(
         bool includeStoredRetainers,
-        bool updateStats)
+        bool updateStats,
+        IReadOnlyList<InventoryType>? inventoryTypes = null)
     {
         if (updateStats)
         {
@@ -88,7 +104,7 @@ public sealed unsafe class InventoryService : IDisposable
             return new Dictionary<uint, OwnedInventoryItem>();
         }
 
-        foreach (var inventoryType in PlayerInventories)
+        foreach (var inventoryType in inventoryTypes ?? PlayerInventories)
         {
             var container = inventoryManager->GetInventoryContainer(inventoryType);
             if (container is null || !container->IsLoaded)
