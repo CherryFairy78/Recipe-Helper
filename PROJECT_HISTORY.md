@@ -4,24 +4,25 @@ This file is the durable hand-off record for Recipe Helper. Read it before makin
 
 ## Project snapshot
 
-- Last updated: 2026-07-09
+- Last updated: 2026-07-10
 - Plugin name: Recipe Helper
 - Internal name: `DalamudRecipeHelper`
-- Version: `1.1.33.0`
+- Version: `1.1.34.0`
 - Framework: Dalamud API 15
 - Target: `.NET 10` on Windows x64
 - Command: `/recipehelper`
 - Build command: `dotnet build .\DalamudRecipeHelper.csproj --no-restore`
 - Debug output: `bin\Debug\DalamudRecipeHelper.dll`
-- Last verified build: 2026-07-09, Debug and Release builds succeeded with zero warnings and zero errors, and `releases/DalamudRecipeHelper-v1.1.33.zip` was created from the verified Release output
+- Last verified build: 2026-07-10, Debug and Release builds succeeded with zero warnings and zero errors, and `releases/DalamudRecipeHelper-v1.1.34.zip` was created from the verified Release output
 
 ## Recent release
 
-- Version: `1.1.33.0`
-- Fixed Craft All progress tracking so a missed inventory event no longer queues one extra final craft.
-- Stopped Artisan from endlessly retrying a craft that can no longer start because the required materials are gone.
-- Added an immediately usable inventory view for Dream and Artisan planning so saddlebags are no longer treated as craft-ready stock.
-- Verification: Debug and Release builds succeeded with zero warnings and zero errors, and `releases/DalamudRecipeHelper-v1.1.33.zip` was created from the verified Release output.
+- Version: `1.1.34.0`
+- Fixed Gwen's Dream retainer targeting so saved retainer snapshots now keep the real retainer names instead of generic placeholders.
+- Fixed Gwen's Dream retainer-list automation so it can resolve the correct retainer row, use the direct AddonMaster selector, and continue when the target retainer is already active.
+- Fixed Gwen's Dream menu automation so `Entrust or withdraw items.` is selected directly from the retainer menu instead of stalling on the prompt.
+- Restored real retainer names in the debug report to make Dream troubleshooting easier.
+- Verification: Debug and Release builds succeeded with zero warnings and zero errors, and `releases/DalamudRecipeHelper-v1.1.34.zip` was created from the verified Release output.
 
 ## Purpose
 

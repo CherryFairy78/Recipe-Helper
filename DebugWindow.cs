@@ -20,7 +20,6 @@ public sealed class DebugWindow : Window
     private DateTimeOffset generatedAtUtc;
     private DateTime copyMessageExpiresAtUtc;
     private DateTime clearMessageExpiresAtUtc;
-    private Dictionary<string, string> retainerAliases = new(StringComparer.OrdinalIgnoreCase);
 
     public DebugWindow(
         Configuration configuration,
@@ -130,7 +129,6 @@ public sealed class DebugWindow : Window
         var dreamSnapshot = this.gwenDreamService.GetDebugSnapshot();
         var latestLogPath = this.fileLog.GetLatestLogPath();
         var recentLogLines = this.fileLog.GetRecentLines(80);
-        this.retainerAliases = BuildRetainerAliases(storedRetainers);
 
         this.generatedAtUtc = DateTimeOffset.UtcNow;
         var builder = new StringBuilder();
@@ -151,7 +149,7 @@ public sealed class DebugWindow : Window
         foreach (var retainer in storedRetainers)
         {
             builder.AppendLine(
-                $"- {this.GetRetainerAlias(retainer.Name)} | captured {retainer.CapturedAt.LocalDateTime:yyyy-MM-dd HH:mm:ss} | unique items {retainer.Items.Count}");
+                $"- {SanitizeText(retainer.Name)} | captured {retainer.CapturedAt.LocalDateTime:yyyy-MM-dd HH:mm:ss} | unique items {retainer.Items.Count}");
         }
 
         if (storedRetainers.Count == 0)
@@ -221,40 +219,12 @@ public sealed class DebugWindow : Window
         }
     }
 
-    private static Dictionary<string, string> BuildRetainerAliases(
-        IReadOnlyList<StoredRetainerInventory> storedRetainers)
-    {
-        var aliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        for (var index = 0; index < storedRetainers.Count; index++)
-        {
-            var name = storedRetainers[index].Name;
-            if (!string.IsNullOrWhiteSpace(name) && !aliases.ContainsKey(name))
-                aliases[name] = $"Retainer {index + 1}";
-        }
-
-        return aliases;
-    }
-
-    private string GetRetainerAlias(string? retainerName)
-    {
-        if (string.IsNullOrWhiteSpace(retainerName))
-            return "none";
-
-        return this.retainerAliases.TryGetValue(retainerName, out var alias)
-            ? alias
-            : "Open Retainer";
-    }
-
     private string SanitizeText(string? text)
     {
         if (string.IsNullOrWhiteSpace(text))
             return string.Empty;
 
-        var sanitized = SanitizePath(text, this.pluginConfigDirectory);
-        foreach (var (retainerName, alias) in this.retainerAliases.OrderByDescending(entry => entry.Key.Length))
-            sanitized = sanitized.Replace(retainerName, alias, StringComparison.OrdinalIgnoreCase);
-
-        return sanitized;
+        return SanitizePath(text, this.pluginConfigDirectory);
     }
 
     private static string SanitizePath(string? path, string pluginConfigDirectory)

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
 using Dalamud.Plugin.Services;
 using FFXIVClientStructs.FFXIV.Client.Game;
@@ -35,6 +36,7 @@ public sealed unsafe class RetainerSnapshotService : IDisposable
     private Dictionary<ulong, PersistedRetainerSnapshot> snapshots = [];
     private ulong openRetainerId;
     private DateTime nextCaptureAt;
+    private DateTime nextNameRefreshAt;
     private bool forceCapture;
 
     public RetainerSnapshotService(
@@ -59,6 +61,8 @@ public sealed unsafe class RetainerSnapshotService : IDisposable
 
     public IReadOnlyList<StoredRetainerInventory> GetSnapshots()
     {
+        this.TryRefreshSnapshotNames();
+
         lock (this.snapshotLock)
         {
             return this.snapshots.Values
@@ -92,6 +96,9 @@ public sealed unsafe class RetainerSnapshotService : IDisposable
             this.forceCapture = false;
             return;
         }
+
+        if (DateTime.UtcNow >= this.nextNameRefreshAt)
+            this.TryRefreshSnapshotNames();
 
         var now = DateTime.UtcNow;
         if (this.openRetainerId != retainerId)
@@ -131,7 +138,7 @@ public sealed unsafe class RetainerSnapshotService : IDisposable
                 return false;
         }
 
-        var name = retainer->NameString;
+        var name = ReadRetainerName(retainer);
         if (string.IsNullOrWhiteSpace(name))
             return false;
 
@@ -253,6 +260,78 @@ public sealed unsafe class RetainerSnapshotService : IDisposable
                 "Could not save retainer inventory data.",
                 exception);
         }
+    }
+
+    private void TryRefreshSnapshotNames()
+    {
+        this.nextNameRefreshAt = DateTime.UtcNow.AddSeconds(10);
+
+        var retainerManager = RetainerManager.Instance();
+        if (retainerManager is null)
+            return;
+
+        Dictionary<ulong, string> liveNames = [];
+        for (var i = 0; i < retainerManager->Retainers.Length; i++)
+        {
+            var retainer = retainerManager->Retainers[i];
+            if (retainer.RetainerId == 0)
+                continue;
+
+            var name = ReadRetainerName(&retainer);
+            if (string.IsNullOrWhiteSpace(name))
+                continue;
+
+            liveNames[retainer.RetainerId] = name;
+        }
+
+        if (liveNames.Count == 0)
+            return;
+
+        var changed = false;
+        lock (this.snapshotLock)
+        {
+            foreach (var snapshot in this.snapshots.Values)
+            {
+                if (!liveNames.TryGetValue(snapshot.RetainerId, out var liveName) ||
+                    string.Equals(snapshot.Name, liveName, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                snapshot.Name = liveName;
+                changed = true;
+            }
+
+            if (changed)
+                this.SaveLocked();
+        }
+
+        if (changed)
+        {
+            this.fileLog.Info(
+                "RetainerSnapshots",
+                "Refreshed stored retainer names from the live retainer list.");
+            this.SnapshotsChanged?.Invoke();
+        }
+    }
+
+    private static string ReadRetainerName(RetainerManager.Retainer* retainer)
+    {
+        if (retainer is null)
+            return string.Empty;
+
+        var rawName = retainer->Name;
+        var length = rawName.IndexOf((byte)0);
+        if (length < 0)
+            length = rawName.Length;
+
+        var name = length > 0
+            ? Encoding.UTF8.GetString(rawName[..length])
+            : string.Empty;
+        if (!string.IsNullOrWhiteSpace(name))
+            return name;
+
+        return retainer->NameString;
     }
 
     private static bool ItemsEqual(

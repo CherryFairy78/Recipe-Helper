@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Text;
 using Dalamud.Game.ClientState.Objects.Types;
 using Dalamud.Plugin.Ipc;
 using Dalamud.Plugin.Services;
@@ -250,6 +251,18 @@ public sealed unsafe class GwenDreamService : IDisposable
                 return;
 
             case DreamStep.WaitingForRetainerSelection:
+                if (this.TryGetOpenRetainerName(out var openRetainerName) &&
+                    openRetainerName.Equals(this.activeTarget.RetainerName, StringComparison.OrdinalIgnoreCase) &&
+                    !this.IsAddonVisible("RetainerList") &&
+                    (this.HasRetainerUiSignal() ||
+                     DateTime.UtcNow - this.stepStartedAt > TimeSpan.FromMilliseconds(750)))
+                {
+                    this.MoveToStep(
+                        DreamStep.WaitingForPromptOrMenu,
+                        $"Detected open retainer {this.activeTarget.RetainerName}. Waiting for the prompt or menu.");
+                    return;
+                }
+
                 if (this.IsAddonVisible("RetainerList"))
                 {
                     if (this.TrySelectRetainerFromList(this.activeTarget.RetainerName))
@@ -261,15 +274,26 @@ public sealed unsafe class GwenDreamService : IDisposable
                     }
 
                     this.TryLogRetainerListSelectionState(this.activeTarget.RetainerName);
+                    if (this.TryGetOpenRetainerName(out openRetainerName) &&
+                        openRetainerName.Equals(this.activeTarget.RetainerName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        this.UpdateStatus(
+                            $"Retainer list is still open for {this.activeTarget.RetainerName}. Waiting for selection to finish.",
+                            false);
+                        return;
+                    }
+
                     this.UpdateStatus(
                         $"Retainer list opened for {this.activeTarget.RetainerName}. Waiting for the retainer entry to become selectable.",
                         false);
                     return;
                 }
 
-                if (this.TryGetOpenRetainerName(out var openRetainerName) &&
+                if (this.TryGetOpenRetainerName(out openRetainerName) &&
                     openRetainerName.Equals(this.activeTarget.RetainerName, StringComparison.OrdinalIgnoreCase) &&
-                    this.HasRetainerUiSignal())
+                    !this.IsAddonVisible("RetainerList") &&
+                    (this.HasRetainerUiSignal() ||
+                     DateTime.UtcNow - this.stepStartedAt > TimeSpan.FromMilliseconds(750)))
                 {
                     this.MoveToStep(
                         DreamStep.WaitingForPromptOrMenu,
@@ -347,6 +371,15 @@ public sealed unsafe class GwenDreamService : IDisposable
 
                 if (this.IsAddonVisible("SelectString"))
                 {
+                    if (this.TrySelectSelectStringEntryByText("Entrust or withdraw items"))
+                    {
+                        this.UpdateStatus(
+                            $"Selecting 'Entrust or withdraw items' for {this.activeTarget.RetainerName}.",
+                            false);
+                        this.stepStartedAt = DateTime.UtcNow;
+                        return;
+                    }
+
                     if (this.TrySelectEntrustItemsViaAutoRetainer())
                     {
                         this.UpdateStatus(
@@ -816,6 +849,9 @@ public sealed unsafe class GwenDreamService : IDisposable
         if (DateTime.UtcNow < this.nextUiAdvanceAt)
             return false;
 
+        if (this.TrySelectRetainerViaAddonMaster(retainerName))
+            return true;
+
         if (this.TrySelectRetainerViaAutoRetainer(retainerName))
         {
             this.nextUiAdvanceAt = DateTime.UtcNow.AddMilliseconds(1000);
@@ -870,8 +906,64 @@ public sealed unsafe class GwenDreamService : IDisposable
         return true;
     }
 
+    private bool TrySelectRetainerViaAddonMaster(string retainerName)
+    {
+        try
+        {
+            var addon = this.gameGui.GetAddonByName("RetainerList", 1);
+            if (addon.Address == IntPtr.Zero)
+                return false;
+
+            var assembly = AppDomain.CurrentDomain
+                .GetAssemblies()
+                .FirstOrDefault(candidate => string.Equals(
+                    candidate.GetName().Name,
+                    "ECommons",
+                    StringComparison.OrdinalIgnoreCase));
+            if (assembly is null)
+                return false;
+
+            var type = assembly.GetType("ECommons.UIHelpers.AddonMasterImplementations.AddonMaster+RetainerList", false);
+            if (type is null)
+                return false;
+
+            var instance = Activator.CreateInstance(type, addon.Address);
+            var entries = type.GetProperty("Retainers")?.GetValue(instance) as System.Collections.IEnumerable;
+            if (entries is null)
+                return false;
+
+            foreach (var entry in entries)
+            {
+                var name = entry?.GetType().GetProperty("Name")?.GetValue(entry)?.ToString();
+                if (!IsRetainerListNameMatch(NormalizeRetainerListText(name ?? string.Empty), NormalizeRetainerListText(retainerName)))
+                    continue;
+
+                var selectMethod = entry!.GetType().GetMethod("Select", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                if (selectMethod is null)
+                    return false;
+
+                selectMethod.Invoke(entry, null);
+                this.retainerSelectAttempt++;
+                this.nextUiAdvanceAt = DateTime.UtcNow.AddMilliseconds(RetainerSelectDelayMs);
+                this.fileLog.Info(
+                    "Dream",
+                    $"Selected retainer '{retainerName}' via AddonMaster (attempt {this.retainerSelectAttempt}).");
+                return true;
+            }
+        }
+        catch (Exception exception)
+        {
+            this.fileLog.Warning("Dream", $"Direct retainer selection via AddonMaster failed: {exception.Message}");
+        }
+
+        return false;
+    }
+
     private bool TrySelectRetainerViaAutoRetainer(string retainerName)
     {
+        if (DateTime.UtcNow < this.nextUiAdvanceAt)
+            return false;
+
         try
         {
             var assembly = AppDomain.CurrentDomain
@@ -898,12 +990,16 @@ public sealed unsafe class GwenDreamService : IDisposable
 
             if (succeeded)
             {
+                this.nextUiAdvanceAt = DateTime.UtcNow.AddMilliseconds(RetainerSelectDelayMs);
                 this.fileLog.Info("Dream", $"AutoRetainer selected retainer '{retainerName}'.");
                 return true;
             }
+
+            this.nextUiAdvanceAt = DateTime.UtcNow.AddMilliseconds(250);
         }
         catch (Exception exception)
         {
+            this.nextUiAdvanceAt = DateTime.UtcNow.AddMilliseconds(750);
             this.fileLog.Warning("Dream", $"AutoRetainer retainer selection failed: {exception.Message}");
         }
 
@@ -938,7 +1034,10 @@ public sealed unsafe class GwenDreamService : IDisposable
                 (result is bool booleanResult && booleanResult) ||
                 string.Equals(result?.ToString(), "True", StringComparison.OrdinalIgnoreCase);
             if (!succeeded)
+            {
+                this.nextUiAdvanceAt = DateTime.UtcNow.AddMilliseconds(250);
                 return false;
+            }
 
             this.nextUiAdvanceAt = DateTime.UtcNow.AddMilliseconds(EntrustSelectDelayMs);
             this.fileLog.Info("Dream", "AutoRetainer selected 'Entrust or withdraw items'.");
@@ -946,6 +1045,7 @@ public sealed unsafe class GwenDreamService : IDisposable
         }
         catch (Exception exception)
         {
+            this.nextUiAdvanceAt = DateTime.UtcNow.AddMilliseconds(750);
             this.fileLog.Warning("Dream", $"AutoRetainer entrust-item selection failed: {exception.Message}");
             return false;
         }
@@ -1702,6 +1802,12 @@ public sealed unsafe class GwenDreamService : IDisposable
         if (!string.IsNullOrWhiteSpace(agentMatch.Name))
             return agentMatch.Index;
 
+        var displayEntries = this.GetRetainerDisplayOrderEntries();
+        var displayMatch = displayEntries.FirstOrDefault(
+            entry => IsRetainerListNameMatch(entry.Name, normalizedTarget));
+        if (!string.IsNullOrWhiteSpace(displayMatch.Name))
+            return displayMatch.Index;
+
         var knownRetainerNames = this.inventoryService.GetStoredRetainers()
             .Select(retainer => NormalizeRetainerListText(retainer.Name))
             .Where(name => !string.IsNullOrWhiteSpace(name))
@@ -1744,9 +1850,6 @@ public sealed unsafe class GwenDreamService : IDisposable
         if (unitBase is null || !unitBase->IsVisible)
             return false;
 
-        if (unitBase->UldManager.NodeListCount == 0)
-            return false;
-
         return this.FindRetainerListIndex(unitBase, retainerName) is not null;
     }
 
@@ -1779,6 +1882,10 @@ public sealed unsafe class GwenDreamService : IDisposable
         var agentEntries = this.GetAgentRetainerListEntries();
         if (agentEntries.Count > 0)
             return agentEntries;
+
+        var displayEntries = this.GetRetainerDisplayOrderEntries();
+        if (displayEntries.Count > 0)
+            return displayEntries;
 
         var entries = new List<(int Index, string Name)>();
         var knownRetainerNames = this.inventoryService.GetStoredRetainers()
@@ -1818,6 +1925,37 @@ public sealed unsafe class GwenDreamService : IDisposable
         return entries;
     }
 
+    private List<(int Index, string Name)> GetRetainerDisplayOrderEntries()
+    {
+        var retainerManager = RetainerManager.Instance();
+        if (retainerManager is null)
+            return [];
+
+        var entries = new List<(int Index, string Name)>();
+        for (var i = 0; i < retainerManager->Retainers.Length; i++)
+        {
+            var retainer = retainerManager->Retainers[i];
+            if (retainer.RetainerId == 0)
+                continue;
+
+            var name = NormalizeRetainerListText(ReadRetainerName(&retainer));
+            if (string.IsNullOrWhiteSpace(name))
+                continue;
+
+            var displayIndex = retainerManager->DisplayOrder.IndexOf((byte)i);
+            if (displayIndex < 0)
+                continue;
+
+            if (entries.Any(entry => entry.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
+                continue;
+
+            entries.Add((displayIndex, name));
+        }
+
+        entries.Sort((left, right) => left.Index.CompareTo(right.Index));
+        return entries;
+    }
+
     private List<(int Index, string Name)> GetAgentRetainerListEntries()
     {
         var uiModule = Framework.Instance()->UIModule;
@@ -1843,7 +1981,7 @@ public sealed unsafe class GwenDreamService : IDisposable
             if (retainer is null || retainer->RetainerId == 0)
                 continue;
 
-            var name = NormalizeRetainerListText(retainer->NameString);
+            var name = NormalizeRetainerListText(ReadRetainerName(retainer));
             if (string.IsNullOrWhiteSpace(name))
                 continue;
 
@@ -1878,6 +2016,25 @@ public sealed unsafe class GwenDreamService : IDisposable
             .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .FirstOrDefault();
         return firstLine ?? cleanText;
+    }
+
+    private static string ReadRetainerName(RetainerManager.Retainer* retainer)
+    {
+        if (retainer is null)
+            return string.Empty;
+
+        var rawName = retainer->Name;
+        var length = rawName.IndexOf((byte)0);
+        if (length < 0)
+            length = rawName.Length;
+
+        var name = length > 0
+            ? Encoding.UTF8.GetString(rawName[..length])
+            : string.Empty;
+        if (!string.IsNullOrWhiteSpace(name))
+            return name;
+
+        return retainer->NameString;
     }
 
     private static bool LooksLikeRetainerListEntry(string text) =>
@@ -2145,7 +2302,7 @@ public sealed unsafe class GwenDreamService : IDisposable
         if (retainer is null || retainer->RetainerId == 0)
             return false;
 
-        var name = retainer->NameString;
+        var name = ReadRetainerName(retainer);
         if (string.IsNullOrWhiteSpace(name))
             return false;
 
