@@ -7,22 +7,24 @@ This file is the durable hand-off record for Recipe Helper. Read it before makin
 - Last updated: 2026-07-10
 - Plugin name: Recipe Helper
 - Internal name: `DalamudRecipeHelper`
-- Version: `1.1.34.0`
+- Version: `1.1.35.0`
 - Framework: Dalamud API 15
 - Target: `.NET 10` on Windows x64
 - Command: `/recipehelper`
 - Build command: `dotnet build .\DalamudRecipeHelper.csproj --no-restore`
 - Debug output: `bin\Debug\DalamudRecipeHelper.dll`
-- Last verified build: 2026-07-10, Debug and Release builds succeeded with zero warnings and zero errors, and `releases/DalamudRecipeHelper-v1.1.34.zip` was created from the verified Release output
+- Last verified build: 2026-07-10, sequential Debug and Release builds both succeeded with zero warnings and zero errors, the release safety script moved the local dev-plugin copy to `C:\Users\megha\AppData\Roaming\XIVLauncher\backups\RecipeHelper\20260710-221004`, and `releases\DalamudRecipeHelper-v1.1.35.zip` was created from the verified Release output with SHA-256 `9EAAF3FCA445E51CA31BA36D68B0F4E44901D89272675793EBAAFB88BBB72DB4`
 
 ## Recent release
 
-- Version: `1.1.34.0`
-- Fixed Gwen's Dream retainer targeting so saved retainer snapshots now keep the real retainer names instead of generic placeholders.
-- Fixed Gwen's Dream retainer-list automation so it can resolve the correct retainer row, use the direct AddonMaster selector, and continue when the target retainer is already active.
-- Fixed Gwen's Dream menu automation so `Entrust or withdraw items.` is selected directly from the retainer menu instead of stalling on the prompt.
-- Restored real retainer names in the debug report to make Dream troubleshooting easier.
-- Verification: Debug and Release builds succeeded with zero warnings and zero errors, and `releases/DalamudRecipeHelper-v1.1.34.zip` was created from the verified Release output.
+- Version: `1.1.35.0`
+- Added inline recipe and gatherable level labels so search results show the crafting or gathering level next to the job abbreviation.
+- Added richer unlock hover details for gatherables and collectables, including folklore books, required tools or items when exposed by game data, and master recipe books for crafted recipes.
+- Added FSH support for level and folklore display where fishing data exposes those links.
+- Replaced marketboard hovers for recognized Ishgard Restoration items with Restoration-specific tooltip content, including phase and Skybuilders' Scrip reward information.
+- Filtered deprecated Skybuilders items that no longer map to live Restoration data out of search results.
+- Updated the live repo manifest metadata and release package target to `v1.1.35` for publish readiness.
+- Verification: sequential Debug and Release builds both succeeded with zero warnings and zero errors, the release safety script moved the local dev-plugin copy to `C:\Users\megha\AppData\Roaming\XIVLauncher\backups\RecipeHelper\20260710-221004`, and `releases\DalamudRecipeHelper-v1.1.35.zip` was created from the verified Release output with SHA-256 `9EAAF3FCA445E51CA31BA36D68B0F4E44901D89272675793EBAAFB88BBB72DB4`.
 
 ## Purpose
 

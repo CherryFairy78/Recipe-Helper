@@ -11,7 +11,7 @@
     "recipe",
     "inventory"
   ],
-  "Changelog": "v1.1.34 fixes Gwen's Dream retainer name matching, retainer list selection, and automatic entrust-menu handoff.",
+  "Changelog": "v1.1.35 adds richer gatherable and recipe unlock details, Restoration-specific hover info, and filters deprecated Skybuilders items from search.",
   "InternalName": "DalamudRecipeHelper",
-  "AssemblyVersion": "1.1.34.0"
+  "AssemblyVersion": "1.1.35.0"
 }

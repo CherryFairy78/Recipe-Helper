@@ -207,7 +207,9 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
                     MaterialUsageTooltip.Draw(
                         this.marketboardPriceService,
                         this.configuration,
-                        material);
+                        material.ItemId,
+                        material.Name,
+                        specialContentTooltipInfo: this.recipeService.GetSpecialContentTooltipInfo(material.ItemId));
 
                 ImGui.TableNextColumn();
                 this.DrawValueCard(

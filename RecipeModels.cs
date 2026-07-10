@@ -114,6 +114,21 @@ public sealed record CollectibleRewardInfo(
         Math.Min((ulong)reward * quantity, uint.MaxValue).ToString();
 }
 
+public sealed record FolkloreBookInfo(
+    string BookName,
+    string ExchangeName,
+    string CostLabel);
+
+public sealed record MasterRecipeBookInfo(string BookName);
+
+public sealed record RequiredItemInfo(
+    string ItemName,
+    bool IsTool);
+
+public sealed record SpecialContentTooltipInfo(
+    string Subtitle,
+    IReadOnlyList<string> Lines);
+
 public sealed record StoredRetainerItem(uint NqQuantity, uint HqQuantity);
 
 public sealed record StoredRetainerInventory(

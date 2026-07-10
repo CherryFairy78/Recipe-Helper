@@ -1,8 +1,8 @@
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
-    <Version>1.1.34.0</Version>
+    <Version>1.1.35.0</Version>
     <Description>Plan multiple FFXIV recipes, compare combined materials with inventory and retainers, and hand crafting or gathering tasks to Artisan, Teamcraft, and GatherBuddy.</Description>
-    <Changelog>v1.1.34 fixes Gwen's Dream retainer name matching, retainer list selection, and automatic entrust-menu handoff.</Changelog>
+    <Changelog>v1.1.35 adds richer gatherable and recipe unlock details, Restoration-specific hover info, and filters deprecated Skybuilders items from search.</Changelog>
     <PackageProjectUrl>https://github.com/CherryFairy78/Recipe-Helper</PackageProjectUrl>
     <Authors>Meghann</Authors>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>

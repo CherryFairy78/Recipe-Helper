@@ -466,7 +466,11 @@ public sealed class RecipeWindow : Window, IDisposable
                     var rewardInfo = this.recipeService.GetCollectibleRewardInfo(result.ResultItemId);
                     if (rewardInfo is not null)
                     {
-                        this.DrawCollectibleRewardTooltip(result.ResultName, rewardInfo, 1);
+                        this.DrawCollectibleRewardTooltip(
+                            result.ResultName,
+                            rewardInfo,
+                            this.GetSearchResultUnlockTooltipLines(result),
+                            1);
                     }
                     else
                     {
@@ -475,7 +479,9 @@ public sealed class RecipeWindow : Window, IDisposable
                             this.configuration,
                             result.ResultItemId,
                             result.ResultName,
-                            this.GetSearchResultTooltip(result));
+                            this.GetSearchResultTooltip(result),
+                            detailLines: this.GetSearchResultUnlockTooltipLines(result),
+                            specialContentTooltipInfo: this.GetSpecialContentTooltipInfo(result.ResultItemId));
                     }
 
                     ImGui.PopID();
@@ -887,6 +893,74 @@ public sealed class RecipeWindow : Window, IDisposable
             _ => string.Empty,
         };
 
+    private IReadOnlyList<string> GetSearchResultUnlockTooltipLines(RecipeMatch result) =>
+        result.ResultKind switch
+        {
+            SearchResultKind.CraftedRecipe => this.BuildUnlockTooltipLines(
+                masterRecipeBookInfo: this.recipeService.GetMasterRecipeBookInfo(result.RecipeId)),
+            SearchResultKind.CollectibleItem or SearchResultKind.GatherableItem => this.BuildUnlockTooltipLines(
+                folkloreBookInfo: this.recipeService.GetFolkloreBookInfo(result.ResultItemId),
+                requiredItemInfo: this.recipeService.GetRequiredItemInfo(result.ResultItemId)),
+            _ => [],
+        };
+
+    private IReadOnlyList<string> GetItemUnlockTooltipLines(uint itemId) =>
+        this.BuildUnlockTooltipLines(
+            folkloreBookInfo: this.recipeService.GetFolkloreBookInfo(itemId),
+            requiredItemInfo: this.recipeService.GetRequiredItemInfo(itemId));
+
+    private IReadOnlyList<string> GetRecipeUnlockTooltipLines(uint recipeId) =>
+        this.BuildUnlockTooltipLines(
+            masterRecipeBookInfo: this.recipeService.GetMasterRecipeBookInfo(recipeId));
+
+    private SpecialContentTooltipInfo? GetSpecialContentTooltipInfo(uint itemId) =>
+        this.recipeService.GetSpecialContentTooltipInfo(itemId);
+
+    private IReadOnlyList<string> BuildUnlockTooltipLines(
+        FolkloreBookInfo? folkloreBookInfo = null,
+        MasterRecipeBookInfo? masterRecipeBookInfo = null,
+        RequiredItemInfo? requiredItemInfo = null)
+    {
+        var lines = new List<string>();
+        if (masterRecipeBookInfo is not null)
+        {
+            lines.Add("Master recipe unlock");
+            lines.Add($"Book: {masterRecipeBookInfo.BookName}");
+        }
+
+        if (folkloreBookInfo is not null)
+        {
+            lines.Add("Folklore unlock");
+            lines.Add($"Book: {folkloreBookInfo.BookName}");
+            lines.Add($"Sold by: {folkloreBookInfo.ExchangeName}");
+            lines.Add($"Cost: {folkloreBookInfo.CostLabel}");
+        }
+
+        if (requiredItemInfo is not null)
+        {
+            lines.Add(requiredItemInfo.IsTool
+                ? "Requires tool"
+                : "Requires item");
+            lines.Add(requiredItemInfo.ItemName);
+        }
+
+        return lines;
+    }
+
+    private string GetSearchResultJobLabel(RecipeMatch result) =>
+        result.ResultKind switch
+        {
+            SearchResultKind.CraftedRecipe =>
+                this.recipeService.GetRecipeJobDisplayLabel(
+                    result.RecipeId,
+                    result.JobAbbreviations),
+            SearchResultKind.CollectibleItem or SearchResultKind.GatherableItem =>
+                this.recipeService.GetGatheringJobDisplayLabel(
+                    result.ResultItemId,
+                    result.JobAbbreviations),
+            _ => result.JobAbbreviations,
+        };
+
     private void ClearSearch()
     {
         this.searchText = string.Empty;
@@ -950,11 +1024,12 @@ public sealed class RecipeWindow : Window, IDisposable
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-    private static string BuildSearchResultSubtitle(RecipeMatch result, string label)
+    private string BuildSearchResultSubtitle(RecipeMatch result, string label)
     {
         var parts = new List<string>();
-        if (!string.IsNullOrWhiteSpace(result.JobAbbreviations))
-            parts.Add(result.JobAbbreviations);
+        var jobLabel = this.GetSearchResultJobLabel(result);
+        if (!string.IsNullOrWhiteSpace(jobLabel))
+            parts.Add(jobLabel);
         if (!string.IsNullOrWhiteSpace(result.SearchMetadata))
             parts.Add(result.SearchMetadata);
         if (!string.IsNullOrWhiteSpace(label))
@@ -1571,12 +1646,19 @@ public sealed class RecipeWindow : Window, IDisposable
                     rowColor,
                     this.configuration.TextColor);
                 if (showHandInValue && row.RewardInfo is { } itemRewardInfo)
-                    this.DrawCollectibleRewardTooltip(ingredient.Name, itemRewardInfo, row.DisplayQuantity);
+                    this.DrawCollectibleRewardTooltip(
+                        ingredient.Name,
+                        itemRewardInfo,
+                        this.GetItemUnlockTooltipLines(ingredient.ItemId),
+                        row.DisplayQuantity);
                 else
                     MaterialUsageTooltip.Draw(
                         this.marketboardPriceService,
                         this.configuration,
-                        ingredient);
+                        ingredient.ItemId,
+                        ingredient.Name,
+                        detailLines: this.GetItemUnlockTooltipLines(ingredient.ItemId),
+                        specialContentTooltipInfo: this.GetSpecialContentTooltipInfo(ingredient.ItemId));
 
                 ImGui.TableNextColumn();
                 var quantityCursor = ImGui.GetCursorPos();
@@ -1782,8 +1864,9 @@ public sealed class RecipeWindow : Window, IDisposable
     private string BuildSupplementalItemSubtitle(RecipeMatch item, string source)
     {
         var parts = new List<string>();
-        if (!string.IsNullOrWhiteSpace(item.JobAbbreviations))
-            parts.Add(item.JobAbbreviations);
+        var jobLabel = this.GetSearchResultJobLabel(item);
+        if (!string.IsNullOrWhiteSpace(jobLabel))
+            parts.Add(jobLabel);
         if (item.ResultKind == SearchResultKind.CollectibleItem)
             source = RemoveSourceLabel(source, "Vendor");
         if (!string.IsNullOrWhiteSpace(source))
@@ -1812,6 +1895,7 @@ public sealed class RecipeWindow : Window, IDisposable
     private void DrawCollectibleRewardTooltip(
         string itemName,
         CollectibleRewardInfo rewardInfo,
+        IReadOnlyList<string>? unlockTooltipLines,
         uint quantity,
         bool showTotalValue = false)
     {
@@ -1832,6 +1916,18 @@ public sealed class RecipeWindow : Window, IDisposable
         {
             ImGui.TextUnformatted(rewardInfo.GetTooltipText());
         }
+
+        if (unlockTooltipLines is { Count: > 0 })
+        {
+            var detailColor = WindowTheme.GetTooltipDetailTextColor(this.configuration);
+            ImGui.Spacing();
+            ImGui.Separator();
+            ImGui.PushTextWrapPos(ImGui.GetFontSize() * 28f);
+            foreach (var unlockTooltipLine in unlockTooltipLines.Where(line => !string.IsNullOrWhiteSpace(line)))
+                ImGui.TextColored(detailColor, unlockTooltipLine);
+            ImGui.PopTextWrapPos();
+        }
+
         ImGui.EndTooltip();
     }
 
@@ -3153,6 +3249,7 @@ public sealed class RecipeWindow : Window, IDisposable
                     this.DrawCollectibleRewardTooltip(
                         recipe.ResultName,
                         collectableRewardInfo,
+                        this.GetRecipeUnlockTooltipLines(recipe.RecipeId),
                         recipe.DesiredAmount,
                         showTotalValue: true);
                 }
@@ -3163,7 +3260,9 @@ public sealed class RecipeWindow : Window, IDisposable
                         this.configuration,
                         recipe.ResultItemId,
                         recipe.ResultName,
-                        quantity: recipe.DesiredAmount);
+                        quantity: recipe.DesiredAmount,
+                        detailLines: this.GetRecipeUnlockTooltipLines(recipe.RecipeId),
+                        specialContentTooltipInfo: this.GetSpecialContentTooltipInfo(recipe.ResultItemId));
                 }
 
                 ImGui.TableNextColumn();
@@ -3488,7 +3587,10 @@ public sealed class RecipeWindow : Window, IDisposable
                 MaterialUsageTooltip.Draw(
                     this.marketboardPriceService,
                     this.configuration,
-                    ingredient);
+                    ingredient.ItemId,
+                    ingredient.Name,
+                    detailLines: this.GetItemUnlockTooltipLines(ingredient.ItemId),
+                    specialContentTooltipInfo: this.GetSpecialContentTooltipInfo(ingredient.ItemId));
 
                 ImGui.TableNextColumn();
                 var needBackground = ingredient.HasEnough

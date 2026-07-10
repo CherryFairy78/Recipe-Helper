@@ -63,6 +63,19 @@ public static class WindowTheme
     public static float GetTextScale(Configuration configuration) =>
         GetTextScalePercent(configuration) / 100f;
 
+    public static Vector4 GetTooltipDetailTextColor(Configuration configuration)
+    {
+        var popupBackground = Adjust(configuration.WindowBackgroundColor, 0.025f, 0.98f);
+        var luminance = (popupBackground.X * 0.2126f) +
+                        (popupBackground.Y * 0.7152f) +
+                        (popupBackground.Z * 0.0722f);
+        var contrastTarget = luminance >= 0.55f
+            ? new Vector4(0.10f, 0.20f, 0.34f, 1f)
+            : new Vector4(0.88f, 0.95f, 1f, 1f);
+        var accentBase = Blend(configuration.AccentTextColor, configuration.TextColor, 0.15f);
+        return Blend(accentBase, contrastTarget, 0.40f);
+    }
+
     public static void Pop() => ImGui.PopStyleColor(PushedColorCount);
 
     public static void PushButtonStyle(Configuration configuration, float scale = 1f)
@@ -105,6 +118,13 @@ public static class WindowTheme
             Math.Clamp(color.Y + amount, 0, 1),
             Math.Clamp(color.Z + amount, 0, 1),
             alpha);
+
+    private static Vector4 Blend(Vector4 from, Vector4 to, float amount) =>
+        new(
+            from.X + ((to.X - from.X) * amount),
+            from.Y + ((to.Y - from.Y) * amount),
+            from.Z + ((to.Z - from.Z) * amount),
+            from.W + ((to.W - from.W) * amount));
 
     private static Vector4 WithAlpha(Vector4 color, float alpha) =>
         new(color.X, color.Y, color.Z, alpha);

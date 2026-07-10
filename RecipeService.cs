@@ -46,8 +46,15 @@ public sealed class RecipeService
     private HashSet<uint>? gatherableItemIds;
     private HashSet<uint>? fishingItemIds;
     private HashSet<uint>? vendorItemIds;
+    private HashSet<uint>? excludedSearchItemIds;
     private IReadOnlyDictionary<uint, string>? gatherableJobsByItemId;
+    private IReadOnlyDictionary<uint, IReadOnlyList<uint>>? gatheringLevelsByItemId;
+    private IReadOnlyDictionary<uint, uint>? recipeLevelsByRecipeId;
     private IReadOnlyDictionary<uint, CollectibleRewardInfo>? collectibleRewardsByItemId;
+    private IReadOnlyDictionary<uint, FolkloreBookInfo>? folkloreBookInfoByItemId;
+    private IReadOnlyDictionary<uint, RequiredItemInfo>? requiredItemsByItemId;
+    private IReadOnlyDictionary<uint, SpecialContentTooltipInfo>? specialContentTooltipInfoByItemId;
+    private IReadOnlyDictionary<uint, MasterRecipeBookInfo>? masterRecipeBookInfoByRecipeId;
     private IReadOnlyDictionary<uint, IReadOnlyList<MaterialRecipeUsage>>? recipesByIngredient;
     private IReadOnlyList<RecipeMatch>? browseAllSearchResults;
 
@@ -294,6 +301,64 @@ public sealed class RecipeService
         this.EnsureItemSources();
         return this.collectibleRewardsByItemId!.TryGetValue(itemId, out var rewardInfo)
             ? rewardInfo
+            : null;
+    }
+
+    public FolkloreBookInfo? GetFolkloreBookInfo(uint itemId)
+    {
+        this.EnsureItemSources();
+        return this.folkloreBookInfoByItemId!.TryGetValue(itemId, out var folkloreBookInfo)
+            ? folkloreBookInfo
+            : null;
+    }
+
+    public string GetGatheringJobDisplayLabel(uint itemId, string defaultJobAbbreviations)
+    {
+        this.EnsureItemSources();
+        if (!this.gatheringLevelsByItemId!.TryGetValue(itemId, out var levels) || levels.Count == 0)
+            return defaultJobAbbreviations;
+
+        var levelLabel = levels.Count == 1
+            ? $"Lv {levels[0]}"
+            : $"Lv {string.Join("/", levels)}";
+        return string.IsNullOrWhiteSpace(defaultJobAbbreviations)
+            ? levelLabel
+            : $"{defaultJobAbbreviations} {levelLabel}";
+    }
+
+    public RequiredItemInfo? GetRequiredItemInfo(uint itemId)
+    {
+        this.EnsureItemSources();
+        return this.requiredItemsByItemId!.TryGetValue(itemId, out var requiredItemInfo)
+            ? requiredItemInfo
+            : null;
+    }
+
+    public SpecialContentTooltipInfo? GetSpecialContentTooltipInfo(uint itemId)
+    {
+        this.EnsureItemSources();
+        return this.specialContentTooltipInfoByItemId!.TryGetValue(itemId, out var specialContentTooltipInfo)
+            ? specialContentTooltipInfo
+            : null;
+    }
+
+    public string GetRecipeJobDisplayLabel(uint recipeId, string defaultJobAbbreviations)
+    {
+        this.EnsureItemSources();
+        if (!this.recipeLevelsByRecipeId!.TryGetValue(recipeId, out var level) || level == 0)
+            return defaultJobAbbreviations;
+
+        var levelLabel = $"Lv {level}";
+        return string.IsNullOrWhiteSpace(defaultJobAbbreviations)
+            ? levelLabel
+            : $"{defaultJobAbbreviations} {levelLabel}";
+    }
+
+    public MasterRecipeBookInfo? GetMasterRecipeBookInfo(uint recipeId)
+    {
+        this.EnsureItemSources();
+        return this.masterRecipeBookInfoByRecipeId!.TryGetValue(recipeId, out var masterRecipeBookInfo)
+            ? masterRecipeBookInfo
             : null;
     }
 
@@ -1284,6 +1349,9 @@ public sealed class RecipeService
         var gatheringPoints = this.dataManager.GetExcelSheet<GatheringPoint>();
         var gatheringItemPoints = this.dataManager.GetSubrowExcelSheet<GatheringItemPoint>();
         var items = this.dataManager.GetExcelSheet<Item>();
+        var specialShops = this.dataManager.GetExcelSheet<SpecialShop>();
+        var fishParameters = this.dataManager.GetExcelSheet<FishParameter>();
+        var spearfishingItems = this.dataManager.GetExcelSheet<SpearfishingItem>();
 
         this.craftableItemIds = recipes?
             .Select(recipe => this.ReadItemId(recipe, "ItemResult"))
@@ -1317,13 +1385,35 @@ public sealed class RecipeService
             gatheringPoints,
             gatheringItemPoints,
             this.fishingItemIds);
+        this.gatheringLevelsByItemId = BuildGatheringLevelsByItemId(
+            gatheringItems,
+            gatheringItemPoints,
+            fishParameters,
+            spearfishingItems);
+        this.recipeLevelsByRecipeId = BuildRecipeLevelsByRecipeId(recipes);
         this.collectibleRewardsByItemId = BuildCollectibleRewardLabelsByItemId(
             this.dataManager.GetSubrowExcelSheet<CollectablesShopItem>(),
             this.gatherableItemIds);
+        this.folkloreBookInfoByItemId = BuildFolkloreBookInfoByItemId(
+            gatheringItems,
+            gatheringItemPoints,
+            fishParameters,
+            specialShops);
+        this.requiredItemsByItemId = BuildRequiredItemsByItemId(
+            gatheringItems,
+            gatheringItemPoints,
+            items);
+        this.specialContentTooltipInfoByItemId = BuildSpecialContentTooltipInfoByItemId(
+            this.dataManager.GetExcelSheet<HWDCrafterSupply>(),
+            this.dataManager.GetExcelSheet<HWDGathererInspection>());
+        this.excludedSearchItemIds = BuildExcludedSearchItemIds(
+            items,
+            this.specialContentTooltipInfoByItemId);
+        this.masterRecipeBookInfoByRecipeId = BuildMasterRecipeBookInfoByRecipeId(recipes);
 
         this.fileLog.Info(
             "Recipes",
-            $"Loaded source indexes: {this.craftableItemIds.Count} craftable, {this.gatherableItemIds.Count} gatherable, {this.fishingItemIds.Count} fishing, {this.vendorItemIds.Count} vendor, {this.collectibleRewardsByItemId.Count} collectible reward entries.");
+            $"Loaded source indexes: {this.craftableItemIds.Count} craftable, {this.gatherableItemIds.Count} gatherable, {this.fishingItemIds.Count} fishing, {this.vendorItemIds.Count} vendor, {this.collectibleRewardsByItemId.Count} collectible reward entries, {this.folkloreBookInfoByItemId.Count} folklore mappings, {this.requiredItemsByItemId.Count} required-item mappings, {this.specialContentTooltipInfoByItemId.Count} special-content mappings, {this.masterRecipeBookInfoByRecipeId.Count} master recipe mappings, {this.gatheringLevelsByItemId.Count} gathering level mappings, {this.recipeLevelsByRecipeId.Count} recipe level mappings, {this.excludedSearchItemIds.Count} excluded search items.");
     }
 
     private IReadOnlyList<(uint ItemId, uint Amount)> ReadIngredients(Recipe recipe)
@@ -1367,7 +1457,7 @@ public sealed class RecipeService
     private RecipeMatch? TryCreateMatch(Recipe recipe)
     {
         var resultItemId = this.ReadItemId(recipe, "ItemResult");
-        if (resultItemId == 0)
+        if (resultItemId == 0 || !this.IsSearchVisible(resultItemId))
             return null;
 
         var resultName = this.GetItemName(resultItemId);
@@ -1475,8 +1565,9 @@ public sealed class RecipeService
     }
 
     private bool IsSupplementalSearchItem(uint itemId) =>
-        this.collectibleRewardsByItemId!.ContainsKey(itemId) ||
-        this.gatherableItemIds!.Contains(itemId);
+        this.IsSearchVisible(itemId) &&
+        (this.collectibleRewardsByItemId!.ContainsKey(itemId) ||
+         this.gatherableItemIds!.Contains(itemId));
 
     private RecipeMatch CreateSupplementalMatch(Item item)
     {
@@ -1594,6 +1685,118 @@ public sealed class RecipeService
                 pair.Value.OrderBy(static job => job)));
     }
 
+    private static IReadOnlyDictionary<uint, IReadOnlyList<uint>> BuildGatheringLevelsByItemId(
+        ExcelSheet<GatheringItem>? gatheringItems,
+        SubrowExcelSheet<GatheringItemPoint>? gatheringItemPoints,
+        ExcelSheet<FishParameter>? fishParameters,
+        ExcelSheet<SpearfishingItem>? spearfishingItems)
+    {
+        if (gatheringItems is null && fishParameters is null && spearfishingItems is null)
+            return new Dictionary<uint, IReadOnlyList<uint>>();
+
+        var itemIdsByGatheringItemRowId = gatheringItems is null
+            ? new Dictionary<uint, uint>()
+            : gatheringItems
+                .Where(item => item.RowId != 0 && item.Item.RowId != 0)
+                .ToDictionary(item => item.RowId, item => item.Item.RowId);
+        var levelsByItemId = new Dictionary<uint, HashSet<uint>>();
+
+        foreach (var gatheringItem in gatheringItems?.Where(item => item.RowId != 0 && item.Item.RowId != 0) ?? [])
+        {
+            try
+            {
+                var itemLevel = gatheringItem.GatheringItemLevel.Value.GatheringItemLevel;
+                if (itemLevel > 0)
+                    AddGatheringLevel(levelsByItemId, gatheringItem.Item.RowId, itemLevel);
+            }
+            catch (InvalidOperationException)
+            {
+            }
+        }
+
+        if (gatheringItemPoints is not null)
+        {
+            foreach (var row in gatheringItemPoints.SelectMany(rows => rows))
+            {
+                if (!itemIdsByGatheringItemRowId.TryGetValue(row.RowId, out var itemId))
+                    continue;
+
+                try
+                {
+                    var gatheringLevel = row.GatheringPoint.Value.GatheringPointBase.Value.GatheringLevel;
+                    if (gatheringLevel > 0)
+                        AddGatheringLevel(levelsByItemId, itemId, gatheringLevel);
+                }
+                catch (InvalidOperationException)
+                {
+                }
+            }
+        }
+
+        foreach (var fishParameter in fishParameters?.Where(item => item.RowId != 0 && item.Item.RowId != 0) ?? [])
+        {
+            try
+            {
+                var itemLevel = fishParameter.GatheringItemLevel.Value.GatheringItemLevel;
+                if (itemLevel > 0)
+                    AddGatheringLevel(levelsByItemId, fishParameter.Item.RowId, itemLevel);
+            }
+            catch (InvalidOperationException)
+            {
+            }
+
+            try
+            {
+                var gatheringLevel = fishParameter.FishingSpot.Value.GatheringLevel;
+                if (gatheringLevel > 0)
+                    AddGatheringLevel(levelsByItemId, fishParameter.Item.RowId, gatheringLevel);
+            }
+            catch (InvalidOperationException)
+            {
+            }
+        }
+
+        foreach (var spearfishingItem in spearfishingItems?.Where(item => item.RowId != 0 && item.Item.RowId != 0) ?? [])
+        {
+            try
+            {
+                var itemLevel = spearfishingItem.GatheringItemLevel.Value.GatheringItemLevel;
+                if (itemLevel > 0)
+                    AddGatheringLevel(levelsByItemId, spearfishingItem.Item.RowId, itemLevel);
+            }
+            catch (InvalidOperationException)
+            {
+            }
+        }
+
+        return levelsByItemId.ToDictionary(
+            pair => pair.Key,
+            pair => (IReadOnlyList<uint>)pair.Value.OrderBy(level => level).ToList());
+    }
+
+    private static IReadOnlyDictionary<uint, uint> BuildRecipeLevelsByRecipeId(
+        ExcelSheet<Recipe>? recipes)
+    {
+        if (recipes is null)
+            return new Dictionary<uint, uint>();
+
+        var recipeLevelsByRecipeId = new Dictionary<uint, uint>();
+        foreach (var recipe in recipes.Where(recipe => recipe.RowId != 0))
+        {
+            try
+            {
+                var level = recipe.RecipeLevelTable.Value.ClassJobLevel;
+                if (level > 0)
+                    recipeLevelsByRecipeId[recipe.RowId] = level;
+            }
+            catch (InvalidOperationException)
+            {
+            }
+        }
+
+        return recipeLevelsByRecipeId;
+    }
+
     private static string GetGatheringPointJob(GatheringPoint point)
     {
         try
@@ -1667,6 +1870,500 @@ public sealed class RecipeService
             rewardSheet.HighReward);
     }
 
+    private static IReadOnlyDictionary<uint, FolkloreBookInfo> BuildFolkloreBookInfoByItemId(
+        ExcelSheet<GatheringItem>? gatheringItems,
+        SubrowExcelSheet<GatheringItemPoint>? gatheringItemPoints,
+        ExcelSheet<FishParameter>? fishParameters,
+        ExcelSheet<SpecialShop>? specialShops)
+    {
+        if ((gatheringItems is null || gatheringItemPoints is null) && fishParameters is null)
+            return new Dictionary<uint, FolkloreBookInfo>();
+
+        var itemIdsByGatheringItemRowId = gatheringItems is null
+            ? new Dictionary<uint, uint>()
+            : gatheringItems
+                .Where(item => item.RowId != 0 && item.Item.RowId != 0)
+                .ToDictionary(item => item.RowId, item => item.Item.RowId);
+        var exchangeInfoByBookItemId = BuildFolkloreExchangeInfoByBookItemId(specialShops);
+        var folkloreByItemId = new Dictionary<uint, FolkloreBookInfo>();
+
+        foreach (var row in gatheringItemPoints?.SelectMany(rows => rows) ?? [])
+        {
+            if (!itemIdsByGatheringItemRowId.TryGetValue(row.RowId, out var itemId))
+                continue;
+
+            if (!TryGetFolkloreBookMapping(row, exchangeInfoByBookItemId, out var folkloreBookInfo))
+                continue;
+
+            folkloreByItemId[itemId] = folkloreBookInfo;
+        }
+
+        foreach (var fishParameter in fishParameters?.Where(item => item.RowId != 0 && item.Item.RowId != 0) ?? [])
+        {
+            if (!TryGetFolkloreBookMapping(
+                    fishParameter.Item.RowId,
+                    fishParameter.GatheringSubCategory,
+                    exchangeInfoByBookItemId,
+                    out var folkloreBookInfo))
+                continue;
+
+            folkloreByItemId[fishParameter.Item.RowId] = folkloreBookInfo;
+        }
+
+        return folkloreByItemId;
+    }
+
+    private static bool TryGetFolkloreBookMapping(
+        GatheringItemPoint row,
+        IReadOnlyDictionary<uint, (string ExchangeName, string CostLabel)> exchangeInfoByBookItemId,
+        out FolkloreBookInfo folkloreBookInfo)
+    {
+        folkloreBookInfo = null!;
+
+        try
+        {
+            var gatheringPoint = row.GatheringPoint.Value;
+            if (gatheringPoint.RowId == 0)
+                return false;
+
+            var subCategory = gatheringPoint.GatheringSubCategory.Value;
+            var bookItemId = subCategory.Item.RowId;
+            if (bookItemId == 0 ||
+                !exchangeInfoByBookItemId.TryGetValue(bookItemId, out var exchangeInfo))
+                return false;
+
+            var bookName = subCategory.FolkloreBook.ToString().Trim();
+            if (string.IsNullOrWhiteSpace(bookName))
+                bookName = subCategory.Item.Value.Name.ToString().Trim();
+            if (string.IsNullOrWhiteSpace(bookName))
+                return false;
+
+            folkloreBookInfo = new FolkloreBookInfo(
+                bookName,
+                exchangeInfo.ExchangeName,
+                exchangeInfo.CostLabel);
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryGetFolkloreBookMapping(
+        uint itemId,
+        Lumina.Excel.RowRef<GatheringSubCategory> gatheringSubCategoryRef,
+        IReadOnlyDictionary<uint, (string ExchangeName, string CostLabel)> exchangeInfoByBookItemId,
+        out FolkloreBookInfo folkloreBookInfo)
+    {
+        folkloreBookInfo = null!;
+
+        try
+        {
+            var subCategory = gatheringSubCategoryRef.Value;
+            var bookItemId = subCategory.Item.RowId;
+            if (itemId == 0 ||
+                bookItemId == 0 ||
+                !exchangeInfoByBookItemId.TryGetValue(bookItemId, out var exchangeInfo))
+                return false;
+
+            var bookName = subCategory.FolkloreBook.ToString().Trim();
+            if (string.IsNullOrWhiteSpace(bookName))
+                bookName = subCategory.Item.Value.Name.ToString().Trim();
+            if (string.IsNullOrWhiteSpace(bookName))
+                return false;
+
+            folkloreBookInfo = new FolkloreBookInfo(
+                bookName,
+                exchangeInfo.ExchangeName,
+                exchangeInfo.CostLabel);
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
+    private static IReadOnlyDictionary<uint, MasterRecipeBookInfo> BuildMasterRecipeBookInfoByRecipeId(
+        ExcelSheet<Recipe>? recipes)
+    {
+        if (recipes is null)
+            return new Dictionary<uint, MasterRecipeBookInfo>();
+
+        var masterRecipeBookInfoByRecipeId = new Dictionary<uint, MasterRecipeBookInfo>();
+        foreach (var recipe in recipes.Where(recipe => recipe.RowId != 0))
+        {
+            if (!TryGetMasterRecipeBookInfo(recipe, out var masterRecipeBookInfo))
+                continue;
+
+            masterRecipeBookInfoByRecipeId[recipe.RowId] = masterRecipeBookInfo;
+        }
+
+        return masterRecipeBookInfoByRecipeId;
+    }
+
+    private static bool TryGetMasterRecipeBookInfo(
+        Recipe recipe,
+        out MasterRecipeBookInfo masterRecipeBookInfo)
+    {
+        masterRecipeBookInfo = null!;
+
+        try
+        {
+            var secretRecipeBook = recipe.SecretRecipeBook.Value;
+            if (secretRecipeBook.RowId == 0)
+                return false;
+
+            var bookName = secretRecipeBook.Name.ToString().Trim();
+            if (string.IsNullOrWhiteSpace(bookName))
+                bookName = secretRecipeBook.Item.Value.Name.ToString().Trim();
+            if (string.IsNullOrWhiteSpace(bookName))
+                return false;
+
+            masterRecipeBookInfo = new MasterRecipeBookInfo(bookName);
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
+    private static IReadOnlyDictionary<uint, RequiredItemInfo> BuildRequiredItemsByItemId(
+        ExcelSheet<GatheringItem>? gatheringItems,
+        SubrowExcelSheet<GatheringItemPoint>? gatheringItemPoints,
+        ExcelSheet<Item>? items)
+    {
+        if (gatheringItems is null || gatheringItemPoints is null || items is null)
+            return new Dictionary<uint, RequiredItemInfo>();
+
+        var itemIdsByGatheringItemRowId = gatheringItems
+            .Where(item => item.RowId != 0 && item.Item.RowId != 0)
+            .ToDictionary(item => item.RowId, item => item.Item.RowId);
+        var itemsById = items
+            .Where(item => item.RowId != 0)
+            .ToDictionary(item => item.RowId);
+        var requiredItemsByItemId = new Dictionary<uint, RequiredItemInfo>();
+
+        foreach (var row in gatheringItemPoints.SelectMany(rows => rows))
+        {
+            if (!itemIdsByGatheringItemRowId.TryGetValue(row.RowId, out var itemId))
+                continue;
+
+            try
+            {
+                var gatheringPoint = row.GatheringPoint.Value;
+                if (gatheringPoint.RowId == 0)
+                    continue;
+
+                foreach (var bonusRef in gatheringPoint.GatheringPointBonus)
+                {
+                    if (bonusRef.RowId == 0)
+                        continue;
+
+                    var bonus = bonusRef.Value;
+                    if (bonus.Condition.RowId != 20 ||
+                        bonus.ConditionValue == 0 ||
+                        !itemsById.TryGetValue(bonus.ConditionValue, out var requiredItem))
+                        continue;
+
+                    var itemName = requiredItem.Name.ToString().Trim();
+                    if (string.IsNullOrWhiteSpace(itemName))
+                        continue;
+
+                    requiredItemsByItemId[itemId] = new RequiredItemInfo(
+                        itemName,
+                        IsToolItem(requiredItem));
+                }
+            }
+            catch (InvalidOperationException)
+            {
+            }
+        }
+
+        return requiredItemsByItemId;
+    }
+
+    private static IReadOnlyDictionary<uint, SpecialContentTooltipInfo> BuildSpecialContentTooltipInfoByItemId(
+        ExcelSheet<HWDCrafterSupply>? hwdCrafterSupply,
+        ExcelSheet<HWDGathererInspection>? hwdGathererInspection)
+    {
+        var tooltipInfoByItemId = new Dictionary<uint, SpecialContentTooltipInfo>();
+
+        if (hwdCrafterSupply is not null)
+        {
+            foreach (var row in hwdCrafterSupply)
+            {
+                foreach (var supply in row.HWDCrafterSupplyParams.Where(supply => supply.ItemTradeIn.RowId != 0))
+                {
+                    tooltipInfoByItemId[supply.ItemTradeIn.RowId] = new SpecialContentTooltipInfo(
+                        "Ishgardian Restoration",
+                        BuildCrafterRestorationLines(supply));
+                }
+            }
+        }
+
+        if (hwdGathererInspection is not null)
+        {
+            foreach (var row in hwdGathererInspection)
+            {
+                foreach (var inspection in row.HWDGathererInspectionData.Where(inspection => inspection.ItemReceived.RowId != 0))
+                {
+                    tooltipInfoByItemId[inspection.ItemReceived.RowId] = new SpecialContentTooltipInfo(
+                        "Ishgardian Restoration",
+                        BuildGathererRestorationLines(inspection));
+                }
+            }
+        }
+
+        return tooltipInfoByItemId;
+    }
+
+    private static IReadOnlyDictionary<uint, (string ExchangeName, string CostLabel)> BuildFolkloreExchangeInfoByBookItemId(
+        ExcelSheet<SpecialShop>? specialShops)
+    {
+        if (specialShops is null)
+            return new Dictionary<uint, (string ExchangeName, string CostLabel)>();
+
+        var exchangesByBookItemId = new Dictionary<uint, HashSet<string>>();
+        var costsByBookItemId = new Dictionary<uint, HashSet<string>>();
+        foreach (var shop in specialShops.Where(shop => shop.RowId != 0))
+        {
+            var shopName = shop.Name.ToString().Trim();
+            foreach (var entry in shop.Item)
+            {
+                var receiveItem = entry.ReceiveItems
+                    .Select(receive => receive.Item.RowId)
+                    .FirstOrDefault(itemId => itemId != 0);
+                if (receiveItem == 0)
+                    continue;
+
+                var costLabel = BuildSpecialShopCostLabel(shop, entry.ItemCosts);
+                if (string.IsNullOrWhiteSpace(costLabel))
+                    continue;
+
+                var exchangeName = string.IsNullOrWhiteSpace(shopName)
+                    ? "Scrip Exchange"
+                    : shopName;
+                AddValue(exchangesByBookItemId, receiveItem, exchangeName);
+                AddValue(costsByBookItemId, receiveItem, costLabel);
+            }
+        }
+
+        return exchangesByBookItemId.Keys.ToDictionary(
+            bookItemId => bookItemId,
+            bookItemId => (
+                string.Join(", ", exchangesByBookItemId[bookItemId].OrderBy(name => name)),
+                string.Join(", ", costsByBookItemId.GetValueOrDefault(bookItemId, []).OrderBy(name => name))));
+    }
+
+    private static void AddValue(
+        IDictionary<uint, HashSet<string>> valuesByItemId,
+        uint itemId,
+        string value)
+    {
+        if (!valuesByItemId.TryGetValue(itemId, out var values))
+        {
+            values = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            valuesByItemId[itemId] = values;
+        }
+
+        values.Add(value);
+    }
+
+    private static string BuildSpecialShopCostLabel(
+        SpecialShop shop,
+        Lumina.Excel.Collection<SpecialShop.ItemStruct.ItemCostsStruct> itemCosts)
+    {
+        foreach (var cost in itemCosts)
+        {
+            if (cost.CurrencyCost == 0)
+                continue;
+
+            var itemCostName = TryGetItemName(cost.ItemCost).Trim();
+            if (!string.IsNullOrWhiteSpace(itemCostName) &&
+                itemCostName.Contains("Scrip", StringComparison.OrdinalIgnoreCase))
+                return $"{cost.CurrencyCost:N0} {itemCostName}";
+
+            var inferredCurrencyName = InferSpecialShopCurrencyName(
+                shop.Name.ToString().Trim(),
+                cost.CostType);
+            if (!string.IsNullOrWhiteSpace(inferredCurrencyName))
+                return $"{cost.CurrencyCost:N0} {inferredCurrencyName}";
+
+            if (!string.IsNullOrWhiteSpace(itemCostName))
+                return $"{cost.CurrencyCost:N0} {itemCostName}";
+        }
+
+        return string.Empty;
+    }
+
+    private static string InferSpecialShopCurrencyName(string shopName, byte costType)
+    {
+        if (costType != 3 || string.IsNullOrWhiteSpace(shopName))
+            return string.Empty;
+
+        if (shopName.Contains("Purple Scrip", StringComparison.OrdinalIgnoreCase))
+            return "Purple Scrips";
+
+        if (shopName.Contains("Orange Scrip", StringComparison.OrdinalIgnoreCase))
+            return "Orange Scrips";
+
+        if (shopName.Contains("White Scrip", StringComparison.OrdinalIgnoreCase))
+            return "White Scrips";
+
+        if (shopName.Contains("Crafters'", StringComparison.OrdinalIgnoreCase))
+            return "Crafters' Scrips";
+
+        if (shopName.Contains("Gatherers'", StringComparison.OrdinalIgnoreCase))
+            return "Gatherers' Scrips";
+
+        if (shopName.Contains("Scrip", StringComparison.OrdinalIgnoreCase))
+            return "Scrips";
+
+        return string.Empty;
+    }
+
+    private static string TryGetItemName(Lumina.Excel.RowRef<Item> itemRef)
+    {
+        try
+        {
+            return itemRef.RowId == 0
+                ? string.Empty
+                : itemRef.Value.Name.ToString();
+        }
+        catch (InvalidOperationException)
+        {
+            return string.Empty;
+        }
+    }
+
+    private static bool IsToolItem(Item item) =>
+        item.ItemUICategory.RowId == 28 ||
+        item.Name.ToString().Contains("Pickaxe", StringComparison.OrdinalIgnoreCase) ||
+        item.Name.ToString().Contains("Hatchet", StringComparison.OrdinalIgnoreCase) ||
+        item.Name.ToString().Contains("Rod", StringComparison.OrdinalIgnoreCase);
+
+    private static HashSet<uint> BuildExcludedSearchItemIds(
+        ExcelSheet<Item>? items,
+        IReadOnlyDictionary<uint, SpecialContentTooltipInfo>? specialContentTooltipInfoByItemId)
+    {
+        if (items is null)
+            return [];
+
+        var activeSpecialContentItemIds = specialContentTooltipInfoByItemId?.Keys.ToHashSet() ?? [];
+        return items
+            .Where(item => item.RowId != 0)
+            .Where(item =>
+            {
+                var itemName = item.Name.ToString();
+                if (string.IsNullOrWhiteSpace(itemName))
+                    return false;
+
+                // Old Restoration-only items can linger in raw sheets after they stop being obtainable.
+                return itemName.Contains("Skybuilders'", StringComparison.OrdinalIgnoreCase) &&
+                       !activeSpecialContentItemIds.Contains(item.RowId);
+            })
+            .Select(item => item.RowId)
+            .ToHashSet();
+    }
+
+    private bool IsSearchVisible(uint itemId) =>
+        itemId != 0 &&
+        (this.excludedSearchItemIds is null || !this.excludedSearchItemIds.Contains(itemId));
+
+    private static IReadOnlyList<string> BuildCrafterRestorationLines(
+        HWDCrafterSupply.HWDCrafterSupplyParamsStruct supply)
+    {
+        var lines = new List<string>
+        {
+            "Crafted supply turn-in",
+            $"Phase: {supply.TermName.Value.Name}",
+            $"Level: {supply.Level}-{supply.LevelMax}",
+            $"Skybuilders' Scrips: {FormatCrafterRewardTier(supply.BaseCollectableReward)} / {FormatCrafterRewardTier(supply.MidCollectableReward)} / {FormatCrafterRewardTier(supply.HighCollectableReward)}",
+        };
+
+        var pointsLine = FormatCrafterPointsLine(
+            supply.BaseCollectableReward,
+            supply.MidCollectableReward,
+            supply.HighCollectableReward);
+        if (!string.IsNullOrWhiteSpace(pointsLine))
+            lines.Add(pointsLine);
+
+        return lines;
+    }
+
+    private static IReadOnlyList<string> BuildGathererRestorationLines(
+        HWDGathererInspection.HWDGathererInspectionDataStruct inspection)
+    {
+        var lines = new List<string>
+        {
+            "Gatherer inspection turn-in",
+            $"Phase: {inspection.Phase.Value.Name}",
+            $"Amount required: {inspection.AmountRequired}",
+        };
+
+        var rewardLabels = inspection.Reward
+            .Where(reward => reward.RowId != 0)
+            .Select(reward => FormatGathererReward(reward.Value))
+            .Where(label => !string.IsNullOrWhiteSpace(label))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (rewardLabels.Count > 0)
+            lines.Add($"Rewards: {string.Join(" | ", rewardLabels)}");
+
+        return lines;
+    }
+
+    private static string FormatCrafterRewardTier(Lumina.Excel.RowRef<HWDCrafterSupplyReward> rewardRef)
+    {
+        try
+        {
+            var reward = rewardRef.Value;
+            return reward.ScriptRewardAmount.ToString(CultureInfo.InvariantCulture);
+        }
+        catch (InvalidOperationException)
+        {
+            return "0";
+        }
+    }
+
+    private static string FormatCrafterPointsLine(
+        Lumina.Excel.RowRef<HWDCrafterSupplyReward> baseRewardRef,
+        Lumina.Excel.RowRef<HWDCrafterSupplyReward> midRewardRef,
+        Lumina.Excel.RowRef<HWDCrafterSupplyReward> highRewardRef)
+    {
+        try
+        {
+            var basePoints = baseRewardRef.Value.Points;
+            var midPoints = midRewardRef.Value.Points;
+            var highPoints = highRewardRef.Value.Points;
+            if (basePoints == 0 && midPoints == 0 && highPoints == 0)
+                return string.Empty;
+
+            return $"Skyward Points: {basePoints} / {midPoints} / {highPoints}";
+        }
+        catch (InvalidOperationException)
+        {
+            return string.Empty;
+        }
+    }
+
+    private static string FormatGathererReward(HWDGathererInspectionReward reward)
+    {
+        if (reward.Scrips == 0 && reward.Points == 0)
+            return string.Empty;
+
+        if (reward.Points == 0)
+            return $"{reward.Scrips} Skybuilders' Scrips";
+
+        if (reward.Scrips == 0)
+            return $"{reward.Points} Skyward Points";
+
+        return $"{reward.Scrips} Skybuilders' Scrips, {reward.Points} Skyward Points";
+    }
+
     private static string MapGatheringTypeToJob(string gatheringTypeName)
     {
         if (string.IsNullOrWhiteSpace(gatheringTypeName))
@@ -1693,6 +2390,20 @@ public sealed class RecipeService
         }
 
         jobs.Add(job);
+    }
+
+    private static void AddGatheringLevel(
+        IDictionary<uint, HashSet<uint>> levelsByItemId,
+        uint itemId,
+        uint level)
+    {
+        if (!levelsByItemId.TryGetValue(itemId, out var levels))
+        {
+            levels = [];
+            levelsByItemId[itemId] = levels;
+        }
+
+        levels.Add(level);
     }
 
     private string GetItemName(uint itemId)

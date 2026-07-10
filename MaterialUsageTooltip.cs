@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
@@ -25,12 +26,13 @@ public static class MaterialUsageTooltip
         uint itemId,
         string itemName,
         string? footerText = null,
-        uint quantity = 1)
+        uint quantity = 1,
+        IReadOnlyList<string>? detailLines = null,
+        SpecialContentTooltipInfo? specialContentTooltipInfo = null)
     {
         if (!ImGui.IsItemHovered())
             return;
 
-        var priceState = marketboardPriceService.GetState(itemId);
         ImGui.SetNextWindowSizeConstraints(
             new Vector2(360, 0),
             new Vector2(980, 600));
@@ -38,67 +40,83 @@ public static class MaterialUsageTooltip
         WindowTheme.ApplyTextScale(configuration);
 
         ImGui.TextColored(configuration.AccentTextColor, itemName);
-        ImGui.TextDisabled("Marketboard snapshot via Universalis");
-        if (quantity > 1)
-            ImGui.TextDisabled($"Scaled for quantity: {quantity:N0}");
-        ImGui.Separator();
-
-        if (priceState.Snapshot is not { } snapshot)
+        if (specialContentTooltipInfo is not null)
         {
-            ImGui.TextDisabled(priceState.IsLoading
-                ? "Loading current prices..."
-                : "No marketboard data is available.");
+            ImGui.TextDisabled(specialContentTooltipInfo.Subtitle);
         }
         else
         {
-            if (snapshot.LastUploadTime is { } lastUpload)
-                ImGui.TextDisabled($"Last upload: {lastUpload:yyyy-MM-dd HH:mm}");
-
+            ImGui.TextDisabled("Marketboard snapshot via Universalis");
             if (quantity > 1)
-            {
-                if (snapshot.CurrentAveragePrice > 0)
-                    ImGui.TextUnformatted($"Average NQ total: {Math.Round(snapshot.CurrentAveragePrice * quantity):N0} gil");
-                if (snapshot.CurrentAveragePriceHq is { } averagePriceHq)
-                    ImGui.TextUnformatted($"Average HQ total: {Math.Round(averagePriceHq * quantity):N0} gil");
-            }
+                ImGui.TextDisabled($"Scaled for quantity: {quantity:N0}");
+        }
+        ImGui.Separator();
 
-            if (snapshot.NqWorldPrices.Count > 0 || snapshot.HqWorldPrices.Count > 0)
+        if (specialContentTooltipInfo is not null)
+        {
+            foreach (var line in specialContentTooltipInfo.Lines.Where(line => !string.IsNullOrWhiteSpace(line)))
+                ImGui.TextUnformatted(line);
+        }
+        else
+        {
+            var priceState = marketboardPriceService.GetState(itemId);
+            if (priceState.Snapshot is not { } snapshot)
             {
-                ImGui.Spacing();
-                var columnCount = snapshot.NqWorldPrices.Count > 0 && snapshot.HqWorldPrices.Count > 0
-                    ? 2
-                    : 1;
-                if (ImGui.BeginTable(
-                        "##universalis-tooltip-worlds",
-                        columnCount,
-                        ImGuiTableFlags.SizingStretchSame))
+                ImGui.TextDisabled(priceState.IsLoading
+                    ? "Loading current prices..."
+                    : "No marketboard data is available.");
+            }
+            else
+            {
+                if (snapshot.LastUploadTime is { } lastUpload)
+                    ImGui.TextDisabled($"Last upload: {lastUpload:yyyy-MM-dd HH:mm}");
+
+                if (quantity > 1)
                 {
-                    if (snapshot.NqWorldPrices.Count > 0)
-                    {
-                        ImGui.TableNextColumn();
-                        ImGui.TextColored(
-                            configuration.AccentTextColor,
-                            quantity > 1 ? "Cheapest NQ Totals by World" : "Cheapest NQ by World");
-                        foreach (var worldPrice in snapshot.NqWorldPrices)
-                            DrawWorldPriceLine(configuration, worldPrice, quantity);
-                    }
-
-                    if (snapshot.HqWorldPrices.Count > 0)
-                    {
-                        ImGui.TableNextColumn();
-                        ImGui.TextColored(
-                            configuration.AccentTextColor,
-                            quantity > 1 ? "Cheapest HQ Totals by World" : "Cheapest HQ by World");
-                        foreach (var worldPrice in snapshot.HqWorldPrices)
-                            DrawWorldPriceLine(configuration, worldPrice, quantity);
-                    }
-
-                    ImGui.EndTable();
+                    if (snapshot.CurrentAveragePrice > 0)
+                        ImGui.TextUnformatted($"Average NQ total: {Math.Round(snapshot.CurrentAveragePrice * quantity):N0} gil");
+                    if (snapshot.CurrentAveragePriceHq is { } averagePriceHq)
+                        ImGui.TextUnformatted($"Average HQ total: {Math.Round(averagePriceHq * quantity):N0} gil");
                 }
-            }
 
-            if (priceState.IsLoading)
-                ImGui.TextDisabled("Refreshing...");
+                if (snapshot.NqWorldPrices.Count > 0 || snapshot.HqWorldPrices.Count > 0)
+                {
+                    ImGui.Spacing();
+                    var columnCount = snapshot.NqWorldPrices.Count > 0 && snapshot.HqWorldPrices.Count > 0
+                        ? 2
+                        : 1;
+                    if (ImGui.BeginTable(
+                            "##universalis-tooltip-worlds",
+                            columnCount,
+                            ImGuiTableFlags.SizingStretchSame))
+                    {
+                        if (snapshot.NqWorldPrices.Count > 0)
+                        {
+                            ImGui.TableNextColumn();
+                            ImGui.TextColored(
+                                configuration.AccentTextColor,
+                                quantity > 1 ? "Cheapest NQ Totals by World" : "Cheapest NQ by World");
+                            foreach (var worldPrice in snapshot.NqWorldPrices)
+                                DrawWorldPriceLine(configuration, worldPrice, quantity);
+                        }
+
+                        if (snapshot.HqWorldPrices.Count > 0)
+                        {
+                            ImGui.TableNextColumn();
+                            ImGui.TextColored(
+                                configuration.AccentTextColor,
+                                quantity > 1 ? "Cheapest HQ Totals by World" : "Cheapest HQ by World");
+                            foreach (var worldPrice in snapshot.HqWorldPrices)
+                                DrawWorldPriceLine(configuration, worldPrice, quantity);
+                        }
+
+                        ImGui.EndTable();
+                    }
+                }
+
+                if (priceState.IsLoading)
+                    ImGui.TextDisabled("Refreshing...");
+            }
         }
 
         if (!string.IsNullOrWhiteSpace(footerText))
@@ -106,6 +124,17 @@ public static class MaterialUsageTooltip
             ImGui.Spacing();
             ImGui.Separator();
             ImGui.TextDisabled(footerText);
+        }
+
+        if (detailLines is { Count: > 0 })
+        {
+            var detailColor = WindowTheme.GetTooltipDetailTextColor(configuration);
+            ImGui.Spacing();
+            ImGui.Separator();
+            ImGui.PushTextWrapPos(ImGui.GetFontSize() * 28f);
+            foreach (var detailLine in detailLines.Where(line => !string.IsNullOrWhiteSpace(line)))
+                ImGui.TextColored(detailColor, detailLine);
+            ImGui.PopTextWrapPos();
         }
 
         ImGui.EndTooltip();
