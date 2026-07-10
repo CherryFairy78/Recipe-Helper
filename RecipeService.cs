@@ -1,10 +1,12 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Reflection;
 using System.Text;
 using Dalamud.Plugin.Services;
+using FFXIVClientStructs.FFXIV.Client.Game;
 using Lumina.Excel;
 using Lumina.Excel.Sheets;
 
@@ -39,6 +41,22 @@ public sealed class RecipeService
             ["Culinarian"] = "CUL",
         };
 
+    // Quest-only fish can omit their fishing hole from the client data. These entries
+    // preserve the actual fishing destination instead of showing the quest giver's location.
+    private static readonly IReadOnlyDictionary<uint, FishTooltipInfo> QuestFishFallbackInfoByItemId =
+        new Dictionary<uint, FishTooltipInfo>
+        {
+            [17949] = new("Salmon Roe", "Regular fish", "The Fringes", "Velodyna River"),
+            [17950] = new("Metal Spinner", "Regular fish", "The Ruby Sea", "Shoal Rock"),
+            [17952] = new("Live Shrimp", "Regular fish", "The Ruby Sea", "Onokoro"),
+            [26750] = new("Fruit Worm", "Regular fish", "Il Mheg", "Longmirror Lake"),
+            [26751] = new("Moyebi Shrimp", "Regular fish", "The Tempest", "The Norvrandt Slope"),
+            [35849] = new("Gold Salmon Roe", "Regular fish", "Thavnair", "River west of Palaka's Stand"),
+            [35850] = new("Grey Worm", "Regular fish", "Mare Lamentorum", "Frozen Fissure"),
+            [43915] = new("Honeybee", "Regular fish", "Yak T'el", "Bitterbark Cenote"),
+            [43916] = new("Popper Lure", "Regular fish", "Heritage Found", "Submerged Skyline"),
+        };
+
     private readonly IDataManager dataManager;
     private readonly FileLogService fileLog;
     private readonly AetherialReductionService aetherialReductionService;
@@ -46,6 +64,7 @@ public sealed class RecipeService
     private HashSet<uint>? gatherableItemIds;
     private HashSet<uint>? fishingItemIds;
     private HashSet<uint>? vendorItemIds;
+    private HashSet<uint>? marketboardItemIds;
     private HashSet<uint>? excludedSearchItemIds;
     private IReadOnlyDictionary<uint, string>? gatherableJobsByItemId;
     private IReadOnlyDictionary<uint, IReadOnlyList<uint>>? gatheringLevelsByItemId;
@@ -53,6 +72,13 @@ public sealed class RecipeService
     private IReadOnlyDictionary<uint, CollectibleRewardInfo>? collectibleRewardsByItemId;
     private IReadOnlyDictionary<uint, FolkloreBookInfo>? folkloreBookInfoByItemId;
     private IReadOnlyDictionary<uint, RequiredItemInfo>? requiredItemsByItemId;
+    private IReadOnlyDictionary<uint, FishTooltipInfo>? fishTooltipInfoByItemId;
+    private IReadOnlyDictionary<uint, IReadOnlyList<ItemLogEntry>>? itemLogEntriesByItemId;
+    private IReadOnlyDictionary<uint, SocietyQuestTooltipInfo>? societyQuestTooltipInfoByItemId;
+    private IReadOnlyDictionary<uint, CosmicExplorationTooltipInfo>? cosmicExplorationTooltipInfoByItemId;
+    private IReadOnlyDictionary<uint, QuestTooltipInfo>? questTooltipInfoByItemId;
+    private IReadOnlyDictionary<uint, GatherBuddyFishTooltipData>? gatherBuddyFishTooltipData;
+    private DateTime nextGatherBuddyFishTooltipRetryUtc;
     private IReadOnlyDictionary<uint, SpecialContentTooltipInfo>? specialContentTooltipInfoByItemId;
     private IReadOnlyDictionary<uint, MasterRecipeBookInfo>? masterRecipeBookInfoByRecipeId;
     private IReadOnlyDictionary<uint, IReadOnlyList<MaterialRecipeUsage>>? recipesByIngredient;
@@ -334,11 +360,184 @@ public sealed class RecipeService
             : null;
     }
 
+    public FishTooltipInfo? GetFishTooltipInfo(uint itemId)
+    {
+        this.EnsureItemSources();
+        if (!this.fishTooltipInfoByItemId!.TryGetValue(itemId, out var fishTooltipInfo))
+            return null;
+
+        var gatherBuddyFishInfo = this.GetGatherBuddyFishTooltipData().GetValueOrDefault(itemId);
+        return gatherBuddyFishInfo is null
+            ? fishTooltipInfo
+            : fishTooltipInfo with
+            {
+                BaitName = string.IsNullOrWhiteSpace(gatherBuddyFishInfo.BaitName)
+                    ? fishTooltipInfo.BaitName
+                    : gatherBuddyFishInfo.BaitName,
+                FishType = string.IsNullOrWhiteSpace(gatherBuddyFishInfo.FishType)
+                    ? fishTooltipInfo.FishType
+                    : gatherBuddyFishInfo.FishType,
+            };
+    }
+
+    public unsafe LogStatusTooltipInfo? GetItemLogStatusTooltipInfo(uint itemId)
+    {
+        this.EnsureItemSources();
+        if (!this.itemLogEntriesByItemId!.TryGetValue(itemId, out var logEntries))
+            return null;
+
+        try
+        {
+            var playerState = FFXIVClientStructs.FFXIV.Client.Game.UI.PlayerState.Instance();
+            if (playerState is null)
+                return null;
+
+            var lines = new List<string>();
+            foreach (var logEntry in logEntries)
+            {
+                var isRecorded = logEntry.Kind switch
+                {
+                    ItemLogKind.Gathering =>
+                        logEntry.EntryId <= ushort.MaxValue &&
+                        QuestManager.IsGatheringItemGathered((ushort)logEntry.EntryId),
+                    ItemLogKind.Fishing => playerState is not null && playerState->IsFishCaught(logEntry.EntryId),
+                    ItemLogKind.Spearfishing => playerState is not null && playerState->IsSpearfishCaught(logEntry.EntryId),
+                    _ => false,
+                };
+                lines.Add($"{logEntry.Label}: {(isRecorded ? "Obtained" : "Not yet obtained")}");
+            }
+
+            return new LogStatusTooltipInfo(lines);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public unsafe LogStatusTooltipInfo? GetRecipeLogStatusTooltipInfo(uint recipeId)
+    {
+        this.EnsureItemSources();
+        if (!this.recipeLevelsByRecipeId!.ContainsKey(recipeId))
+            return null;
+
+        try
+        {
+            if (FFXIVClientStructs.FFXIV.Client.Game.UI.PlayerState.Instance() is null)
+                return null;
+
+            return new LogStatusTooltipInfo(
+                [$"Crafting log: {(QuestManager.IsRecipeComplete(recipeId) ? "Crafted" : "Not yet crafted")}"]);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public bool IsMarketboardAvailable(uint itemId)
+    {
+        this.EnsureItemSources();
+        return this.marketboardItemIds!.Contains(itemId);
+    }
+
     public SpecialContentTooltipInfo? GetSpecialContentTooltipInfo(uint itemId)
     {
         this.EnsureItemSources();
         return this.specialContentTooltipInfoByItemId!.TryGetValue(itemId, out var specialContentTooltipInfo)
             ? specialContentTooltipInfo
+            : null;
+    }
+
+    public SocietyQuestTooltipInfo? GetSocietyQuestTooltipInfo(uint itemId)
+    {
+        this.EnsureItemSources();
+        return this.societyQuestTooltipInfoByItemId!.TryGetValue(itemId, out var societyQuestTooltipInfo)
+            ? societyQuestTooltipInfo
+            : null;
+    }
+
+    public CosmicExplorationTooltipInfo? GetCosmicExplorationTooltipInfo(uint itemId)
+    {
+        this.EnsureItemSources();
+        if (!this.cosmicExplorationTooltipInfoByItemId!.TryGetValue(itemId, out var cosmicExplorationTooltipInfo))
+            return null;
+
+        var cosmicMissionName = this.GetGatherBuddyFishTooltipData().GetValueOrDefault(itemId)?.CosmicMissionName;
+        return string.IsNullOrWhiteSpace(cosmicMissionName)
+            ? cosmicExplorationTooltipInfo
+            : cosmicExplorationTooltipInfo with { MissionName = cosmicMissionName };
+    }
+
+    public string? GetGatherBuddyFishAvailabilityText(uint itemId)
+    {
+        try
+        {
+            var gatherBuddyType = AppDomain.CurrentDomain
+                .GetAssemblies()
+                .FirstOrDefault(assembly =>
+                    string.Equals(assembly.GetName().Name, "GatherBuddy", StringComparison.Ordinal))?
+                .GetType("GatherBuddy.GatherBuddy");
+            var gameData = gatherBuddyType?
+                .GetProperty("GameData", BindingFlags.Public | BindingFlags.Static)?
+                .GetValue(null);
+            var uptimeManager = gatherBuddyType?
+                .GetProperty("UptimeManager", BindingFlags.Public | BindingFlags.Static)?
+                .GetValue(null);
+            var seTime = gatherBuddyType?
+                .GetProperty("Time", BindingFlags.Public | BindingFlags.Static)?
+                .GetValue(null);
+            var serverTime = seTime?
+                .GetType()
+                .GetProperty("ServerTime", BindingFlags.Public | BindingFlags.Instance)?
+                .GetValue(seTime);
+            var fishes = gameData?
+                .GetType()
+                .GetProperty("Fishes", BindingFlags.Public | BindingFlags.Instance)?
+                .GetValue(gameData) as IEnumerable;
+            var fish = fishes is null ? null : GetGatherBuddyFish(fishes, itemId);
+            if (uptimeManager is null || serverTime is null || fish is null)
+                return null;
+
+            var bestLocation = uptimeManager
+                .GetType()
+                .GetMethods(BindingFlags.Public | BindingFlags.Instance)
+                .FirstOrDefault(method => method.Name == "BestLocation" && method.GetParameters().Length == 1)?
+                .Invoke(uptimeManager, [fish]);
+            var interval = bestLocation?
+                .GetType()
+                .GetField("Item2")?
+                .GetValue(bestLocation);
+            if (interval is null)
+                return null;
+
+            if (serverTime.GetType().GetProperty("Time", BindingFlags.Public | BindingFlags.Instance)?.GetValue(serverTime) is not long now ||
+                interval.GetType().GetProperty("Start", BindingFlags.Public | BindingFlags.Instance)?.GetValue(interval) is not { } start ||
+                interval.GetType().GetProperty("End", BindingFlags.Public | BindingFlags.Instance)?.GetValue(interval) is not { } end ||
+                start.GetType().GetProperty("Time", BindingFlags.Public | BindingFlags.Instance)?.GetValue(start) is not long startTime ||
+                end.GetType().GetProperty("Time", BindingFlags.Public | BindingFlags.Instance)?.GetValue(end) is not long endTime)
+                return null;
+
+            if (startTime == long.MinValue && endTime == long.MaxValue)
+                return "Always Up";
+            if (endTime <= now || endTime <= startTime)
+                return "Check GatherBuddy";
+            if (startTime <= now)
+                return $"Now - {FormatGatherBuddyDuration(endTime - now)} left";
+
+            return $"In {FormatGatherBuddyDuration(startTime - now)}";
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public QuestTooltipInfo? GetQuestTooltipInfo(uint itemId)
+    {
+        this.EnsureItemSources();
+        return this.questTooltipInfoByItemId!.TryGetValue(itemId, out var questTooltipInfo)
+            ? questTooltipInfo
             : null;
     }
 
@@ -1378,6 +1577,13 @@ public sealed class RecipeService
             .Where(item => item.PriceMid > 0)
             .Select(item => item.RowId)
             .ToHashSet() ?? [];
+        this.marketboardItemIds = items?
+            .Where(item =>
+                item.RowId != 0 &&
+                !item.IsUntradable &&
+                item.ItemSearchCategory.RowId != 0)
+            .Select(item => item.RowId)
+            .ToHashSet() ?? [];
 
         this.gatherableJobsByItemId = BuildGatherableJobsByItemId(
             gatheringItems,
@@ -1388,6 +1594,10 @@ public sealed class RecipeService
         this.gatheringLevelsByItemId = BuildGatheringLevelsByItemId(
             gatheringItems,
             gatheringItemPoints,
+            fishParameters,
+            spearfishingItems);
+        this.itemLogEntriesByItemId = BuildItemLogEntriesByItemId(
+            gatheringItems,
             fishParameters,
             spearfishingItems);
         this.recipeLevelsByRecipeId = BuildRecipeLevelsByRecipeId(recipes);
@@ -1403,6 +1613,28 @@ public sealed class RecipeService
             gatheringItems,
             gatheringItemPoints,
             items);
+        this.gatherBuddyFishTooltipData = this.TryGetGatherBuddyFishTooltipData();
+        this.nextGatherBuddyFishTooltipRetryUtc = DateTime.UtcNow.AddSeconds(10);
+        this.fishTooltipInfoByItemId = BuildFishTooltipInfoByItemId(
+            fishParameters,
+            this.dataManager.GetExcelSheet<FishingSpot>(),
+            this.dataManager.GetExcelSheet<TerritoryType>(),
+            this.dataManager.GetExcelSheet<PlaceName>(),
+            items,
+            this.gatherBuddyFishTooltipData);
+        this.cosmicExplorationTooltipInfoByItemId = BuildCosmicExplorationTooltipInfoByItemId(
+            this.dataManager.GetExcelSheet<WKSItemInfo>(),
+            fishParameters,
+            spearfishingItems,
+            this.gatherBuddyFishTooltipData);
+        this.questTooltipInfoByItemId = BuildQuestTooltipInfoByItemId(
+            this.dataManager.GetExcelSheet<Quest>(),
+            this.dataManager.GetExcelSheet<Item>(),
+            this.dataManager.GetExcelSheet<PlaceName>());
+        this.societyQuestTooltipInfoByItemId = BuildSocietyQuestTooltipInfoByItemId(
+            this.dataManager.GetExcelSheet<Quest>(),
+            this.dataManager.GetSubrowExcelSheet<QuestClassJobSupply>(),
+            this.dataManager.GetExcelSheet<BeastTribe>());
         this.specialContentTooltipInfoByItemId = BuildSpecialContentTooltipInfoByItemId(
             this.dataManager.GetExcelSheet<HWDCrafterSupply>(),
             this.dataManager.GetExcelSheet<HWDGathererInspection>());
@@ -1413,7 +1645,7 @@ public sealed class RecipeService
 
         this.fileLog.Info(
             "Recipes",
-            $"Loaded source indexes: {this.craftableItemIds.Count} craftable, {this.gatherableItemIds.Count} gatherable, {this.fishingItemIds.Count} fishing, {this.vendorItemIds.Count} vendor, {this.collectibleRewardsByItemId.Count} collectible reward entries, {this.folkloreBookInfoByItemId.Count} folklore mappings, {this.requiredItemsByItemId.Count} required-item mappings, {this.specialContentTooltipInfoByItemId.Count} special-content mappings, {this.masterRecipeBookInfoByRecipeId.Count} master recipe mappings, {this.gatheringLevelsByItemId.Count} gathering level mappings, {this.recipeLevelsByRecipeId.Count} recipe level mappings, {this.excludedSearchItemIds.Count} excluded search items.");
+            $"Loaded source indexes: {this.craftableItemIds.Count} craftable, {this.gatherableItemIds.Count} gatherable, {this.fishingItemIds.Count} fishing, {this.vendorItemIds.Count} vendor, {this.marketboardItemIds.Count} marketboard-tradeable, {this.collectibleRewardsByItemId.Count} collectible reward entries, {this.folkloreBookInfoByItemId.Count} folklore mappings, {this.requiredItemsByItemId.Count} required-item mappings, {this.fishTooltipInfoByItemId.Count} fish tooltip mappings, {this.societyQuestTooltipInfoByItemId.Count} society-quest mappings, {this.cosmicExplorationTooltipInfoByItemId.Count} cosmic-exploration mappings, {this.questTooltipInfoByItemId.Count} quest-item mappings, {this.specialContentTooltipInfoByItemId.Count} special-content mappings, {this.masterRecipeBookInfoByRecipeId.Count} master recipe mappings, {this.gatheringLevelsByItemId.Count} gathering level mappings, {this.recipeLevelsByRecipeId.Count} recipe level mappings, {this.excludedSearchItemIds.Count} excluded search items.");
     }
 
     private IReadOnlyList<(uint ItemId, uint Amount)> ReadIngredients(Recipe recipe)
@@ -2083,6 +2315,421 @@ public sealed class RecipeService
         }
 
         return requiredItemsByItemId;
+    }
+
+    private static IReadOnlyDictionary<uint, IReadOnlyList<ItemLogEntry>> BuildItemLogEntriesByItemId(
+        ExcelSheet<GatheringItem>? gatheringItems,
+        ExcelSheet<FishParameter>? fishParameters,
+        ExcelSheet<SpearfishingItem>? spearfishingItems)
+    {
+        var entriesByItemId = new Dictionary<uint, List<ItemLogEntry>>();
+
+        void Add(uint itemId, ItemLogEntry entry)
+        {
+            if (itemId == 0)
+                return;
+
+            if (!entriesByItemId.TryGetValue(itemId, out var entries))
+            {
+                entries = [];
+                entriesByItemId[itemId] = entries;
+            }
+
+            if (!entries.Contains(entry))
+                entries.Add(entry);
+        }
+
+        foreach (var gatheringItem in gatheringItems?.Where(item => item.RowId != 0 && item.Item.RowId != 0) ?? [])
+            Add(gatheringItem.Item.RowId, new ItemLogEntry(ItemLogKind.Gathering, gatheringItem.RowId, "Gathering log"));
+
+        foreach (var fishParameter in fishParameters?.Where(fish => fish.RowId != 0 && fish.Item.RowId != 0 && fish.IsInLog) ?? [])
+            Add(fishParameter.Item.RowId, new ItemLogEntry(ItemLogKind.Fishing, fishParameter.RowId, "Fishing log"));
+
+        foreach (var spearfishingItem in spearfishingItems?.Where(fish => fish.RowId >= 20000 && fish.Item.RowId != 0) ?? [])
+            Add(spearfishingItem.Item.RowId, new ItemLogEntry(ItemLogKind.Spearfishing, spearfishingItem.RowId, "Spearfishing log"));
+
+        return entriesByItemId.ToDictionary(
+            pair => pair.Key,
+            pair => (IReadOnlyList<ItemLogEntry>)pair.Value);
+    }
+
+    private static IReadOnlyDictionary<uint, FishTooltipInfo> BuildFishTooltipInfoByItemId(
+        ExcelSheet<FishParameter>? fishParameters,
+        ExcelSheet<FishingSpot>? fishingSpots,
+        ExcelSheet<TerritoryType>? territoryTypes,
+        ExcelSheet<PlaceName>? placeNames,
+        ExcelSheet<Item>? items,
+        IReadOnlyDictionary<uint, GatherBuddyFishTooltipData> gatherBuddyFishTooltipData)
+    {
+        if (fishParameters is null)
+            return new Dictionary<uint, FishTooltipInfo>();
+
+        var spotsById = fishingSpots?
+            .Where(spot => spot.RowId != 0)
+            .ToDictionary(spot => spot.RowId) ?? new Dictionary<uint, FishingSpot>();
+        var territoriesById = territoryTypes?
+            .Where(territory => territory.RowId != 0)
+            .ToDictionary(territory => territory.RowId) ?? new Dictionary<uint, TerritoryType>();
+        var placeNamesById = placeNames?
+            .Where(placeName => placeName.RowId != 0)
+            .ToDictionary(
+                placeName => placeName.RowId,
+                placeName => placeName.Name.ToString().Trim()) ?? new Dictionary<uint, string>();
+        var itemRaritiesById = items?
+            .Where(item => item.RowId != 0)
+            .ToDictionary(item => item.RowId, item => item.Rarity) ?? new Dictionary<uint, byte>();
+        var tooltipInfoByItemId = gatherBuddyFishTooltipData
+            .Where(pair =>
+                !string.IsNullOrWhiteSpace(pair.Value.BaitName) ||
+                !string.IsNullOrWhiteSpace(pair.Value.FishType))
+            .ToDictionary(
+                pair => pair.Key,
+                pair => new FishTooltipInfo(
+                    pair.Value.BaitName,
+                    pair.Value.FishType,
+                    string.Empty,
+                    string.Empty));
+
+        foreach (var fishParameter in fishParameters.Where(fish => fish.RowId != 0 && fish.Item.RowId != 0))
+        {
+            gatherBuddyFishTooltipData.TryGetValue(fishParameter.Item.RowId, out var gatherBuddyFishInfo);
+            var baitName = gatherBuddyFishInfo?.BaitName ?? string.Empty;
+
+            var fishType = string.Empty;
+            var bestZone = string.Empty;
+            var bestSpot = string.Empty;
+            if (spotsById.TryGetValue(fishParameter.FishingSpot.RowId, out var fishingSpot))
+            {
+                bestSpot = GetPlaceName(
+                    placeNamesById,
+                    fishingSpot.PlaceName.RowId,
+                    fishingSpot.PlaceNameMain.RowId,
+                    fishingSpot.PlaceNameSub.RowId);
+                if (territoriesById.TryGetValue(fishingSpot.TerritoryType.RowId, out var territory))
+                    bestZone = GetPlaceName(placeNamesById, territory.PlaceName.RowId);
+            }
+
+            fishType = !string.IsNullOrWhiteSpace(gatherBuddyFishInfo?.FishType)
+                ? gatherBuddyFishInfo.FishType
+                : itemRaritiesById.TryGetValue(fishParameter.Item.RowId, out var rarity) && rarity > 1
+                    ? "Big fish"
+                    : "Regular fish";
+
+            if (string.IsNullOrWhiteSpace(baitName) &&
+                string.IsNullOrWhiteSpace(fishType) &&
+                string.IsNullOrWhiteSpace(bestZone) &&
+                string.IsNullOrWhiteSpace(bestSpot))
+                continue;
+
+            tooltipInfoByItemId[fishParameter.Item.RowId] = new FishTooltipInfo(
+                baitName,
+                fishType,
+                bestZone,
+                bestSpot);
+        }
+
+        foreach (var (itemId, fallbackInfo) in QuestFishFallbackInfoByItemId)
+        {
+            if (!tooltipInfoByItemId.TryGetValue(itemId, out var tooltipInfo))
+            {
+                tooltipInfoByItemId[itemId] = fallbackInfo;
+                continue;
+            }
+
+            tooltipInfoByItemId[itemId] = tooltipInfo with
+            {
+                BaitName = string.IsNullOrWhiteSpace(tooltipInfo.BaitName) ? fallbackInfo.BaitName : tooltipInfo.BaitName,
+                FishType = string.IsNullOrWhiteSpace(tooltipInfo.FishType) ? fallbackInfo.FishType : tooltipInfo.FishType,
+                BestZone = string.IsNullOrWhiteSpace(tooltipInfo.BestZone) ? fallbackInfo.BestZone : tooltipInfo.BestZone,
+                BestSpot = string.IsNullOrWhiteSpace(tooltipInfo.BestSpot) ? fallbackInfo.BestSpot : tooltipInfo.BestSpot,
+            };
+        }
+
+        return tooltipInfoByItemId;
+    }
+
+    private static IReadOnlyDictionary<uint, CosmicExplorationTooltipInfo> BuildCosmicExplorationTooltipInfoByItemId(
+        ExcelSheet<WKSItemInfo>? wksItemInfos,
+        ExcelSheet<FishParameter>? fishParameters,
+        ExcelSheet<SpearfishingItem>? spearfishingItems,
+        IReadOnlyDictionary<uint, GatherBuddyFishTooltipData> gatherBuddyFishTooltipData)
+    {
+        var cosmicFishItemIds = fishParameters?
+            .Where(fish => fish.Item.RowId != 0)
+            .Select(fish => fish.Item.RowId)
+            .ToHashSet() ?? [];
+        cosmicFishItemIds.UnionWith(spearfishingItems?
+            .Where(fish => fish.Item.RowId != 0)
+            .Select(fish => fish.Item.RowId) ?? []);
+        var tooltipInfoByItemId = wksItemInfos?
+            .Where(itemInfo => cosmicFishItemIds.Contains(itemInfo.Item.RowId))
+            .Select(itemInfo => itemInfo.Item.RowId)
+            .Distinct()
+            .ToDictionary(
+                itemId => itemId,
+                _ => new CosmicExplorationTooltipInfo(string.Empty)) ??
+            new Dictionary<uint, CosmicExplorationTooltipInfo>();
+
+        foreach (var (itemId, fishTooltipData) in gatherBuddyFishTooltipData)
+        {
+            if (!string.IsNullOrWhiteSpace(fishTooltipData.CosmicMissionName))
+                tooltipInfoByItemId[itemId] = new CosmicExplorationTooltipInfo(fishTooltipData.CosmicMissionName);
+        }
+
+        return tooltipInfoByItemId;
+    }
+
+    private static IReadOnlyDictionary<uint, QuestTooltipInfo> BuildQuestTooltipInfoByItemId(
+        ExcelSheet<Quest>? quests,
+        ExcelSheet<Item>? items,
+        ExcelSheet<PlaceName>? placeNames)
+    {
+        if (quests is null || items is null || placeNames is null)
+            return new Dictionary<uint, QuestTooltipInfo>();
+
+        var itemIds = items.Where(item => item.RowId != 0).Select(item => item.RowId).ToHashSet();
+        var placeNamesById = placeNames
+            .Where(placeName => placeName.RowId != 0)
+            .ToDictionary(placeName => placeName.RowId, placeName => placeName.Name.ToString().Trim());
+        var linesByItemId = new Dictionary<uint, HashSet<string>>();
+
+        foreach (var quest in quests.Where(quest => quest.RowId != 0 && !string.IsNullOrWhiteSpace(quest.Name.ToString())))
+        {
+            var requiredItemIds = quest.ItemCatalyst
+                .Select(item => item.RowId)
+                .Concat(quest.QuestParams
+                    .Where(parameter => parameter.ScriptInstruction.ToString().StartsWith("RITEM", StringComparison.Ordinal))
+                    .Select(parameter => parameter.ScriptArg))
+                .Where(itemId => itemId != 0 && itemIds.Contains(itemId))
+                .Distinct();
+            var questName = quest.Name.ToString().Trim();
+            var locationName = placeNamesById.GetValueOrDefault(quest.PlaceName.RowId, string.Empty);
+
+            foreach (var itemId in requiredItemIds)
+            {
+                if (!linesByItemId.TryGetValue(itemId, out var lines))
+                {
+                    lines = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    linesByItemId[itemId] = lines;
+                }
+
+                lines.Add($"Quest: {questName}");
+                if (!string.IsNullOrWhiteSpace(locationName))
+                    lines.Add($"Location: {locationName}");
+            }
+        }
+
+        return linesByItemId.ToDictionary(
+            pair => pair.Key,
+            pair => new QuestTooltipInfo(pair.Value.ToList()));
+    }
+
+    private IReadOnlyDictionary<uint, GatherBuddyFishTooltipData> GetGatherBuddyFishTooltipData()
+    {
+        if (this.gatherBuddyFishTooltipData is { Count: > 0 } || DateTime.UtcNow < this.nextGatherBuddyFishTooltipRetryUtc)
+            return this.gatherBuddyFishTooltipData ?? new Dictionary<uint, GatherBuddyFishTooltipData>();
+
+        this.gatherBuddyFishTooltipData = this.TryGetGatherBuddyFishTooltipData();
+        this.nextGatherBuddyFishTooltipRetryUtc = DateTime.UtcNow.AddSeconds(10);
+        return this.gatherBuddyFishTooltipData;
+    }
+
+    private IReadOnlyDictionary<uint, GatherBuddyFishTooltipData> TryGetGatherBuddyFishTooltipData()
+    {
+        try
+        {
+            var gatherBuddyAssembly = AppDomain.CurrentDomain
+                .GetAssemblies()
+                .FirstOrDefault(assembly =>
+                    string.Equals(assembly.GetName().Name, "GatherBuddy", StringComparison.Ordinal));
+            var gameData = gatherBuddyAssembly?
+                .GetType("GatherBuddy.GatherBuddy")?
+                .GetProperty("GameData", BindingFlags.Public | BindingFlags.Static)?
+                .GetValue(null);
+            var fishes = gameData?
+                .GetType()
+                .GetProperty("Fishes", BindingFlags.Public | BindingFlags.Instance)?
+                .GetValue(gameData) as IEnumerable;
+            if (fishes is null)
+                return new Dictionary<uint, GatherBuddyFishTooltipData>();
+
+            var tooltipDataByFishItemId = new Dictionary<uint, GatherBuddyFishTooltipData>();
+            foreach (var entry in fishes)
+            {
+                if (entry is null)
+                    continue;
+
+                var entryType = entry.GetType();
+                if (entryType.GetProperty("Key")?.GetValue(entry) is not uint fishItemId || fishItemId == 0)
+                    continue;
+
+                var fish = entryType.GetProperty("Value")?.GetValue(entry);
+                if (fish is null)
+                    continue;
+
+                var bait = fish.GetType()
+                    .GetProperty("InitialBait", BindingFlags.Public | BindingFlags.Instance)?
+                    .GetValue(fish);
+                var baitId = bait?
+                    .GetType()
+                    .GetProperty("Id", BindingFlags.Public | BindingFlags.Instance)?
+                    .GetValue(bait);
+                var baitName = bait?
+                    .GetType()
+                    .GetField("Name", BindingFlags.Public | BindingFlags.Instance)?
+                    .GetValue(bait) as string;
+                var cosmicMission = fish.GetType()
+                    .GetProperty("CosmicMission", BindingFlags.Public | BindingFlags.Instance)?
+                    .GetValue(fish);
+                var cosmicMissionName = cosmicMission?
+                    .GetType()
+                    .GetField("Name", BindingFlags.Public | BindingFlags.Instance)?
+                    .GetValue(cosmicMission) as string;
+                var fishType = GetGatherBuddyFishType(fish);
+                var resolvedBaitName = baitId is uint { } id &&
+                                       id != 0 &&
+                                       !string.IsNullOrWhiteSpace(baitName) &&
+                                       !string.Equals(baitName, "Unknown", StringComparison.OrdinalIgnoreCase)
+                    ? baitName
+                    : string.Empty;
+                if (!string.IsNullOrWhiteSpace(resolvedBaitName) ||
+                    !string.IsNullOrWhiteSpace(cosmicMissionName) ||
+                    !string.IsNullOrWhiteSpace(fishType))
+                {
+                    tooltipDataByFishItemId[fishItemId] = new GatherBuddyFishTooltipData(
+                        resolvedBaitName,
+                        cosmicMissionName ?? string.Empty,
+                        fishType);
+                }
+            }
+
+            return tooltipDataByFishItemId;
+        }
+        catch (Exception exception)
+        {
+            this.fileLog.Warning(
+                "GatherBuddy",
+                $"Could not read resolved fish bait data: {exception.Message}");
+            return new Dictionary<uint, GatherBuddyFishTooltipData>();
+        }
+    }
+
+    private sealed record GatherBuddyFishTooltipData(
+        string BaitName,
+        string CosmicMissionName,
+        string FishType);
+
+    private sealed record ItemLogEntry(ItemLogKind Kind, uint EntryId, string Label);
+
+    private enum ItemLogKind
+    {
+        Gathering,
+        Fishing,
+        Spearfishing,
+    }
+
+    private static string GetGatherBuddyFishType(object fish)
+    {
+        var fishType = fish.GetType();
+        if (fishType.GetProperty("IsSpearFish", BindingFlags.Public | BindingFlags.Instance)?.GetValue(fish) is true)
+            return "Spearfishing";
+        if (fishType.GetProperty("OceanFish", BindingFlags.Public | BindingFlags.Instance)?.GetValue(fish) is true)
+            return "Ocean fishing";
+        if (fishType.GetProperty("IsBigFish", BindingFlags.Public | BindingFlags.Instance)?.GetValue(fish) is true)
+            return "Big fish";
+
+        return "Regular fish";
+    }
+
+    private static object? GetGatherBuddyFish(IEnumerable fishes, uint itemId)
+    {
+        foreach (var entry in fishes)
+        {
+            if (entry is not null &&
+                entry.GetType().GetProperty("Key")?.GetValue(entry) is uint fishItemId &&
+                fishItemId == itemId)
+                return entry.GetType().GetProperty("Value")?.GetValue(entry);
+        }
+
+        return null;
+    }
+
+    private static string FormatGatherBuddyDuration(long milliseconds)
+    {
+        var duration = TimeSpan.FromMilliseconds(Math.Max(0, milliseconds));
+        return duration.TotalHours >= 1
+            ? $"{(int)duration.TotalHours}h {duration.Minutes}m {duration.Seconds}s"
+            : $"{duration.Minutes}m {duration.Seconds}s";
+    }
+
+    private static IReadOnlyDictionary<uint, SocietyQuestTooltipInfo> BuildSocietyQuestTooltipInfoByItemId(
+        ExcelSheet<Quest>? quests,
+        SubrowExcelSheet<QuestClassJobSupply>? questClassJobSupplies,
+        ExcelSheet<BeastTribe>? beastTribes)
+    {
+        if (quests is null || questClassJobSupplies is null || beastTribes is null)
+            return new Dictionary<uint, SocietyQuestTooltipInfo>();
+
+        var societyNamesById = beastTribes
+            .Where(society => society.RowId != 0)
+            .ToDictionary(society => society.RowId, society => society.Name.ToString().Trim());
+        var societyNamesBySupplyId = new Dictionary<uint, HashSet<string>>();
+        foreach (var quest in quests.Where(quest =>
+                     quest.RowId != 0 &&
+                     quest.BeastTribe.RowId != 0 &&
+                     quest.QuestClassJobSupply.RowId != 0))
+        {
+            if (!societyNamesById.TryGetValue(quest.BeastTribe.RowId, out var societyName) ||
+                string.IsNullOrWhiteSpace(societyName))
+                continue;
+
+            if (!societyNamesBySupplyId.TryGetValue(quest.QuestClassJobSupply.RowId, out var societyNames))
+            {
+                societyNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                societyNamesBySupplyId[quest.QuestClassJobSupply.RowId] = societyNames;
+            }
+
+            societyNames.Add(societyName);
+        }
+
+        var societyNamesByItemId = new Dictionary<uint, HashSet<string>>();
+        foreach (var supply in questClassJobSupplies.SelectMany(supplies => supplies))
+        {
+            if (supply.Item.RowId == 0 ||
+                !societyNamesBySupplyId.TryGetValue(supply.RowId, out var societyNames))
+                continue;
+
+            if (!societyNamesByItemId.TryGetValue(supply.Item.RowId, out var itemSocietyNames))
+            {
+                itemSocietyNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                societyNamesByItemId[supply.Item.RowId] = itemSocietyNames;
+            }
+
+            itemSocietyNames.UnionWith(societyNames);
+        }
+
+        return societyNamesByItemId.ToDictionary(
+            pair => pair.Key,
+            pair => new SocietyQuestTooltipInfo(
+                pair.Value
+                    .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+                    .Select(name => $"Society quest: {name}")
+                    .ToList()));
+    }
+
+    private static string GetPlaceName(
+        IReadOnlyDictionary<uint, string> placeNamesById,
+        params uint[] placeNameIds)
+    {
+        foreach (var placeNameId in placeNameIds)
+        {
+            if (placeNameId != 0 &&
+                placeNamesById.TryGetValue(placeNameId, out var placeName) &&
+                !string.IsNullOrWhiteSpace(placeName))
+                return placeName;
+        }
+
+        return string.Empty;
     }
 
     private static IReadOnlyDictionary<uint, SpecialContentTooltipInfo> BuildSpecialContentTooltipInfoByItemId(

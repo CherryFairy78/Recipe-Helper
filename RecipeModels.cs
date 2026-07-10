@@ -125,6 +125,20 @@ public sealed record RequiredItemInfo(
     string ItemName,
     bool IsTool);
 
+public sealed record FishTooltipInfo(
+    string BaitName,
+    string FishType,
+    string BestZone,
+    string BestSpot);
+
+public sealed record LogStatusTooltipInfo(IReadOnlyList<string> Lines);
+
+public sealed record SocietyQuestTooltipInfo(IReadOnlyList<string> Lines);
+
+public sealed record CosmicExplorationTooltipInfo(string MissionName);
+
+public sealed record QuestTooltipInfo(IReadOnlyList<string> Lines);
+
 public sealed record SpecialContentTooltipInfo(
     string Subtitle,
     IReadOnlyList<string> Lines);

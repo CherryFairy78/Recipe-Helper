@@ -31,16 +31,26 @@ public sealed class MarketboardPriceService
         var entry = this.cache.GetOrAdd(itemId, static _ => new CacheEntry());
         lock (entry.SyncRoot)
         {
+            if (entry.IsMarketboardAvailable is false &&
+                DateTime.UtcNow - entry.FetchedAtUtc < CacheLifetime)
+            {
+                return new MarketboardPriceState(null, false, true, false);
+            }
+
             if (entry.Snapshot is { } snapshot &&
                 DateTime.UtcNow - entry.FetchedAtUtc < CacheLifetime)
             {
-                return new MarketboardPriceState(snapshot, false, false);
+                return new MarketboardPriceState(snapshot, false, false, true);
             }
 
             if (entry.LoadingTask is null || entry.LoadingTask.IsCompleted)
                 entry.LoadingTask = this.LoadSnapshotAsync(itemId, entry);
 
-            return new MarketboardPriceState(entry.Snapshot, true, entry.Snapshot is null);
+            return new MarketboardPriceState(
+                entry.Snapshot,
+                true,
+                entry.Snapshot is null,
+                entry.IsMarketboardAvailable);
         }
     }
 
@@ -51,8 +61,19 @@ public sealed class MarketboardPriceService
             var uri = $"https://universalis.app/api/v2/{Scope}/{itemId}?listings=80&entries=0";
             var json = await HttpClient.GetStringAsync(uri);
             var response = JsonSerializer.Deserialize<UniversalisResponse>(json);
-            if (response is null || !response.HasData)
+            if (response is null)
                 return;
+
+            if (!response.HasData)
+            {
+                lock (entry.SyncRoot)
+                {
+                    entry.IsMarketboardAvailable = false;
+                    entry.FetchedAtUtc = DateTime.UtcNow;
+                }
+
+                return;
+            }
 
             var nqWorldPrices = (response.Listings ?? [])
                 .Where(listing => !listing.Hq)
@@ -95,6 +116,7 @@ public sealed class MarketboardPriceService
                     response.LastUploadTime > 0
                         ? DateTimeOffset.FromUnixTimeMilliseconds(response.LastUploadTime).ToLocalTime()
                         : null);
+                entry.IsMarketboardAvailable = true;
                 entry.FetchedAtUtc = DateTime.UtcNow;
             }
         }
@@ -107,7 +129,8 @@ public sealed class MarketboardPriceService
     public readonly record struct MarketboardPriceState(
         MarketboardPriceSnapshot? Snapshot,
         bool IsLoading,
-        bool HasNoCachedData);
+        bool HasNoCachedData,
+        bool? IsMarketboardAvailable);
 
     public sealed record MarketboardPriceSnapshot(
         string Scope,
@@ -130,6 +153,8 @@ public sealed class MarketboardPriceService
         public Task? LoadingTask { get; set; }
 
         public MarketboardPriceSnapshot? Snapshot { get; set; }
+
+        public bool? IsMarketboardAvailable { get; set; }
 
         public DateTime FetchedAtUtc { get; set; }
     }

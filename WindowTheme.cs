@@ -76,6 +76,18 @@ public static class WindowTheme
         return Blend(accentBase, contrastTarget, 0.40f);
     }
 
+    public static Vector4 GetTooltipLabelTextColor(Configuration configuration)
+    {
+        var popupBackground = Adjust(configuration.WindowBackgroundColor, 0.025f, 0.98f);
+        var luminance = (popupBackground.X * 0.2126f) +
+                        (popupBackground.Y * 0.7152f) +
+                        (popupBackground.Z * 0.0722f);
+        var contrastTarget = luminance >= 0.55f
+            ? new Vector4(0.12f, 0.18f, 0.26f, 1f)
+            : new Vector4(0.94f, 0.97f, 1f, 1f);
+        return Blend(configuration.TextColor, contrastTarget, 0.35f);
+    }
+
     public static void Pop() => ImGui.PopStyleColor(PushedColorCount);
 
     public static void PushButtonStyle(Configuration configuration, float scale = 1f)

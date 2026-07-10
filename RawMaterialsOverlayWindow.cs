@@ -202,14 +202,25 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
                     rowColor,
                     this.configuration.TextColor);
                 if (this.recipeService.GetCollectibleRewardInfo(material.ItemId) is { } rewardInfo)
-                    this.DrawCollectibleRewardTooltip(material.Name, rewardInfo, material.Missing);
+                    this.DrawCollectibleRewardTooltip(
+                        material.ItemId,
+                        material.Name,
+                        rewardInfo,
+                        material.Missing,
+                        this.GetItemUnlockTooltipLines(material.ItemId));
                 else
                     MaterialUsageTooltip.Draw(
                         this.marketboardPriceService,
                         this.configuration,
                         material.ItemId,
                         material.Name,
-                        specialContentTooltipInfo: this.recipeService.GetSpecialContentTooltipInfo(material.ItemId));
+                        specialContentTooltipInfo: this.recipeService.GetSpecialContentTooltipInfo(material.ItemId),
+                        fishTooltipInfo: this.recipeService.GetFishTooltipInfo(material.ItemId),
+                        societyQuestTooltipInfo: this.recipeService.GetSocietyQuestTooltipInfo(material.ItemId),
+                        cosmicExplorationTooltipInfo: this.recipeService.GetCosmicExplorationTooltipInfo(material.ItemId),
+                        questTooltipInfo: this.recipeService.GetQuestTooltipInfo(material.ItemId),
+                        logStatusTooltipInfo: this.recipeService.GetItemLogStatusTooltipInfo(material.ItemId),
+                        isMarketboardAvailable: this.recipeService.IsMarketboardAvailable(material.ItemId));
 
                 ImGui.TableNextColumn();
                 this.DrawValueCard(
@@ -362,10 +373,20 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
 
     private string? GetOverlayAvailabilityText(
         IngredientNeed material,
-        AetherialReductionSource? reductionSource) =>
-        reductionSource is not null
+        AetherialReductionSource? reductionSource)
+    {
+        var fishItemId = reductionSource is { IsFishing: true }
+            ? reductionSource.ItemId
+            : material.IsFishing
+                ? material.ItemId
+                : 0;
+        if (fishItemId != 0 && this.recipeService.GetGatherBuddyFishAvailabilityText(fishItemId) is { } fishAvailability)
+            return fishAvailability;
+
+        return reductionSource is not null
             ? this.aetherialReductionService.GetTimerText(reductionSource)
             : this.aetherialReductionService.GetGatheringTimerText(material.ItemId);
+    }
 
     private static bool HasTimedAvailability(string? availabilityText) =>
         !string.IsNullOrWhiteSpace(availabilityText) &&
@@ -713,7 +734,12 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
             Math.Clamp(color.Z + amount, 0, 1),
             color.W);
 
-    private void DrawCollectibleRewardTooltip(string itemName, CollectibleRewardInfo rewardInfo, uint quantity)
+    private void DrawCollectibleRewardTooltip(
+        uint itemId,
+        string itemName,
+        CollectibleRewardInfo rewardInfo,
+        uint quantity,
+        IReadOnlyList<string>? unlockTooltipLines)
     {
         if (!ImGui.IsItemHovered())
             return;
@@ -722,8 +748,113 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
         WindowTheme.ApplyTextScale(this.configuration);
         ImGui.TextColored(this.configuration.AccentTextColor, itemName);
         ImGui.Separator();
-        ImGui.TextUnformatted(rewardInfo.GetTooltipText());
+        foreach (var rewardLine in rewardInfo.GetTooltipText().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries))
+            MaterialUsageTooltip.DrawDetailLine(this.configuration, rewardLine);
+
+        if (unlockTooltipLines is { Count: > 0 })
+        {
+            ImGui.Spacing();
+            ImGui.Separator();
+            ImGui.PushTextWrapPos(ImGui.GetFontSize() * 28f);
+            foreach (var unlockTooltipLine in unlockTooltipLines.Where(line => !string.IsNullOrWhiteSpace(line)))
+            {
+                if (unlockTooltipLine.Contains(':'))
+                    MaterialUsageTooltip.DrawDetailLine(this.configuration, unlockTooltipLine);
+                else
+                    MaterialUsageTooltip.DrawDetailHeader(this.configuration, unlockTooltipLine);
+            }
+            ImGui.PopTextWrapPos();
+        }
+
+        this.DrawFishTooltipDetails(this.recipeService.GetFishTooltipInfo(itemId));
+        MaterialUsageTooltip.DrawLogStatusTooltipDetails(
+            this.configuration,
+            this.recipeService.GetItemLogStatusTooltipInfo(itemId));
+        this.DrawSocietyQuestTooltipDetails(this.recipeService.GetSocietyQuestTooltipInfo(itemId));
+        this.DrawCosmicExplorationTooltipDetails(this.recipeService.GetCosmicExplorationTooltipInfo(itemId));
+        this.DrawQuestTooltipDetails(this.recipeService.GetQuestTooltipInfo(itemId));
         ImGui.EndTooltip();
+    }
+
+    private IReadOnlyList<string> GetItemUnlockTooltipLines(uint itemId)
+    {
+        var lines = new List<string>();
+        if (this.recipeService.GetFolkloreBookInfo(itemId) is { } folkloreBookInfo)
+        {
+            lines.Add("Folklore unlock");
+            lines.Add($"Book: {folkloreBookInfo.BookName}");
+            lines.Add($"Sold by: {folkloreBookInfo.ExchangeName}");
+            lines.Add($"Cost: {folkloreBookInfo.CostLabel}");
+        }
+
+        if (this.recipeService.GetRequiredItemInfo(itemId) is { } requiredItemInfo)
+        {
+            lines.Add(requiredItemInfo.IsTool ? "Requires tool" : "Requires item");
+            lines.Add(requiredItemInfo.ItemName);
+        }
+
+        return lines;
+    }
+
+    private void DrawFishTooltipDetails(FishTooltipInfo? fishTooltipInfo)
+    {
+        if (fishTooltipInfo is null)
+            return;
+
+        ImGui.Spacing();
+        ImGui.Separator();
+        ImGui.TextColored(this.configuration.AccentTextColor, "Fishing details");
+        ImGui.PushTextWrapPos(ImGui.GetFontSize() * 28f);
+        MaterialUsageTooltip.DrawDetailRow(this.configuration, "Bait", fishTooltipInfo.BaitName);
+        MaterialUsageTooltip.DrawDetailRow(this.configuration, "Fish type", fishTooltipInfo.FishType);
+        MaterialUsageTooltip.DrawDetailRow(this.configuration, "Best zone", fishTooltipInfo.BestZone);
+        MaterialUsageTooltip.DrawDetailRow(this.configuration, "Best spot", fishTooltipInfo.BestSpot);
+        ImGui.PopTextWrapPos();
+    }
+
+    private void DrawSocietyQuestTooltipDetails(SocietyQuestTooltipInfo? societyQuestTooltipInfo)
+    {
+        if (societyQuestTooltipInfo is null)
+            return;
+
+        ImGui.Spacing();
+        ImGui.Separator();
+        ImGui.TextColored(this.configuration.AccentTextColor, "Society quests");
+        ImGui.PushTextWrapPos(ImGui.GetFontSize() * 28f);
+        foreach (var line in societyQuestTooltipInfo.Lines.Where(line => !string.IsNullOrWhiteSpace(line)))
+            MaterialUsageTooltip.DrawDetailLine(this.configuration, line);
+        ImGui.PopTextWrapPos();
+    }
+
+    private void DrawCosmicExplorationTooltipDetails(CosmicExplorationTooltipInfo? cosmicExplorationTooltipInfo)
+    {
+        if (cosmicExplorationTooltipInfo is null)
+            return;
+
+        ImGui.Spacing();
+        ImGui.Separator();
+        ImGui.TextColored(this.configuration.AccentTextColor, "Cosmic Exploration");
+        ImGui.PushTextWrapPos(ImGui.GetFontSize() * 28f);
+        MaterialUsageTooltip.DrawDetailLine(
+            this.configuration,
+            string.IsNullOrWhiteSpace(cosmicExplorationTooltipInfo.MissionName)
+                ? "Cosmic Exploration item"
+                : $"Mission: {cosmicExplorationTooltipInfo.MissionName}");
+        ImGui.PopTextWrapPos();
+    }
+
+    private void DrawQuestTooltipDetails(QuestTooltipInfo? questTooltipInfo)
+    {
+        if (questTooltipInfo is null)
+            return;
+
+        ImGui.Spacing();
+        ImGui.Separator();
+        ImGui.TextColored(this.configuration.AccentTextColor, "Quest item");
+        ImGui.PushTextWrapPos(ImGui.GetFontSize() * 28f);
+        foreach (var line in questTooltipInfo.Lines.Where(line => !string.IsNullOrWhiteSpace(line)))
+            MaterialUsageTooltip.DrawDetailLine(this.configuration, line);
+        ImGui.PopTextWrapPos();
     }
 
     private static void DrawTooltipIfHovered(string text)

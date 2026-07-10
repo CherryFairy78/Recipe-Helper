@@ -4,27 +4,26 @@ This file is the durable hand-off record for Recipe Helper. Read it before makin
 
 ## Project snapshot
 
-- Last updated: 2026-07-10
+- Last updated: 2026-07-11
 - Plugin name: Recipe Helper
 - Internal name: `DalamudRecipeHelper`
-- Version: `1.1.35.0`
+- Version: `1.1.36.0`
 - Framework: Dalamud API 15
 - Target: `.NET 10` on Windows x64
 - Command: `/recipehelper`
 - Build command: `dotnet build .\DalamudRecipeHelper.csproj --no-restore`
 - Debug output: `bin\Debug\DalamudRecipeHelper.dll`
-- Last verified build: 2026-07-10, sequential Debug and Release builds both succeeded with zero warnings and zero errors, the release safety script moved the local dev-plugin copy to `C:\Users\megha\AppData\Roaming\XIVLauncher\backups\RecipeHelper\20260710-221004`, and `releases\DalamudRecipeHelper-v1.1.35.zip` was created from the verified Release output with SHA-256 `9EAAF3FCA445E51CA31BA36D68B0F4E44901D89272675793EBAAFB88BBB72DB4`
+- Last verified build: 2026-07-11, Debug build succeeded with zero warnings and zero errors. Release package verification is recorded below.
 
 ## Recent release
 
-- Version: `1.1.35.0`
-- Added inline recipe and gatherable level labels so search results show the crafting or gathering level next to the job abbreviation.
-- Added richer unlock hover details for gatherables and collectables, including folklore books, required tools or items when exposed by game data, and master recipe books for crafted recipes.
-- Added FSH support for level and folklore display where fishing data exposes those links.
-- Replaced marketboard hovers for recognized Ishgard Restoration items with Restoration-specific tooltip content, including phase and Skybuilders' Scrip reward information.
-- Filtered deprecated Skybuilders items that no longer map to live Restoration data out of search results.
-- Updated the live repo manifest metadata and release package target to `v1.1.35` for publish readiness.
-- Verification: sequential Debug and Release builds both succeeded with zero warnings and zero errors, the release safety script moved the local dev-plugin copy to `C:\Users\megha\AppData\Roaming\XIVLauncher\backups\RecipeHelper\20260710-221004`, and `releases\DalamudRecipeHelper-v1.1.35.zip` was created from the verified Release output with SHA-256 `9EAAF3FCA445E51CA31BA36D68B0F4E44901D89272675793EBAAFB88BBB72DB4`.
+- Version: `1.1.36.0`
+- Expanded source hovers with folklore and master-recipe unlocks, required tools, marketboard availability, Restoration and society-quest details, and matching overlay coverage.
+- Added fishing bait, fish type, zones, spots, availability, quest-fish fallbacks, cosmic exploration details, and quest locations.
+- Added live Fishing, Gathering, Spearfishing, and Crafting Log progress to relevant hovers.
+- Added integration status and GitHub links for Artisan, GatherBuddy, Lifestream, and Auto-Retainer in Settings.
+- Updated the live repo manifest metadata and release package target to `v1.1.36` for publish readiness.
+- Verification: Debug and Release builds succeeded with zero warnings and zero errors. `releases\DalamudRecipeHelper-v1.1.36.zip` was created from the verified Release output with SHA-256 `9022F3D89BF77DAE4EC9DC1DAAE1F39CA4EAC1F1B6773E50BD81B2EB4C337AAE`.
 
 ## Purpose
 
@@ -74,12 +73,18 @@ Recipe Helper searches FFXIV recipes, calculates the materials required for a ch
 - Labels items as gatherable, fishing, vendor, craftable, or other.
 - Fishing identification uses `FishParameter.Item.RowId`.
 - Spearfishing identification uses `SpearfishingItem.Item.RowId`.
+- Fish tooltips show GatherBuddy's bait and gameplay type (regular, big, spearfishing, or ocean fishing) when available, plus the game's associated best zone and fishing spot.
+- Items without a marketboard category no longer request or display a Universalis marketboard snapshot.
+- Non-marketboard item hovers can show the society quests that request the item.
+- Cosmic Exploration fish hovers show the associated mission and GatherBuddy's required bait.
+- Collectible reward hovers use the same fishing and Cosmic Exploration detail sections as regular item hovers.
+- Quest-item hovers show the linked quest name and location alongside existing fishing details.
 - Labels mapped aethersands, glioaethers, and special reduction rewards as `Aetherial reduction`.
 - Maps each reduction result to one or more collectible source items.
 - Selects the currently available or next available mapped ephemeral source and displays a live real-time countdown.
 - Displays live availability countdowns for ordinary raw materials from unspoiled and other timed mining or botany nodes.
 - Sends the selected collectible source to GatherBuddy for its location, marker, and teleport workflow.
-- Fishing reduction timers display `Check GatherBuddy` because GatherBuddy's public interface does not expose its complete time, weather, bait, and intuition uptime calculation.
+- Fishing availability cards use GatherBuddy's active uptime calculation when it is loaded, and fall back to `Check GatherBuddy` when its timer data cannot be read.
 
 ### Plugin integrations
 
@@ -158,7 +163,7 @@ Recipe Helper searches FFXIV recipes, calculates the materials required for a ch
 
 1. Lumina remains the recipe-data authority because Artisan and Teamcraft List Maker do not provide stable APIs for retrieving complete recipe data.
 2. GatherBuddy is preferred for gathering travel because it already owns a richer location database and the complete marker/teleport workflow.
-3. Integrations use public IPC or registered commands rather than directly referencing another plugin's internal assemblies or configuration files.
+3. Integrations use public IPC or registered commands where available; GatherBuddy's live fish timer has no public IPC, so it is read reflectively only while GatherBuddy is loaded.
 4. Built-in travel is retained as a fallback so the Gather button still has a useful response when GatherBuddy is disabled.
 5. Logs contain operational details and item/recipe identifiers, but inventory logs record counts rather than every inventory item.
 6. Aetherial-reduction mappings are stored locally so recipe planning does not depend on web requests while the game is running. Review them when new reduction rewards are introduced.

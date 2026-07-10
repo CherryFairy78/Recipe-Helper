@@ -470,7 +470,13 @@ public sealed class RecipeWindow : Window, IDisposable
                             result.ResultName,
                             rewardInfo,
                             this.GetSearchResultUnlockTooltipLines(result),
-                            1);
+                            1,
+                            this.recipeService.GetFishTooltipInfo(result.ResultItemId),
+                            this.recipeService.GetCosmicExplorationTooltipInfo(result.ResultItemId),
+                            this.recipeService.GetQuestTooltipInfo(result.ResultItemId),
+                            result.ResultKind == SearchResultKind.CraftedRecipe
+                                ? this.recipeService.GetRecipeLogStatusTooltipInfo(result.RecipeId)
+                                : this.recipeService.GetItemLogStatusTooltipInfo(result.ResultItemId));
                     }
                     else
                     {
@@ -481,7 +487,15 @@ public sealed class RecipeWindow : Window, IDisposable
                             result.ResultName,
                             this.GetSearchResultTooltip(result),
                             detailLines: this.GetSearchResultUnlockTooltipLines(result),
-                            specialContentTooltipInfo: this.GetSpecialContentTooltipInfo(result.ResultItemId));
+                            specialContentTooltipInfo: this.GetSpecialContentTooltipInfo(result.ResultItemId),
+                            fishTooltipInfo: this.recipeService.GetFishTooltipInfo(result.ResultItemId),
+                            societyQuestTooltipInfo: this.recipeService.GetSocietyQuestTooltipInfo(result.ResultItemId),
+                            cosmicExplorationTooltipInfo: this.recipeService.GetCosmicExplorationTooltipInfo(result.ResultItemId),
+                            questTooltipInfo: this.recipeService.GetQuestTooltipInfo(result.ResultItemId),
+                            logStatusTooltipInfo: result.ResultKind == SearchResultKind.CraftedRecipe
+                                ? this.recipeService.GetRecipeLogStatusTooltipInfo(result.RecipeId)
+                                : this.recipeService.GetItemLogStatusTooltipInfo(result.ResultItemId),
+                            isMarketboardAvailable: this.recipeService.IsMarketboardAvailable(result.ResultItemId));
                     }
 
                     ImGui.PopID();
@@ -888,8 +902,6 @@ public sealed class RecipeWindow : Window, IDisposable
                 $"Base collectible hand-in value: {result.SearchMetadata}",
             SearchResultKind.CollectibleItem =>
                 "Adds this gatherable collectable to the Collectables section below.",
-            SearchResultKind.GatherableItem =>
-                "Adds this item to the Gatherables section below.",
             _ => string.Empty,
         };
 
@@ -1515,7 +1527,7 @@ public sealed class RecipeWindow : Window, IDisposable
             {
                 var reductionSource =
                     this.aetherialReductionService.GetPreferredSource(row.Need.ReductionSources);
-                var availabilityText = GetIngredientAvailabilityText(row.Need, reductionSource, this.aetherialReductionService);
+                var availabilityText = this.GetIngredientAvailabilityText(row.Need, reductionSource);
                 var canGather = this.CanGatherIngredient(row.Need, reductionSource, availabilityText);
                 return new
                 {
@@ -1632,6 +1644,7 @@ public sealed class RecipeWindow : Window, IDisposable
                 var ingredient = row.Need;
                 var reductionSource =
                     this.aetherialReductionService.GetPreferredSource(ingredient.ReductionSources);
+                var availabilityText = this.GetIngredientAvailabilityText(ingredient, reductionSource);
                 var rowColor = ingredient.HasEnough
                     ? this.configuration.EnoughRowColor
                     : WithAlpha(this.configuration.MissingTextColor, 0.18f);
@@ -1650,7 +1663,11 @@ public sealed class RecipeWindow : Window, IDisposable
                         ingredient.Name,
                         itemRewardInfo,
                         this.GetItemUnlockTooltipLines(ingredient.ItemId),
-                        row.DisplayQuantity);
+                        row.DisplayQuantity,
+                        this.recipeService.GetFishTooltipInfo(ingredient.ItemId),
+                        this.recipeService.GetCosmicExplorationTooltipInfo(ingredient.ItemId),
+                        this.recipeService.GetQuestTooltipInfo(ingredient.ItemId),
+                        this.recipeService.GetItemLogStatusTooltipInfo(ingredient.ItemId));
                 else
                     MaterialUsageTooltip.Draw(
                         this.marketboardPriceService,
@@ -1658,7 +1675,13 @@ public sealed class RecipeWindow : Window, IDisposable
                         ingredient.ItemId,
                         ingredient.Name,
                         detailLines: this.GetItemUnlockTooltipLines(ingredient.ItemId),
-                        specialContentTooltipInfo: this.GetSpecialContentTooltipInfo(ingredient.ItemId));
+                        specialContentTooltipInfo: this.GetSpecialContentTooltipInfo(ingredient.ItemId),
+                        fishTooltipInfo: this.recipeService.GetFishTooltipInfo(ingredient.ItemId),
+                        societyQuestTooltipInfo: this.recipeService.GetSocietyQuestTooltipInfo(ingredient.ItemId),
+                        cosmicExplorationTooltipInfo: this.recipeService.GetCosmicExplorationTooltipInfo(ingredient.ItemId),
+                        questTooltipInfo: this.recipeService.GetQuestTooltipInfo(ingredient.ItemId),
+                        logStatusTooltipInfo: this.recipeService.GetItemLogStatusTooltipInfo(ingredient.ItemId),
+                        isMarketboardAvailable: this.recipeService.IsMarketboardAvailable(ingredient.ItemId));
 
                 ImGui.TableNextColumn();
                 var quantityCursor = ImGui.GetCursorPos();
@@ -1786,7 +1809,7 @@ public sealed class RecipeWindow : Window, IDisposable
                 }
                 else
                 {
-                    this.DrawAvailabilityCard(tableId, ingredient, reductionSource);
+                    this.DrawAvailabilityCard(tableId, ingredient, availabilityText);
                 }
 
                 if (showStock)
@@ -1897,6 +1920,10 @@ public sealed class RecipeWindow : Window, IDisposable
         CollectibleRewardInfo rewardInfo,
         IReadOnlyList<string>? unlockTooltipLines,
         uint quantity,
+        FishTooltipInfo? fishTooltipInfo = null,
+        CosmicExplorationTooltipInfo? cosmicExplorationTooltipInfo = null,
+        QuestTooltipInfo? questTooltipInfo = null,
+        LogStatusTooltipInfo? logStatusTooltipInfo = null,
         bool showTotalValue = false)
     {
         if (!ImGui.IsItemHovered())
@@ -1906,29 +1933,80 @@ public sealed class RecipeWindow : Window, IDisposable
         WindowTheme.ApplyTextScale(this.configuration);
         ImGui.TextColored(this.configuration.AccentTextColor, itemName);
         ImGui.Separator();
+        var rewardText = rewardInfo.GetTooltipText();
         if (showTotalValue && quantity > 1)
         {
             ImGui.TextDisabled($"Scaled for quantity: {quantity:N0}");
             ImGui.Spacing();
-            ImGui.TextUnformatted(rewardInfo.GetTotalTooltipText(quantity));
+            rewardText = rewardInfo.GetTotalTooltipText(quantity);
         }
-        else
-        {
-            ImGui.TextUnformatted(rewardInfo.GetTooltipText());
-        }
+        foreach (var rewardLine in rewardText.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries))
+            MaterialUsageTooltip.DrawDetailLine(this.configuration, rewardLine);
 
         if (unlockTooltipLines is { Count: > 0 })
         {
-            var detailColor = WindowTheme.GetTooltipDetailTextColor(this.configuration);
             ImGui.Spacing();
             ImGui.Separator();
             ImGui.PushTextWrapPos(ImGui.GetFontSize() * 28f);
             foreach (var unlockTooltipLine in unlockTooltipLines.Where(line => !string.IsNullOrWhiteSpace(line)))
-                ImGui.TextColored(detailColor, unlockTooltipLine);
+            {
+                if (unlockTooltipLine.Contains(':'))
+                    MaterialUsageTooltip.DrawDetailLine(this.configuration, unlockTooltipLine);
+                else
+                    MaterialUsageTooltip.DrawDetailHeader(this.configuration, unlockTooltipLine);
+            }
             ImGui.PopTextWrapPos();
         }
 
+        this.DrawFishTooltipDetails(fishTooltipInfo);
+        MaterialUsageTooltip.DrawLogStatusTooltipDetails(this.configuration, logStatusTooltipInfo);
+        this.DrawCosmicExplorationTooltipDetails(cosmicExplorationTooltipInfo);
+        this.DrawQuestTooltipDetails(questTooltipInfo);
+
         ImGui.EndTooltip();
+    }
+
+    private void DrawFishTooltipDetails(FishTooltipInfo? fishTooltipInfo)
+    {
+        if (fishTooltipInfo is null)
+            return;
+
+        ImGui.Spacing();
+        ImGui.Separator();
+        ImGui.TextColored(this.configuration.AccentTextColor, "Fishing details");
+        ImGui.PushTextWrapPos(ImGui.GetFontSize() * 28f);
+        MaterialUsageTooltip.DrawDetailRow(this.configuration, "Bait", fishTooltipInfo.BaitName);
+        MaterialUsageTooltip.DrawDetailRow(this.configuration, "Fish type", fishTooltipInfo.FishType);
+        MaterialUsageTooltip.DrawDetailRow(this.configuration, "Best zone", fishTooltipInfo.BestZone);
+        MaterialUsageTooltip.DrawDetailRow(this.configuration, "Best spot", fishTooltipInfo.BestSpot);
+        ImGui.PopTextWrapPos();
+    }
+
+    private void DrawCosmicExplorationTooltipDetails(CosmicExplorationTooltipInfo? cosmicExplorationTooltipInfo)
+    {
+        if (cosmicExplorationTooltipInfo is null)
+            return;
+
+        ImGui.Spacing();
+        ImGui.Separator();
+        ImGui.TextColored(this.configuration.AccentTextColor, "Cosmic Exploration");
+        MaterialUsageTooltip.DrawDetailLine(
+            this.configuration,
+            string.IsNullOrWhiteSpace(cosmicExplorationTooltipInfo.MissionName)
+                ? "Cosmic Exploration item"
+                : $"Mission: {cosmicExplorationTooltipInfo.MissionName}");
+    }
+
+    private void DrawQuestTooltipDetails(QuestTooltipInfo? questTooltipInfo)
+    {
+        if (questTooltipInfo is null)
+            return;
+
+        ImGui.Spacing();
+        ImGui.Separator();
+        ImGui.TextColored(this.configuration.AccentTextColor, "Quest item");
+        foreach (var line in questTooltipInfo.Lines.Where(line => !string.IsNullOrWhiteSpace(line)))
+            MaterialUsageTooltip.DrawDetailLine(this.configuration, line);
     }
 
     private void DrawSavePlanControls()
@@ -3251,6 +3329,10 @@ public sealed class RecipeWindow : Window, IDisposable
                         collectableRewardInfo,
                         this.GetRecipeUnlockTooltipLines(recipe.RecipeId),
                         recipe.DesiredAmount,
+                        this.recipeService.GetFishTooltipInfo(recipe.ResultItemId),
+                        this.recipeService.GetCosmicExplorationTooltipInfo(recipe.ResultItemId),
+                        this.recipeService.GetQuestTooltipInfo(recipe.ResultItemId),
+                        this.recipeService.GetRecipeLogStatusTooltipInfo(recipe.RecipeId),
                         showTotalValue: true);
                 }
                 else
@@ -3262,7 +3344,13 @@ public sealed class RecipeWindow : Window, IDisposable
                         recipe.ResultName,
                         quantity: recipe.DesiredAmount,
                         detailLines: this.GetRecipeUnlockTooltipLines(recipe.RecipeId),
-                        specialContentTooltipInfo: this.GetSpecialContentTooltipInfo(recipe.ResultItemId));
+                        specialContentTooltipInfo: this.GetSpecialContentTooltipInfo(recipe.ResultItemId),
+                        fishTooltipInfo: this.recipeService.GetFishTooltipInfo(recipe.ResultItemId),
+                        societyQuestTooltipInfo: this.recipeService.GetSocietyQuestTooltipInfo(recipe.ResultItemId),
+                        cosmicExplorationTooltipInfo: this.recipeService.GetCosmicExplorationTooltipInfo(recipe.ResultItemId),
+                        questTooltipInfo: this.recipeService.GetQuestTooltipInfo(recipe.ResultItemId),
+                        logStatusTooltipInfo: this.recipeService.GetRecipeLogStatusTooltipInfo(recipe.RecipeId),
+                        isMarketboardAvailable: this.recipeService.IsMarketboardAvailable(recipe.ResultItemId));
                 }
 
                 ImGui.TableNextColumn();
@@ -3430,7 +3518,7 @@ public sealed class RecipeWindow : Window, IDisposable
             {
                 var reductionSource =
                     this.aetherialReductionService.GetPreferredSource(material.ReductionSources);
-                var availabilityText = GetIngredientAvailabilityText(material, reductionSource, this.aetherialReductionService);
+                var availabilityText = this.GetIngredientAvailabilityText(material, reductionSource);
                 var canGather = this.CanGatherIngredient(material, reductionSource, availabilityText);
                 return new
                 {
@@ -3458,8 +3546,10 @@ public sealed class RecipeWindow : Window, IDisposable
         var isDirectIngredients = tableId == "ingredients";
         var showTravel = displayedMaterials.Any(material => material.IsGatherable);
         var showAvailable = displayedMaterials.Any(material =>
-            material.ReductionSources is { Count: > 0 } ||
-            this.aetherialReductionService.GetGatheringTimerText(material.ItemId) is not null);
+        {
+            var reductionSource = this.aetherialReductionService.GetPreferredSource(material.ReductionSources);
+            return !string.IsNullOrWhiteSpace(this.GetIngredientAvailabilityText(material, reductionSource));
+        });
         var showStock = displayedMaterials.Any(material => material.OwnedNq > 0 || material.OwnedHq > 0);
         var showFoundIn = displayedMaterials.Any(material => material.Locations.Count > 0);
         var showRawCraftStatus =
@@ -3590,7 +3680,13 @@ public sealed class RecipeWindow : Window, IDisposable
                     ingredient.ItemId,
                     ingredient.Name,
                     detailLines: this.GetItemUnlockTooltipLines(ingredient.ItemId),
-                    specialContentTooltipInfo: this.GetSpecialContentTooltipInfo(ingredient.ItemId));
+                    specialContentTooltipInfo: this.GetSpecialContentTooltipInfo(ingredient.ItemId),
+                    fishTooltipInfo: this.recipeService.GetFishTooltipInfo(ingredient.ItemId),
+                    societyQuestTooltipInfo: this.recipeService.GetSocietyQuestTooltipInfo(ingredient.ItemId),
+                    cosmicExplorationTooltipInfo: this.recipeService.GetCosmicExplorationTooltipInfo(ingredient.ItemId),
+                    questTooltipInfo: this.recipeService.GetQuestTooltipInfo(ingredient.ItemId),
+                    logStatusTooltipInfo: this.recipeService.GetItemLogStatusTooltipInfo(ingredient.ItemId),
+                    isMarketboardAvailable: this.recipeService.IsMarketboardAvailable(ingredient.ItemId));
 
                 ImGui.TableNextColumn();
                 var needBackground = ingredient.HasEnough
@@ -3637,6 +3733,7 @@ public sealed class RecipeWindow : Window, IDisposable
 
                 var reductionSource =
                     this.aetherialReductionService.GetPreferredSource(ingredient.ReductionSources);
+                var availabilityText = this.GetIngredientAvailabilityText(ingredient, reductionSource);
                 if (showTravel)
                 {
                     ImGui.TableNextColumn();
@@ -3680,7 +3777,7 @@ public sealed class RecipeWindow : Window, IDisposable
                 if (showAvailable)
                 {
                     ImGui.TableNextColumn();
-                    this.DrawAvailabilityCard(tableId, ingredient, reductionSource);
+                    this.DrawAvailabilityCard(tableId, ingredient, availabilityText);
                 }
 
                 if (showStock)
@@ -3990,11 +4087,8 @@ public sealed class RecipeWindow : Window, IDisposable
     private void DrawAvailabilityCard(
         string tableId,
         IngredientNeed ingredient,
-        AetherialReductionSource? reductionSource)
+        string? timerText)
     {
-        var timerText = reductionSource is not null
-            ? this.aetherialReductionService.GetTimerText(reductionSource)
-            : this.aetherialReductionService.GetGatheringTimerText(ingredient.ItemId);
         if (string.IsNullOrWhiteSpace(timerText))
         {
             this.DrawValueCard(
@@ -4144,13 +4238,22 @@ public sealed class RecipeWindow : Window, IDisposable
         reductionSource is not null ||
         HasTimedAvailability(availabilityText);
 
-    private static string? GetIngredientAvailabilityText(
+    private string? GetIngredientAvailabilityText(
         IngredientNeed ingredient,
-        AetherialReductionSource? reductionSource,
-        AetherialReductionService aetherialReductionService) =>
-        reductionSource is not null
-            ? aetherialReductionService.GetTimerText(reductionSource)
-            : aetherialReductionService.GetGatheringTimerText(ingredient.ItemId);
+        AetherialReductionSource? reductionSource)
+    {
+        var fishItemId = reductionSource is { IsFishing: true }
+            ? reductionSource.ItemId
+            : ingredient.IsFishing
+                ? ingredient.ItemId
+                : 0;
+        if (fishItemId != 0 && this.recipeService.GetGatherBuddyFishAvailabilityText(fishItemId) is { } fishAvailability)
+            return fishAvailability;
+
+        return reductionSource is not null
+            ? this.aetherialReductionService.GetTimerText(reductionSource)
+            : this.aetherialReductionService.GetGatheringTimerText(ingredient.ItemId);
+    }
 
     private static bool HasTimedAvailability(string? availabilityText) =>
         !string.IsNullOrWhiteSpace(availabilityText) &&

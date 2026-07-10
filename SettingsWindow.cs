@@ -4,6 +4,7 @@ using System.Linq;
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
+using Dalamud.Utility;
 
 namespace DalamudRecipeHelper;
 
@@ -57,6 +58,37 @@ public sealed class SettingsWindow : Window
         if (WindowTheme.ShadowedButton("Open debug", new Vector2(debugButtonWidth, 0)))
             this.debugWindow.OpenWithFreshReport();
         WindowTheme.PopButtonStyle();
+
+        ImGui.Spacing();
+        ImGui.Separator();
+        ImGui.Spacing();
+
+        ImGui.TextColored(this.configuration.AccentTextColor, "Recommended Plugins");
+        ImGui.TextDisabled("Recipe Helper works best when the following plugins are enabled.");
+        DrawPluginStatus(
+            this.configuration,
+            "Artisan",
+            "https://github.com/PunishXIV/Artisan",
+            IsPluginDetected("Artisan"),
+            "Enables Craft All recipe queues.");
+        DrawPluginStatus(
+            this.configuration,
+            "GatherBuddy",
+            "https://github.com/Ottermandias/GatherBuddy",
+            IsPluginDetected("GatherBuddy"),
+            "Supports collectables, gathering, fish details, and availability.");
+        DrawPluginStatus(
+            this.configuration,
+            "Lifestream",
+            "https://github.com/NightmareXIV/Lifestream",
+            IsPluginDetected("Lifestream"),
+            "Lets GatherBuddy teleport to gathering and fishing destinations.");
+        DrawPluginStatus(
+            this.configuration,
+            "Auto-Retainer",
+            "https://github.com/PunishXIV/AutoRetainer",
+            IsPluginDetected("AutoRetainer"),
+            "Optional. Manual withdrawal is available without it.");
 
         ImGui.Spacing();
         ImGui.Separator();
@@ -129,4 +161,34 @@ public sealed class SettingsWindow : Window
         currentValue = options[selectedIndex];
         return true;
     }
+
+    private static void DrawPluginStatus(
+        Configuration configuration,
+        string pluginName,
+        string githubUrl,
+        bool isDetected,
+        string description)
+    {
+        ImGui.Spacing();
+        ImGui.TextColored(Vector4.Lerp(configuration.AccentTextColor, configuration.TextColor, 0.35f), pluginName);
+        if (ImGui.IsItemHovered())
+        {
+            ImGui.SetTooltip("Open GitHub project page");
+            if (ImGui.IsItemClicked())
+                Util.OpenLink(githubUrl);
+        }
+        ImGui.SameLine();
+        ImGui.TextColored(
+            isDetected ? configuration.SuccessTextColor : configuration.MissingTextColor,
+            isDetected ? "Detected" : "Not detected");
+        ImGui.TextDisabled(description);
+    }
+
+    private static bool IsPluginDetected(string assemblyName) =>
+        AppDomain.CurrentDomain
+            .GetAssemblies()
+            .Any(assembly => string.Equals(
+                assembly.GetName().Name,
+                assemblyName,
+                StringComparison.OrdinalIgnoreCase));
 }

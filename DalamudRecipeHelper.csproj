@@ -1,8 +1,8 @@
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
-    <Version>1.1.35.0</Version>
+    <Version>1.1.36.0</Version>
     <Description>Plan multiple FFXIV recipes, compare combined materials with inventory and retainers, and hand crafting or gathering tasks to Artisan, Teamcraft, and GatherBuddy.</Description>
-    <Changelog>v1.1.35 adds richer gatherable and recipe unlock details, Restoration-specific hover info, and filters deprecated Skybuilders items from search.</Changelog>
+    <Changelog>v1.1.36 adds richer source tooltips, fishing and quest details, log progress, overlay parity, and integration status links.</Changelog>
     <PackageProjectUrl>https://github.com/CherryFairy78/Recipe-Helper</PackageProjectUrl>
     <Authors>Meghann</Authors>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
