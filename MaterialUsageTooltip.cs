@@ -8,6 +8,8 @@ namespace DalamudRecipeHelper;
 
 public static class MaterialUsageTooltip
 {
+    private const float TooltipCornerRounding = 10f;
+
     public static void Draw(
         MarketboardPriceService marketboardPriceService,
         Configuration configuration,
@@ -34,6 +36,7 @@ public static class MaterialUsageTooltip
         CosmicExplorationTooltipInfo? cosmicExplorationTooltipInfo = null,
         QuestTooltipInfo? questTooltipInfo = null,
         LogStatusTooltipInfo? logStatusTooltipInfo = null,
+        IReadOnlyList<AetherialReductionSource>? aetherialReductionSources = null,
         bool isMarketboardAvailable = true)
     {
         if (!ImGui.IsItemHovered())
@@ -46,8 +49,7 @@ public static class MaterialUsageTooltip
         ImGui.SetNextWindowSizeConstraints(
             new Vector2(360, 0),
             new Vector2(980, 600));
-        ImGui.BeginTooltip();
-        WindowTheme.ApplyTextScale(configuration);
+        BeginStyledTooltip(configuration);
 
         ImGui.TextColored(configuration.AccentTextColor, itemName);
         if (specialContentTooltipInfo is not null)
@@ -169,6 +171,7 @@ public static class MaterialUsageTooltip
         }
 
         DrawLogStatusTooltipDetails(configuration, logStatusTooltipInfo);
+        DrawAetherialReductionTooltipDetails(configuration, aetherialReductionSources);
 
         if (societyQuestTooltipInfo is not null &&
             (!isMarketboardAvailable || priceState is { IsMarketboardAvailable: false }))
@@ -207,7 +210,34 @@ public static class MaterialUsageTooltip
             ImGui.PopTextWrapPos();
         }
 
+        EndStyledTooltip(configuration);
+    }
+
+    public static void BeginStyledTooltip(Configuration configuration)
+    {
+        ImGui.PushStyleColor(ImGuiCol.Border, configuration.AccentColor);
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowRounding, TooltipCornerRounding);
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 1f);
+        ImGui.BeginTooltip();
+        WindowTheme.ApplyTextScale(configuration);
+    }
+
+    public static void EndStyledTooltip(Configuration configuration)
+    {
+        var borderColor = configuration.AccentColor;
+        borderColor.W = Math.Max(borderColor.W, 0.9f);
+        var windowPosition = ImGui.GetWindowPos();
+        var borderInset = new Vector2(1f, 1f);
+        ImGui.GetForegroundDrawList().AddRect(
+            windowPosition + borderInset,
+            windowPosition + ImGui.GetWindowSize() - borderInset,
+            ImGui.GetColorU32(borderColor),
+            TooltipCornerRounding,
+            0,
+            1f);
         ImGui.EndTooltip();
+        ImGui.PopStyleVar(2);
+        ImGui.PopStyleColor();
     }
 
     private static void DrawWorldPriceLine(
@@ -248,6 +278,26 @@ public static class MaterialUsageTooltip
         ImGui.PushTextWrapPos(ImGui.GetFontSize() * 28f);
         foreach (var line in logStatusTooltipInfo.Lines.Where(line => !string.IsNullOrWhiteSpace(line)))
             DrawDetailLine(configuration, line);
+        ImGui.PopTextWrapPos();
+    }
+
+    public static void DrawAetherialReductionTooltipDetails(
+        Configuration configuration,
+        IReadOnlyList<AetherialReductionSource>? aetherialReductionSources)
+    {
+        if (aetherialReductionSources is not { Count: > 0 })
+            return;
+
+        ImGui.Spacing();
+        ImGui.Separator();
+        ImGui.TextColored(configuration.AccentTextColor, "Aetherial reduction");
+        ImGui.PushTextWrapPos(ImGui.GetFontSize() * 28f);
+        foreach (var source in aetherialReductionSources
+                     .Where(source => !string.IsNullOrWhiteSpace(source.Name))
+                     .DistinctBy(source => source.ItemId))
+        {
+            DrawDetailRow(configuration, "Reduced from", source.Name);
+        }
         ImGui.PopTextWrapPos();
     }
 

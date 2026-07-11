@@ -69,6 +69,7 @@ public sealed class RecipeService
     private IReadOnlyDictionary<uint, string>? gatherableJobsByItemId;
     private IReadOnlyDictionary<uint, IReadOnlyList<uint>>? gatheringLevelsByItemId;
     private IReadOnlyDictionary<uint, uint>? recipeLevelsByRecipeId;
+    private IReadOnlyDictionary<uint, IReadOnlyList<uint>>? recipeIdsByResultItemId;
     private IReadOnlyDictionary<uint, CollectibleRewardInfo>? collectibleRewardsByItemId;
     private IReadOnlyDictionary<uint, FolkloreBookInfo>? folkloreBookInfoByItemId;
     private IReadOnlyDictionary<uint, RequiredItemInfo>? requiredItemsByItemId;
@@ -380,6 +381,9 @@ public sealed class RecipeService
             };
     }
 
+    public IReadOnlyList<AetherialReductionSource> GetAetherialReductionSources(uint itemId) =>
+        this.aetherialReductionService.GetSources(itemId);
+
     public unsafe LogStatusTooltipInfo? GetItemLogStatusTooltipInfo(uint itemId)
     {
         this.EnsureItemSources();
@@ -415,10 +419,11 @@ public sealed class RecipeService
         }
     }
 
-    public unsafe LogStatusTooltipInfo? GetRecipeLogStatusTooltipInfo(uint recipeId)
+    public unsafe LogStatusTooltipInfo? GetRecipeLogStatusTooltipInfo(uint recipeId, uint resultItemId = 0)
     {
         this.EnsureItemSources();
-        if (!this.recipeLevelsByRecipeId!.ContainsKey(recipeId))
+        if (!this.recipeLevelsByRecipeId!.ContainsKey(recipeId) ||
+            this.masterRecipeBookInfoByRecipeId!.ContainsKey(recipeId))
             return null;
 
         try
@@ -426,8 +431,18 @@ public sealed class RecipeService
             if (FFXIVClientStructs.FFXIV.Client.Game.UI.PlayerState.Instance() is null)
                 return null;
 
-            return new LogStatusTooltipInfo(
-                [$"Crafting log: {(QuestManager.IsRecipeComplete(recipeId) ? "Crafted" : "Not yet crafted")}"]);
+            var recipeIds = resultItemId != 0
+                ? this.recipeIdsByResultItemId!.GetValueOrDefault(resultItemId) ?? []
+                : [];
+            var hasCraftedRecipe = recipeIds
+                .Append(recipeId)
+                .Distinct()
+                .Any(QuestManager.IsRecipeComplete);
+            // The client only exposes a positive completion flag. Older and some
+            // special recipes can have no flag even when the item was crafted.
+            return hasCraftedRecipe
+                ? new LogStatusTooltipInfo(["Crafting log: Crafted"])
+                : null;
         }
         catch
         {
@@ -1601,6 +1616,15 @@ public sealed class RecipeService
             fishParameters,
             spearfishingItems);
         this.recipeLevelsByRecipeId = BuildRecipeLevelsByRecipeId(recipes);
+        this.recipeIdsByResultItemId = recipes?
+            .Where(recipe => recipe.RowId != 0)
+            .Select(recipe => (RecipeId: recipe.RowId, ResultItemId: this.ReadItemId(recipe, "ItemResult")))
+            .Where(entry => entry.ResultItemId != 0)
+            .GroupBy(entry => entry.ResultItemId)
+            .ToDictionary(
+                group => group.Key,
+                group => (IReadOnlyList<uint>)group.Select(entry => entry.RecipeId).ToList()) ??
+            new Dictionary<uint, IReadOnlyList<uint>>();
         this.collectibleRewardsByItemId = BuildCollectibleRewardLabelsByItemId(
             this.dataManager.GetSubrowExcelSheet<CollectablesShopItem>(),
             this.gatherableItemIds);
@@ -1799,7 +1823,8 @@ public sealed class RecipeService
     private bool IsSupplementalSearchItem(uint itemId) =>
         this.IsSearchVisible(itemId) &&
         (this.collectibleRewardsByItemId!.ContainsKey(itemId) ||
-         this.gatherableItemIds!.Contains(itemId));
+         this.gatherableItemIds!.Contains(itemId) ||
+         this.aetherialReductionService.GetSources(itemId).Count > 0);
 
     private RecipeMatch CreateSupplementalMatch(Item item)
     {

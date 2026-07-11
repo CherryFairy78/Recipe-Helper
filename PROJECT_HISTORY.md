@@ -7,15 +7,34 @@ This file is the durable hand-off record for Recipe Helper. Read it before makin
 - Last updated: 2026-07-11
 - Plugin name: Recipe Helper
 - Internal name: `DalamudRecipeHelper`
-- Version: `1.1.36.0`
+- Version: `1.1.37.0`
 - Framework: Dalamud API 15
 - Target: `.NET 10` on Windows x64
 - Command: `/recipehelper`
 - Build command: `dotnet build .\DalamudRecipeHelper.csproj --no-restore`
 - Debug output: `bin\Debug\DalamudRecipeHelper.dll`
-- Last verified build: 2026-07-11, Debug build succeeded with zero warnings and zero errors. Release package verification is recorded below.
+- Last verified build: 2026-07-11, Debug and Release builds succeeded with zero warnings and zero errors. The local dev plugin was moved to `C:\Users\megha\AppData\Roaming\XIVLauncher\backups\RecipeHelper\20260711-114533`, and `releases\DalamudRecipeHelper-v1.1.37.zip` was created with SHA-256 `7DE27F89AD003FC20547AE4B084497BB7FF48779CC59A485134074B29A13E05B`.
 
 ## Recent release
+
+- Version: `1.1.37.0`
+- Added aetherial-reduction result items to supplemental search, so materials such as Levinchrome Aethersand can be found and added from search.
+- Added Aetherial Reduction hover details listing the material sources that can produce each result.
+- Extended saved plans, duplicate, import/export, and loading flows to preserve standalone gatherables and collectables alongside recipes.
+- Added a Ctrl-protected folder delete action that removes folders and subfolders while moving contained plans to Unfiled.
+- Added scoped Recipe Plan, Gatherable Plan, and Collectable Plan save controls with separate names and folder destinations.
+- Removed the oversized selected-recipe summary strip and broadened Crafting Log checks to recognize any completed recipe variant for the same result item.
+- Changed Crafting Log hovers to show only confirmed completions, avoiding false "Not yet crafted" results from incomplete client history; Master Recipe entries are excluded because FFXIV does not record their completion state.
+- Added a thin accent-colour border to item and collectible information hovers, including the overlay.
+- Loading saved plans now closes their containing folders, and individual or saved-plan Artisan craft actions are disabled with an explanation until their required materials are in live inventory.
+- Added a Clear selected action that clears saved-plan checkmarks and the current recipe plan without affecting the saved plans themselves.
+- Saved Plans, Gatherables, and Collectables now start collapsed when Recipe Helper first opens, while relevant gathering sections still open automatically when items are added.
+- Plan controls now separate Save new plan from Update plan; updating refreshes the loaded plan's recipes, gatherables, and collectables while retaining its existing name and folder. Saved plan rows also retain their direct Update action.
+- Rounded item and collectible hover panels and their accent outlines to match the plugin's softer layout styling.
+- Updated the package metadata and custom repository feed for `v1.1.37`.
+- Verification: Debug and Release builds succeeded with zero warnings and zero errors. `releases\DalamudRecipeHelper-v1.1.37.zip` was created from the verified Release output with SHA-256 `7DE27F89AD003FC20547AE4B084497BB7FF48779CC59A485134074B29A13E05B`.
+
+## Previous release
 
 - Version: `1.1.36.0`
 - Expanded source hovers with folklore and master-recipe unlocks, required tools, marketboard availability, Restoration and society-quest details, and matching overlay coverage.

@@ -35,6 +35,10 @@ public sealed class SavedRecipePlan
     public string FolderName { get; set; } = string.Empty;
 
     public List<SavedRecipePlanEntry> Recipes { get; set; } = [];
+
+    public List<SavedSupplementalPlanEntry> Gatherables { get; set; } = [];
+
+    public List<SavedSupplementalPlanEntry> Collectables { get; set; } = [];
 }
 
 public sealed class SavedRecipePlanEntry
@@ -48,6 +52,19 @@ public sealed class SavedRecipePlanEntry
     public uint ResultAmount { get; set; }
 
     public string JobAbbreviations { get; set; } = string.Empty;
+
+    public uint DesiredAmount { get; set; }
+}
+
+public sealed class SavedSupplementalPlanEntry
+{
+    public uint ResultItemId { get; set; }
+
+    public string ResultName { get; set; } = string.Empty;
+
+    public string JobAbbreviations { get; set; } = string.Empty;
+
+    public string SearchMetadata { get; set; } = string.Empty;
 
     public uint DesiredAmount { get; set; }
 }

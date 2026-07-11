@@ -220,6 +220,7 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
                         cosmicExplorationTooltipInfo: this.recipeService.GetCosmicExplorationTooltipInfo(material.ItemId),
                         questTooltipInfo: this.recipeService.GetQuestTooltipInfo(material.ItemId),
                         logStatusTooltipInfo: this.recipeService.GetItemLogStatusTooltipInfo(material.ItemId),
+                        aetherialReductionSources: this.recipeService.GetAetherialReductionSources(material.ItemId),
                         isMarketboardAvailable: this.recipeService.IsMarketboardAvailable(material.ItemId));
 
                 ImGui.TableNextColumn();
@@ -744,8 +745,7 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
         if (!ImGui.IsItemHovered())
             return;
 
-        ImGui.BeginTooltip();
-        WindowTheme.ApplyTextScale(this.configuration);
+        MaterialUsageTooltip.BeginStyledTooltip(this.configuration);
         ImGui.TextColored(this.configuration.AccentTextColor, itemName);
         ImGui.Separator();
         foreach (var rewardLine in rewardInfo.GetTooltipText().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries))
@@ -770,10 +770,13 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
         MaterialUsageTooltip.DrawLogStatusTooltipDetails(
             this.configuration,
             this.recipeService.GetItemLogStatusTooltipInfo(itemId));
+        MaterialUsageTooltip.DrawAetherialReductionTooltipDetails(
+            this.configuration,
+            this.recipeService.GetAetherialReductionSources(itemId));
         this.DrawSocietyQuestTooltipDetails(this.recipeService.GetSocietyQuestTooltipInfo(itemId));
         this.DrawCosmicExplorationTooltipDetails(this.recipeService.GetCosmicExplorationTooltipInfo(itemId));
         this.DrawQuestTooltipDetails(this.recipeService.GetQuestTooltipInfo(itemId));
-        ImGui.EndTooltip();
+        MaterialUsageTooltip.EndStyledTooltip(this.configuration);
     }
 
     private IReadOnlyList<string> GetItemUnlockTooltipLines(uint itemId)
