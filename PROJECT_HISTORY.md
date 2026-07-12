@@ -7,15 +7,22 @@ This file is the durable hand-off record for Recipe Helper. Read it before makin
 - Last updated: 2026-07-12
 - Plugin name: Recipe Helper
 - Internal name: `DalamudRecipeHelper`
-- Version: `1.1.39.0`
+- Version: `1.1.40.0`
 - Framework: Dalamud API 15
 - Target: `.NET 10` on Windows x64
 - Command: `/recipehelper`
 - Build command: `dotnet build .\DalamudRecipeHelper.csproj --no-restore`
 - Debug output: `bin\Debug\DalamudRecipeHelper.dll`
-- Last verified build: 2026-07-12, Debug and Release builds succeeded with zero warnings and zero errors. `releases\DalamudRecipeHelper-v1.1.39.zip` was created from the verified Release output with SHA-256 `72BA780D86B1AE43F9B011317AA3DDECBCB76C4693DF0FD12A9EAD5EEB2BEDEC`.
+- Last verified build: 2026-07-12, Debug and Release builds succeeded with zero warnings and zero errors. `releases\DalamudRecipeHelper-v1.1.40.zip` was created from the verified Release output with SHA-256 `021A07BEA8597D757A2B3FF91469FC9A450D86C613DE41D3F55BF3E5712AD09E`.
 
 ## Recent release
+
+- Version: `1.1.40.0`
+- Fixed folder Rename to edit only the selected folder segment, keep subfolders in their current parent, and prevent duplicate sibling names.
+- Updated the package metadata and custom repository feed for `v1.1.40`.
+- Verification: Debug and Release builds succeeded with zero warnings and zero errors. `releases\DalamudRecipeHelper-v1.1.40.zip` was created from the verified Release output with SHA-256 `021A07BEA8597D757A2B3FF91469FC9A450D86C613DE41D3F55BF3E5712AD09E`.
+
+## Previous release
 
 - Version: `1.1.39.0`
 - Rounded action buttons locally and aligned the Missing Items and Artisan overlay section and table headers with the main folder rounding.
@@ -25,7 +32,7 @@ This file is the durable hand-off record for Recipe Helper. Read it before makin
 - Updated the package metadata and custom repository feed for `v1.1.39`.
 - Verification: Debug and Release builds succeeded with zero warnings and zero errors. `releases\DalamudRecipeHelper-v1.1.39.zip` was created from the verified Release output with SHA-256 `72BA780D86B1AE43F9B011317AA3DDECBCB76C4693DF0FD12A9EAD5EEB2BEDEC`.
 
-## Previous release
+## Earlier release
 
 - Version: `1.1.38.0`
 - Restored shared title-bar and button spacing by removing the tooltip window-level rounding override.
@@ -38,7 +45,7 @@ This file is the durable hand-off record for Recipe Helper. Read it before makin
 - Updated the package metadata and custom repository feed for `v1.1.38`.
 - Verification: Debug and Release builds succeeded with zero warnings and zero errors. `releases\DalamudRecipeHelper-v1.1.38.zip` was created from the verified Release output with SHA-256 `523955054F1CFE1B8E71D9D52A1C0CE523346E948494DE1FD5F2220BE951D793`.
 
-## Earlier release
+## Historical release
 
 - Version: `1.1.37.0`
 - Added aetherial-reduction result items to supplemental search, so materials such as Levinchrome Aethersand can be found and added from search.

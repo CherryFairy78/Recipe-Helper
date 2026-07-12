@@ -2576,7 +2576,7 @@ public sealed class RecipeWindow : Window, IDisposable
         if (folderToRename is not null)
         {
             this.renamingFolderSource = folderToRename;
-            this.renameFolderName = folderToRename;
+            this.renameFolderName = GetFolderDisplayName(folderToRename);
             this.renameFolderError = string.Empty;
             this.isRenameFolderPopupOpen = true;
             this.renameFolderPopupRequested = true;
@@ -2881,6 +2881,7 @@ public sealed class RecipeWindow : Window, IDisposable
             return;
         WindowTheme.ApplyTextScale(this.configuration, includeMainWindowScale: true);
 
+        ImGui.TextDisabled($"Parent: {GetFolderDisplayName(GetParentFolderPath(this.renamingFolderSource))}");
         ImGui.SetNextItemWidth(280);
         var submitted = ImGui.InputText(
             "Folder",
@@ -3200,7 +3201,15 @@ public sealed class RecipeWindow : Window, IDisposable
             return;
         }
 
-        if (string.Equals(cleanName, this.renamingFolderSource, StringComparison.OrdinalIgnoreCase))
+        if (cleanName.Contains('/'))
+        {
+            this.renameFolderError = "Enter one folder name. Use Move to change its parent folder.";
+            return;
+        }
+
+        var sourceFolder = NormalizeFolderName(this.renamingFolderSource);
+        var targetFolder = CombineFolderPath(GetParentFolderPath(sourceFolder), cleanName);
+        if (string.Equals(targetFolder, sourceFolder, StringComparison.OrdinalIgnoreCase))
         {
             this.isRenameFolderPopupOpen = false;
             this.renamingFolderSource = string.Empty;
@@ -3209,7 +3218,16 @@ public sealed class RecipeWindow : Window, IDisposable
             return;
         }
 
-        var sourceFolder = NormalizeFolderName(this.renamingFolderSource);
+        var folderExists = GetSavedPlanFolders(
+                this.configuration.SavedPlanFolders,
+                this.configuration.SavedRecipePlans)
+            .Any(folder => string.Equals(folder, targetFolder, StringComparison.OrdinalIgnoreCase));
+        if (folderExists)
+        {
+            this.renameFolderError = "A folder with that name already exists in this parent folder.";
+            return;
+        }
+
         foreach (var plan in this.configuration.SavedRecipePlans)
         {
             var planFolder = NormalizeFolderName(plan.FolderName);
@@ -3219,10 +3237,10 @@ public sealed class RecipeWindow : Window, IDisposable
             var suffix = planFolder.Length == sourceFolder.Length
                 ? string.Empty
                 : planFolder[sourceFolder.Length..];
-            plan.FolderName = $"{cleanName}{suffix}";
+            plan.FolderName = $"{targetFolder}{suffix}";
         }
 
-        this.MoveSavedPlanFolderPaths(sourceFolder, cleanName);
+        this.MoveSavedPlanFolderPaths(sourceFolder, targetFolder);
 
         this.saveConfiguration();
         this.ShowPlanMessage($"Renamed folder to '{cleanName}'.", false);
