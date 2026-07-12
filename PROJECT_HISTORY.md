@@ -7,22 +7,36 @@ This file is the durable hand-off record for Recipe Helper. Read it before makin
 - Last updated: 2026-07-12
 - Plugin name: Recipe Helper
 - Internal name: `DalamudRecipeHelper`
-- Version: `1.1.40.0`
+- Version: `1.1.41.0`
 - Framework: Dalamud API 15
 - Target: `.NET 10` on Windows x64
 - Command: `/recipehelper`
 - Build command: `dotnet build .\DalamudRecipeHelper.csproj --no-restore`
 - Debug output: `bin\Debug\DalamudRecipeHelper.dll`
-- Last verified build: 2026-07-12, Debug and Release builds succeeded with zero warnings and zero errors. `releases\DalamudRecipeHelper-v1.1.40.zip` was created from the verified Release output with SHA-256 `021A07BEA8597D757A2B3FF91469FC9A450D86C613DE41D3F55BF3E5712AD09E`.
+- Last verified build: 2026-07-12, Debug and Release builds succeeded with zero warnings and zero errors. `releases\DalamudRecipeHelper-v1.1.41.zip` was created from the verified Release output with SHA-256 `B14A017840EDE117D86326C166A66B3E2850C5DC1F509C21D76DA38278969EC7`.
 
 ## Recent release
+
+- Version: `1.1.41.0`
+- Folder Rename now gives each dialog its own input state, preserves the selected folder's parent, and supports slashes in renamed subfolder labels without creating extra levels.
+- Expanded the indented folder picker so more parent and subfolder choices are visible at once.
+- Folklore hovers now use the actual tome item name and prefer current Purple Gatherers' Scrip exchanges over obsolete Regional Folklore Trader's Token costs.
+- Corrected folklore special-shop shard placeholders to show the actual Purple Gatherers' Scrip cost and Fieldcraft Items, Folklore Items exchange.
+- Hardened folklore special-shop cost parsing against empty generated rows.
+- Added an FSH-only fish-type filter for Regular Fish, Big Fish, Spearfishing, Ocean Fishing, and other GatherBuddy fish categories.
+- Added a crafting-job-only Master Recipe book filter populated from each job's recipe unlocks.
+- Added a MIN/BTN/FSH Folklore Book filter, alongside the FSH Fish Type filter.
+- Updated the package metadata and custom repository feed for `v1.1.41`.
+- Verification: Debug and Release builds succeeded with zero warnings and zero errors. `releases\DalamudRecipeHelper-v1.1.41.zip` was created from the verified Release output with SHA-256 `B14A017840EDE117D86326C166A66B3E2850C5DC1F509C21D76DA38278969EC7`.
+
+## Previous release
 
 - Version: `1.1.40.0`
 - Fixed folder Rename to edit only the selected folder segment, keep subfolders in their current parent, and prevent duplicate sibling names.
 - Updated the package metadata and custom repository feed for `v1.1.40`.
 - Verification: Debug and Release builds succeeded with zero warnings and zero errors. `releases\DalamudRecipeHelper-v1.1.40.zip` was created from the verified Release output with SHA-256 `021A07BEA8597D757A2B3FF91469FC9A450D86C613DE41D3F55BF3E5712AD09E`.
 
-## Previous release
+## Earlier release
 
 - Version: `1.1.39.0`
 - Rounded action buttons locally and aligned the Missing Items and Artisan overlay section and table headers with the main folder rounding.
@@ -32,7 +46,7 @@ This file is the durable hand-off record for Recipe Helper. Read it before makin
 - Updated the package metadata and custom repository feed for `v1.1.39`.
 - Verification: Debug and Release builds succeeded with zero warnings and zero errors. `releases\DalamudRecipeHelper-v1.1.39.zip` was created from the verified Release output with SHA-256 `72BA780D86B1AE43F9B011317AA3DDECBCB76C4693DF0FD12A9EAD5EEB2BEDEC`.
 
-## Earlier release
+## Historical release
 
 - Version: `1.1.38.0`
 - Restored shared title-bar and button spacing by removing the tooltip window-level rounding override.

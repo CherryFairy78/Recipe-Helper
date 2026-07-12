@@ -2189,9 +2189,9 @@ public sealed class RecipeService
                 !exchangeInfoByBookItemId.TryGetValue(bookItemId, out var exchangeInfo))
                 return false;
 
-            var bookName = subCategory.FolkloreBook.ToString().Trim();
+            var bookName = TryGetItemName(subCategory.Item).Trim();
             if (string.IsNullOrWhiteSpace(bookName))
-                bookName = subCategory.Item.Value.Name.ToString().Trim();
+                bookName = subCategory.FolkloreBook.ToString().Trim();
             if (string.IsNullOrWhiteSpace(bookName))
                 return false;
 
@@ -2224,9 +2224,9 @@ public sealed class RecipeService
                 !exchangeInfoByBookItemId.TryGetValue(bookItemId, out var exchangeInfo))
                 return false;
 
-            var bookName = subCategory.FolkloreBook.ToString().Trim();
+            var bookName = TryGetItemName(subCategory.Item).Trim();
             if (string.IsNullOrWhiteSpace(bookName))
-                bookName = subCategory.Item.Value.Name.ToString().Trim();
+                bookName = subCategory.FolkloreBook.ToString().Trim();
             if (string.IsNullOrWhiteSpace(bookName))
                 return false;
 
@@ -2798,8 +2798,7 @@ public sealed class RecipeService
         if (specialShops is null)
             return new Dictionary<uint, (string ExchangeName, string CostLabel)>();
 
-        var exchangesByBookItemId = new Dictionary<uint, HashSet<string>>();
-        var costsByBookItemId = new Dictionary<uint, HashSet<string>>();
+        var exchangesByBookItemId = new Dictionary<uint, List<(string ExchangeName, string CostLabel)>>();
         foreach (var shop in specialShops.Where(shop => shop.RowId != 0))
         {
             var shopName = shop.Name.ToString().Trim();
@@ -2815,57 +2814,99 @@ public sealed class RecipeService
                 if (string.IsNullOrWhiteSpace(costLabel))
                     continue;
 
-                var exchangeName = string.IsNullOrWhiteSpace(shopName)
-                    ? "Scrip Exchange"
-                    : shopName;
-                AddValue(exchangesByBookItemId, receiveItem, exchangeName);
-                AddValue(costsByBookItemId, receiveItem, costLabel);
+                var exchangeName = GetFolkloreExchangeName(shopName);
+                if (!exchangesByBookItemId.TryGetValue(receiveItem, out var exchanges))
+                {
+                    exchanges = [];
+                    exchangesByBookItemId[receiveItem] = exchanges;
+                }
+
+                exchanges.Add((exchangeName, costLabel));
             }
         }
 
         return exchangesByBookItemId.Keys.ToDictionary(
             bookItemId => bookItemId,
             bookItemId => (
-                string.Join(", ", exchangesByBookItemId[bookItemId].OrderBy(name => name)),
-                string.Join(", ", costsByBookItemId.GetValueOrDefault(bookItemId, []).OrderBy(name => name))));
+                SelectPreferredFolkloreExchange(exchangesByBookItemId[bookItemId])));
     }
 
-    private static void AddValue(
-        IDictionary<uint, HashSet<string>> valuesByItemId,
-        uint itemId,
-        string value)
+    private static (string ExchangeName, string CostLabel) SelectPreferredFolkloreExchange(
+        IEnumerable<(string ExchangeName, string CostLabel)> exchanges)
     {
-        if (!valuesByItemId.TryGetValue(itemId, out var values))
-        {
-            values = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            valuesByItemId[itemId] = values;
-        }
+        var candidates = exchanges
+            .Where(exchange =>
+                !exchange.CostLabel.Contains("Regional Folklore Trader's Token", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (candidates.Count == 0)
+            candidates = exchanges.ToList();
 
-        values.Add(value);
+        return candidates
+            .OrderByDescending(exchange =>
+                exchange.CostLabel.Contains("Purple Gatherers' Scrip", StringComparison.OrdinalIgnoreCase))
+            .ThenByDescending(exchange =>
+                exchange.CostLabel.Contains("Gatherers' Scrip", StringComparison.OrdinalIgnoreCase))
+            .ThenByDescending(exchange =>
+                exchange.CostLabel.Contains("Scrip", StringComparison.OrdinalIgnoreCase))
+            .ThenBy(exchange => exchange.ExchangeName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(exchange => exchange.CostLabel, StringComparer.OrdinalIgnoreCase)
+            .First();
     }
+
+    private static string GetFolkloreExchangeName(string shopName) =>
+        shopName.Equals("Folklore Items", StringComparison.OrdinalIgnoreCase)
+            ? "Fieldcraft Items, Folklore Items"
+            : string.IsNullOrWhiteSpace(shopName)
+                ? "Scrip Exchange"
+                : shopName;
 
     private static string BuildSpecialShopCostLabel(
         SpecialShop shop,
         Lumina.Excel.Collection<SpecialShop.ItemStruct.ItemCostsStruct> itemCosts)
     {
+        var costs = new List<(uint Amount, byte CostType, string ItemName)>();
         foreach (var cost in itemCosts)
         {
-            if (cost.CurrencyCost == 0)
-                continue;
+            try
+            {
+                if (cost.CurrencyCost == 0)
+                    continue;
 
-            var itemCostName = TryGetItemName(cost.ItemCost).Trim();
+                costs.Add((cost.CurrencyCost, cost.CostType, TryGetItemName(cost.ItemCost).Trim()));
+            }
+            catch (NullReferenceException)
+            {
+                // Some unused generated SpecialShop rows have no backing cost data.
+            }
+        }
+
+        var purpleGathererScrip = costs.FirstOrDefault(cost =>
+            cost.ItemName.Contains("Purple Gatherers' Scrip", StringComparison.OrdinalIgnoreCase));
+        if (purpleGathererScrip.Amount != 0)
+            return $"{purpleGathererScrip.Amount:N0} {purpleGathererScrip.ItemName}";
+
+        var shopName = shop.Name.ToString().Trim();
+        var folkloreShardCost = costs.FirstOrDefault(cost =>
+            shopName.Contains("Folklore Items", StringComparison.OrdinalIgnoreCase) &&
+            cost.ItemName.EndsWith("Shard", StringComparison.OrdinalIgnoreCase));
+        if (folkloreShardCost.Amount != 0)
+            return $"{folkloreShardCost.Amount:N0} Purple Gatherers' Scrips";
+
+        foreach (var costEntry in costs)
+        {
+            var itemCostName = costEntry.ItemName;
             if (!string.IsNullOrWhiteSpace(itemCostName) &&
                 itemCostName.Contains("Scrip", StringComparison.OrdinalIgnoreCase))
-                return $"{cost.CurrencyCost:N0} {itemCostName}";
+                return $"{costEntry.Amount:N0} {itemCostName}";
 
             var inferredCurrencyName = InferSpecialShopCurrencyName(
-                shop.Name.ToString().Trim(),
-                cost.CostType);
+                shopName,
+                costEntry.CostType);
             if (!string.IsNullOrWhiteSpace(inferredCurrencyName))
-                return $"{cost.CurrencyCost:N0} {inferredCurrencyName}";
+                return $"{costEntry.Amount:N0} {inferredCurrencyName}";
 
             if (!string.IsNullOrWhiteSpace(itemCostName))
-                return $"{cost.CurrencyCost:N0} {itemCostName}";
+                return $"{costEntry.Amount:N0} {itemCostName}";
         }
 
         return string.Empty;

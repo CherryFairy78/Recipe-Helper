@@ -123,6 +123,9 @@ public sealed class RecipeWindow : Window, IDisposable
     private string searchText = string.Empty;
     private string resultFilter = string.Empty;
     private string selectedJobFilter = string.Empty;
+    private string selectedFishTypeFilter = string.Empty;
+    private string selectedMasterRecipeBookFilter = string.Empty;
+    private string selectedFolkloreBookFilter = string.Empty;
     private string selectedSearchTypeFilter = string.Empty;
     private string selectedScripFilter = string.Empty;
     private RecipePlanDetails? recipePlanDetails;
@@ -271,6 +274,22 @@ public sealed class RecipeWindow : Window, IDisposable
                 if (!string.IsNullOrWhiteSpace(this.selectedJobFilter) &&
                     !availableJobFilters.Contains(this.selectedJobFilter, StringComparer.OrdinalIgnoreCase))
                     this.selectedJobFilter = string.Empty;
+                var availableFishTypeFilters = this.GetAvailableFishTypeFilters();
+                if (!string.Equals(this.selectedJobFilter, "FSH", StringComparison.OrdinalIgnoreCase) ||
+                    !availableFishTypeFilters.Contains(this.selectedFishTypeFilter, StringComparer.OrdinalIgnoreCase))
+                    this.selectedFishTypeFilter = string.Empty;
+                var availableMasterRecipeBookFilters = this.GetAvailableMasterRecipeBookFilters();
+                if (!this.IsCraftingJobFilterSelected() ||
+                    !availableMasterRecipeBookFilters.Contains(
+                        this.selectedMasterRecipeBookFilter,
+                        StringComparer.OrdinalIgnoreCase))
+                    this.selectedMasterRecipeBookFilter = string.Empty;
+                var availableFolkloreBookFilters = this.GetAvailableFolkloreBookFilters();
+                if (!this.IsGathererJobFilterSelected() ||
+                    !availableFolkloreBookFilters.Contains(
+                        this.selectedFolkloreBookFilter,
+                        StringComparer.OrdinalIgnoreCase))
+                    this.selectedFolkloreBookFilter = string.Empty;
 
                 var displayedResults = this.searchResults
                     .Where(result =>
@@ -280,7 +299,10 @@ public sealed class RecipeWindow : Window, IDisposable
                              StringComparison.CurrentCultureIgnoreCase)) &&
                         this.MatchesSearchTypeFilter(result) &&
                         this.MatchesScripFilter(result) &&
-                        this.MatchesJobFilter(result))
+                        this.MatchesJobFilter(result) &&
+                        this.MatchesFishTypeFilter(result) &&
+                        this.MatchesMasterRecipeBookFilter(result) &&
+                        this.MatchesFolkloreBookFilter(result))
                     .ToList();
                 ImGui.TextColored(
                     this.configuration.AccentColor,
@@ -320,7 +342,12 @@ public sealed class RecipeWindow : Window, IDisposable
                 {
                     var showAllJobs = string.IsNullOrWhiteSpace(this.selectedJobFilter);
                     if (ImGui.Selectable("All jobs", showAllJobs))
+                    {
                         this.selectedJobFilter = string.Empty;
+                        this.selectedFishTypeFilter = string.Empty;
+                        this.selectedMasterRecipeBookFilter = string.Empty;
+                        this.selectedFolkloreBookFilter = string.Empty;
+                    }
 
                     foreach (var job in availableJobFilters)
                     {
@@ -329,13 +356,103 @@ public sealed class RecipeWindow : Window, IDisposable
                             job,
                             StringComparison.OrdinalIgnoreCase);
                         if (ImGui.Selectable(job, isSelectedJob))
+                        {
                             this.selectedJobFilter = job;
+                            if (!string.Equals(job, "FSH", StringComparison.OrdinalIgnoreCase))
+                                this.selectedFishTypeFilter = string.Empty;
+                            if (!IsCraftingJob(job))
+                                this.selectedMasterRecipeBookFilter = string.Empty;
+                            if (!IsGathererJob(job))
+                                this.selectedFolkloreBookFilter = string.Empty;
+                        }
                     }
 
                     ImGui.EndCombo();
                 }
 
                 DrawTooltipIfHovered("Filter these results by job.");
+
+                if (string.Equals(this.selectedJobFilter, "FSH", StringComparison.OrdinalIgnoreCase))
+                {
+                    ImGui.SetNextItemWidth(-1);
+                    var selectedFishTypeLabel = string.IsNullOrWhiteSpace(this.selectedFishTypeFilter)
+                        ? "All fish types"
+                        : FormatFishTypeFilterLabel(this.selectedFishTypeFilter);
+                    if (ImGui.BeginCombo("##fish-type-filter", selectedFishTypeLabel))
+                    {
+                        var showAllFishTypes = string.IsNullOrWhiteSpace(this.selectedFishTypeFilter);
+                        if (ImGui.Selectable("All fish types", showAllFishTypes))
+                            this.selectedFishTypeFilter = string.Empty;
+
+                        foreach (var fishType in availableFishTypeFilters)
+                        {
+                            var isSelectedFishType = string.Equals(
+                                this.selectedFishTypeFilter,
+                                fishType,
+                                StringComparison.OrdinalIgnoreCase);
+                            if (ImGui.Selectable(FormatFishTypeFilterLabel(fishType), isSelectedFishType))
+                                this.selectedFishTypeFilter = fishType;
+                        }
+
+                        ImGui.EndCombo();
+                    }
+
+                    DrawTooltipIfHovered("Filter FSH results by Big Fish, Regular Fish, Spearfishing, or Ocean Fishing.");
+                }
+                if (this.IsGathererJobFilterSelected())
+                {
+                    ImGui.SetNextItemWidth(-1);
+                    var selectedFolkloreBookLabel = string.IsNullOrWhiteSpace(this.selectedFolkloreBookFilter)
+                        ? "All Folklore books"
+                        : this.selectedFolkloreBookFilter;
+                    if (ImGui.BeginCombo("##folklore-book-filter", selectedFolkloreBookLabel))
+                    {
+                        var showAllFolkloreBooks = string.IsNullOrWhiteSpace(this.selectedFolkloreBookFilter);
+                        if (ImGui.Selectable("All Folklore books", showAllFolkloreBooks))
+                            this.selectedFolkloreBookFilter = string.Empty;
+
+                        foreach (var bookName in availableFolkloreBookFilters)
+                        {
+                            var isSelectedBook = string.Equals(
+                                this.selectedFolkloreBookFilter,
+                                bookName,
+                                StringComparison.OrdinalIgnoreCase);
+                            if (ImGui.Selectable(bookName, isSelectedBook))
+                                this.selectedFolkloreBookFilter = bookName;
+                        }
+
+                        ImGui.EndCombo();
+                    }
+
+                    DrawTooltipIfHovered("Filter this gathering job's results by the required Folklore book.");
+                }
+                else if (this.IsCraftingJobFilterSelected())
+                {
+                    ImGui.SetNextItemWidth(-1);
+                    var selectedBookLabel = string.IsNullOrWhiteSpace(this.selectedMasterRecipeBookFilter)
+                        ? "All Master Recipe books"
+                        : this.selectedMasterRecipeBookFilter;
+                    if (ImGui.BeginCombo("##master-recipe-book-filter", selectedBookLabel))
+                    {
+                        var showAllBooks = string.IsNullOrWhiteSpace(this.selectedMasterRecipeBookFilter);
+                        if (ImGui.Selectable("All Master Recipe books", showAllBooks))
+                            this.selectedMasterRecipeBookFilter = string.Empty;
+
+                        foreach (var bookName in availableMasterRecipeBookFilters)
+                        {
+                            var isSelectedBook = string.Equals(
+                                this.selectedMasterRecipeBookFilter,
+                                bookName,
+                                StringComparison.OrdinalIgnoreCase);
+                            if (ImGui.Selectable(bookName, isSelectedBook))
+                                this.selectedMasterRecipeBookFilter = bookName;
+                        }
+
+                        ImGui.EndCombo();
+                    }
+
+                    DrawTooltipIfHovered("Filter this crafting job's recipes by the required Master Recipe book.");
+                }
 
                 if (!this.showingCraftableRecipes)
                 {
@@ -756,6 +873,9 @@ public sealed class RecipeWindow : Window, IDisposable
         this.showingCraftableRecipes = false;
         this.resultFilter = string.Empty;
         this.selectedJobFilter = string.Empty;
+        this.selectedFishTypeFilter = string.Empty;
+        this.selectedMasterRecipeBookFilter = string.Empty;
+        this.selectedFolkloreBookFilter = string.Empty;
         this.selectedSearchTypeFilter = string.Empty;
         this.selectedScripFilter = string.Empty;
         this.craftableAvailability =
@@ -770,6 +890,9 @@ public sealed class RecipeWindow : Window, IDisposable
 
         var hasBrowseFilters =
             !string.IsNullOrWhiteSpace(this.selectedJobFilter) ||
+            !string.IsNullOrWhiteSpace(this.selectedFishTypeFilter) ||
+            !string.IsNullOrWhiteSpace(this.selectedMasterRecipeBookFilter) ||
+            !string.IsNullOrWhiteSpace(this.selectedFolkloreBookFilter) ||
             !string.IsNullOrWhiteSpace(this.selectedSearchTypeFilter) ||
             !string.IsNullOrWhiteSpace(this.selectedScripFilter);
 
@@ -791,6 +914,12 @@ public sealed class RecipeWindow : Window, IDisposable
             this.resultFilter = string.Empty;
         if (scanInventory)
             this.selectedJobFilter = string.Empty;
+        if (scanInventory)
+            this.selectedFishTypeFilter = string.Empty;
+        if (scanInventory)
+            this.selectedMasterRecipeBookFilter = string.Empty;
+        if (scanInventory)
+            this.selectedFolkloreBookFilter = string.Empty;
         if (scanInventory)
             this.selectedSearchTypeFilter = string.Empty;
         if (scanInventory)
@@ -1019,6 +1148,9 @@ public sealed class RecipeWindow : Window, IDisposable
         this.searchText = string.Empty;
         this.resultFilter = string.Empty;
         this.selectedJobFilter = string.Empty;
+        this.selectedFishTypeFilter = string.Empty;
+        this.selectedMasterRecipeBookFilter = string.Empty;
+        this.selectedFolkloreBookFilter = string.Empty;
         this.selectedSearchTypeFilter = string.Empty;
         this.selectedScripFilter = string.Empty;
         this.searchResults = [];
@@ -1042,6 +1174,95 @@ public sealed class RecipeWindow : Window, IDisposable
         string.IsNullOrWhiteSpace(this.selectedJobFilter) ||
         SplitJobAbbreviations(result.JobAbbreviations)
             .Any(job => string.Equals(job, this.selectedJobFilter, StringComparison.OrdinalIgnoreCase));
+
+    private IReadOnlyList<string> GetAvailableFishTypeFilters() =>
+        this.searchResults
+            .Where(result =>
+                SplitJobAbbreviations(result.JobAbbreviations)
+                    .Any(job => string.Equals(job, "FSH", StringComparison.OrdinalIgnoreCase)))
+            .Select(result => this.recipeService.GetFishTooltipInfo(result.ResultItemId)?.FishType)
+            .Where(fishType => !string.IsNullOrWhiteSpace(fishType))
+            .Cast<string>()
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(GetFishTypeFilterSortOrder)
+            .ThenBy(fishType => fishType, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    private bool MatchesFishTypeFilter(RecipeMatch result) =>
+        string.IsNullOrWhiteSpace(this.selectedFishTypeFilter) ||
+        string.Equals(
+            this.recipeService.GetFishTooltipInfo(result.ResultItemId)?.FishType,
+            this.selectedFishTypeFilter,
+            StringComparison.OrdinalIgnoreCase);
+
+    private IReadOnlyList<string> GetAvailableMasterRecipeBookFilters() =>
+        !this.IsCraftingJobFilterSelected()
+            ? []
+            : this.searchResults
+                .Where(result =>
+                    result.ResultKind == SearchResultKind.CraftedRecipe &&
+                    this.MatchesJobFilter(result))
+                .Select(result => this.recipeService.GetMasterRecipeBookInfo(result.RecipeId)?.BookName)
+                .Where(bookName => !string.IsNullOrWhiteSpace(bookName))
+                .Cast<string>()
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(bookName => bookName, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+    private bool MatchesMasterRecipeBookFilter(RecipeMatch result) =>
+        string.IsNullOrWhiteSpace(this.selectedMasterRecipeBookFilter) ||
+        string.Equals(
+            this.recipeService.GetMasterRecipeBookInfo(result.RecipeId)?.BookName,
+            this.selectedMasterRecipeBookFilter,
+            StringComparison.OrdinalIgnoreCase);
+
+    private bool IsCraftingJobFilterSelected() => IsCraftingJob(this.selectedJobFilter);
+
+    private static bool IsCraftingJob(string job) =>
+        DefaultJobFilters.Contains(job, StringComparer.OrdinalIgnoreCase) &&
+        !GathererJobFilters.Contains(job, StringComparer.OrdinalIgnoreCase);
+
+    private IReadOnlyList<string> GetAvailableFolkloreBookFilters() =>
+        !this.IsGathererJobFilterSelected()
+            ? []
+            : this.searchResults
+                .Where(this.MatchesJobFilter)
+                .Select(result => this.recipeService.GetFolkloreBookInfo(result.ResultItemId)?.BookName)
+                .Where(bookName => !string.IsNullOrWhiteSpace(bookName))
+                .Cast<string>()
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(bookName => bookName, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+    private bool MatchesFolkloreBookFilter(RecipeMatch result) =>
+        string.IsNullOrWhiteSpace(this.selectedFolkloreBookFilter) ||
+        string.Equals(
+            this.recipeService.GetFolkloreBookInfo(result.ResultItemId)?.BookName,
+            this.selectedFolkloreBookFilter,
+            StringComparison.OrdinalIgnoreCase);
+
+    private bool IsGathererJobFilterSelected() => IsGathererJob(this.selectedJobFilter);
+
+    private static bool IsGathererJob(string job) =>
+        GathererJobFilters.Contains(job, StringComparer.OrdinalIgnoreCase);
+
+    private static int GetFishTypeFilterSortOrder(string fishType) => fishType switch
+    {
+        "Regular fish" => 0,
+        "Big fish" => 1,
+        "Spearfishing" => 2,
+        "Ocean fishing" => 3,
+        _ => 4,
+    };
+
+    private static string FormatFishTypeFilterLabel(string fishType) => fishType switch
+    {
+        "Regular fish" => "Regular Fish",
+        "Big fish" => "Big Fish",
+        "Spearfishing" => "Spearfishing",
+        "Ocean fishing" => "Ocean Fishing",
+        _ => fishType,
+    };
 
     private bool MatchesSearchTypeFilter(RecipeMatch result) =>
         this.selectedSearchTypeFilter switch
@@ -2408,7 +2629,8 @@ public sealed class RecipeWindow : Window, IDisposable
                 ImGuiTreeNodeFlags.AllowItemOverlap);
             ImGui.PopStyleVar();
             ImGui.PopStyleColor(4);
-            if (ImGui.IsItemHovered())
+            var isFolderHeaderHovered = ImGui.IsItemHovered();
+            if (isFolderHeaderHovered)
                 this.DrawFolderRecipeTooltip(folderNode);
 
             if (!string.IsNullOrWhiteSpace(folderNode.FullPath))
@@ -2881,7 +3103,6 @@ public sealed class RecipeWindow : Window, IDisposable
             return;
         WindowTheme.ApplyTextScale(this.configuration, includeMainWindowScale: true);
 
-        ImGui.TextDisabled($"Parent: {GetFolderDisplayName(GetParentFolderPath(this.renamingFolderSource))}");
         ImGui.SetNextItemWidth(280);
         var submitted = ImGui.InputText(
             "Folder",
@@ -2910,32 +3131,54 @@ public sealed class RecipeWindow : Window, IDisposable
 
     private void DrawFolderSelectionControls(ref string folderValue, bool includeUnfiled = false)
     {
-        var folders = GetSavedPlanFolders(this.configuration.SavedPlanFolders, this.configuration.SavedRecipePlans);
-        if (folders.Count == 0)
+        var folderTree = BuildSavedPlanFolderTree(
+            this.configuration.SavedPlanFolders,
+            this.configuration.SavedRecipePlans);
+        if (folderTree.Children.Count == 0)
             return;
 
         var selectedFolder = NormalizeFolderName(folderValue);
-        var selectedIndex = folders.FindIndex(folder =>
-            string.Equals(folder, selectedFolder, StringComparison.OrdinalIgnoreCase));
-        var preview = selectedIndex >= 0 ? GetFolderDisplayName(folders[selectedIndex]) : "Choose existing folder";
+        var selectedFolderValue = selectedFolder;
+        var preview = string.IsNullOrWhiteSpace(selectedFolder)
+            ? "Choose existing folder"
+            : GetFolderDisplayName(selectedFolder);
 
+        ImGui.SetNextWindowSizeConstraints(
+            Vector2.Zero,
+            new Vector2(float.MaxValue, this.ScaleUi(480f)));
         ImGui.SetNextItemWidth(280);
         if (!ImGui.BeginCombo("Existing folders", preview))
             return;
 
         var useUnfiled = string.IsNullOrWhiteSpace(selectedFolder);
         if (includeUnfiled && ImGui.Selectable("Unfiled", useUnfiled))
-            folderValue = string.Empty;
+            selectedFolderValue = string.Empty;
 
-        foreach (var folder in folders)
+        void DrawFolderOptions(SavedPlanFolderNode parent, int depth)
         {
-            var isSelected = string.Equals(folder, selectedFolder, StringComparison.OrdinalIgnoreCase);
-            if (ImGui.Selectable(folder, isSelected))
-                folderValue = folder;
+            foreach (var folder in parent.Children)
+            {
+                ImGui.PushID($"folder-option-{folder.FullPath}");
+                if (depth > 0)
+                    ImGui.Indent(this.ScaleUi(16f));
+
+                var isSelected = string.Equals(folder.FullPath, selectedFolderValue, StringComparison.OrdinalIgnoreCase);
+                if (ImGui.Selectable(GetFolderDisplayName(folder.Name), isSelected))
+                    selectedFolderValue = folder.FullPath;
+                if (isSelected)
+                    ImGui.SetItemDefaultFocus();
+
+                DrawFolderOptions(folder, depth + 1);
+                if (depth > 0)
+                    ImGui.Unindent(this.ScaleUi(16f));
+                ImGui.PopID();
+            }
         }
 
+        DrawFolderOptions(folderTree, 0);
         ImGui.EndCombo();
-        ImGui.TextDisabled("Choose an existing folder or type a new one below. Use / to create subfolders.");
+        folderValue = selectedFolderValue;
+        ImGui.TextDisabled("Subfolders are indented. You can also type a new path below.");
     }
 
     private void TryMoveSavedPlan()
@@ -3033,30 +3276,53 @@ public sealed class RecipeWindow : Window, IDisposable
 
     private void TryMoveFolder()
     {
-        var sourceFolder = NormalizeFolderName(this.movingFolderSource);
+        if (!this.MoveFolderToParent(this.movingFolderSource, this.moveFolderParentName, out var moveError))
+        {
+            this.moveFolderError = moveError;
+            return;
+        }
+
+        this.isMoveFolderPopupOpen = false;
+        this.movingFolderSource = string.Empty;
+        this.moveFolderParentName = string.Empty;
+        this.moveFolderError = string.Empty;
+        ImGui.CloseCurrentPopup();
+    }
+
+    private bool MoveFolderToParent(string sourceFolderPath, string destinationParentPath, out string error)
+    {
+        var sourceFolder = NormalizeFolderName(sourceFolderPath);
         if (string.IsNullOrWhiteSpace(sourceFolder))
         {
-            this.moveFolderError = "Choose a folder to move.";
-            return;
+            error = "Choose a folder to move.";
+            return false;
         }
 
-        var destinationParent = NormalizeFolderName(this.moveFolderParentName);
+        var destinationParent = NormalizeFolderName(destinationParentPath);
         if (FolderMatchesOrContains(destinationParent, sourceFolder))
         {
-            this.moveFolderError = "Choose a parent folder outside the folder you are moving.";
-            return;
+            error = "Choose a parent folder outside the folder you are moving.";
+            return false;
         }
 
-        var folderName = GetFolderDisplayName(sourceFolder);
-        var targetFolder = CombineFolderPath(destinationParent, folderName);
+        var storedFolderName = GetStoredFolderName(sourceFolder);
+        var targetFolder = CombineFolderPath(destinationParent, storedFolderName);
         if (string.Equals(targetFolder, sourceFolder, StringComparison.OrdinalIgnoreCase))
         {
-            this.isMoveFolderPopupOpen = false;
-            this.movingFolderSource = string.Empty;
-            this.moveFolderParentName = string.Empty;
-            this.moveFolderError = string.Empty;
-            ImGui.CloseCurrentPopup();
-            return;
+            error = "That folder is already in the selected parent.";
+            return false;
+        }
+
+        var targetAlreadyExists = GetSavedPlanFolders(
+                this.configuration.SavedPlanFolders,
+                this.configuration.SavedRecipePlans)
+            .Any(folder =>
+                !FolderMatchesOrContains(folder, sourceFolder) &&
+                string.Equals(folder, targetFolder, StringComparison.OrdinalIgnoreCase));
+        if (targetAlreadyExists)
+        {
+            error = "That parent already contains a folder with the same name.";
+            return false;
         }
 
         foreach (var plan in this.configuration.SavedRecipePlans)
@@ -3072,14 +3338,10 @@ public sealed class RecipeWindow : Window, IDisposable
         }
 
         this.MoveSavedPlanFolderPaths(sourceFolder, targetFolder);
-
         this.saveConfiguration();
-        this.ShowPlanMessage($"Moved folder '{folderName}'.", false);
-        this.isMoveFolderPopupOpen = false;
-        this.movingFolderSource = string.Empty;
-        this.moveFolderParentName = string.Empty;
-        this.moveFolderError = string.Empty;
-        ImGui.CloseCurrentPopup();
+        this.ShowPlanMessage($"Moved folder '{GetFolderDisplayName(sourceFolder)}'.", false);
+        error = string.Empty;
+        return true;
     }
 
     private void DrawRenamePlanPopup()
@@ -3137,9 +3399,10 @@ public sealed class RecipeWindow : Window, IDisposable
             return;
         WindowTheme.ApplyTextScale(this.configuration, includeMainWindowScale: true);
 
+        ImGui.TextDisabled($"Parent: {GetFolderDisplayName(GetParentFolderPath(this.renamingFolderSource))}");
         ImGui.SetNextItemWidth(280);
         var submitted = ImGui.InputText(
-            "New folder name",
+            $"New folder name##rename-folder-name-{this.renamingFolderSource}",
             ref this.renameFolderName,
             80,
             ImGuiInputTextFlags.EnterReturnsTrue);
@@ -3201,14 +3464,20 @@ public sealed class RecipeWindow : Window, IDisposable
             return;
         }
 
-        if (cleanName.Contains('/'))
+        var sourceFolder = NormalizeFolderName(this.renamingFolderSource);
+        var parentFolder = GetParentFolderPath(sourceFolder);
+        var parentPrefix = string.IsNullOrWhiteSpace(parentFolder)
+            ? string.Empty
+            : $"{parentFolder}/";
+        if (!string.IsNullOrWhiteSpace(parentPrefix) &&
+            cleanName.StartsWith(parentPrefix, StringComparison.OrdinalIgnoreCase))
         {
-            this.renameFolderError = "Enter one folder name. Use Move to change its parent folder.";
-            return;
+            // Accept a full path retained by older versions of the rename dialog.
+            cleanName = cleanName[parentPrefix.Length..];
         }
 
-        var sourceFolder = NormalizeFolderName(this.renamingFolderSource);
-        var targetFolder = CombineFolderPath(GetParentFolderPath(sourceFolder), cleanName);
+        // A rename always keeps the current parent, so slashes here are part of the new label.
+        var targetFolder = CombineFolderPath(parentFolder, EncodeFolderSegment(cleanName));
         if (string.Equals(targetFolder, sourceFolder, StringComparison.OrdinalIgnoreCase))
         {
             this.isRenameFolderPopupOpen = false;
@@ -3525,12 +3794,18 @@ public sealed class RecipeWindow : Window, IDisposable
             .OrderBy(folderName => folderName, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-    private static string GetFolderDisplayName(string folderName) =>
-        string.IsNullOrWhiteSpace(folderName)
-            ? "Unfiled"
-            : folderName.Contains('/')
-                ? folderName[(folderName.LastIndexOf('/') + 1)..]
-                : folderName;
+    private static string GetFolderDisplayName(string folderName)
+    {
+        if (string.IsNullOrWhiteSpace(folderName))
+            return "Unfiled";
+
+        return DecodeFolderSegment(GetStoredFolderName(folderName));
+    }
+
+    private static string GetStoredFolderName(string folderName) =>
+        folderName.Contains('/')
+            ? folderName[(folderName.LastIndexOf('/') + 1)..]
+            : folderName;
 
     private static string GetParentFolderPath(string folderPath)
     {
@@ -3552,6 +3827,12 @@ public sealed class RecipeWindow : Window, IDisposable
 
         return $"{normalizedParent}/{normalizedName}";
     }
+
+    private static string EncodeFolderSegment(string folderName) =>
+        folderName.Replace('/', '\u2215');
+
+    private static string DecodeFolderSegment(string folderName) =>
+        folderName.Replace('\u2215', '/');
 
     private static bool FolderMatchesOrContains(string folderPath, string parentFolderPath) =>
         string.Equals(folderPath, parentFolderPath, StringComparison.OrdinalIgnoreCase) ||

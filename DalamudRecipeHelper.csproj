@@ -1,8 +1,8 @@
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
-    <Version>1.1.40.0</Version>
+    <Version>1.1.41.0</Version>
     <Description>Plan multiple FFXIV recipes, compare combined materials with inventory and retainers, and hand crafting or gathering tasks to Artisan, Teamcraft, and GatherBuddy.</Description>
-    <Changelog>v1.1.40 fixes subfolder renaming so edited folders remain inside their current parent.</Changelog>
+    <Changelog>v1.1.41 adds job-specific book filters, correct folklore exchange data, and improves folder management.</Changelog>
     <PackageProjectUrl>https://github.com/CherryFairy78/Recipe-Helper</PackageProjectUrl>
     <Authors>Meghann</Authors>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
