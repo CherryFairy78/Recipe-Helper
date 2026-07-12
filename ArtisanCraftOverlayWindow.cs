@@ -152,9 +152,11 @@ public sealed class ArtisanCraftOverlayWindow : Window
             return;
         }
 
+        ImGui.PushStyleVar(ImGuiStyleVar.FrameRounding, 10f);
         this.recipesExpanded = ImGui.CollapsingHeader(
             "RECIPES##artisan-progress-recipes",
             ImGuiTreeNodeFlags.DefaultOpen);
+        ImGui.PopStyleVar();
         if (!this.recipesExpanded)
             return;
 
@@ -563,7 +565,7 @@ public sealed class ArtisanCraftOverlayWindow : Window
             position,
             position + size,
             ImGui.GetColorU32(this.ApplyOverlayOpacity(WithAlpha(AdjustColor(this.configuration.AccentColor, 0.04f), 0.90f))),
-            8f);
+            10f);
         var textSize = ImGui.CalcTextSize(label);
         drawList.AddText(
             position + new Vector2((size.X - textSize.X) / 2f, 4f),

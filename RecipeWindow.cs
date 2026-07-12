@@ -2148,7 +2148,7 @@ public sealed class RecipeWindow : Window, IDisposable
         var planLabel = GetPlanSaveScopeLabel(scope);
         var selectedCount = this.GetPlanSaveScopeSelectionCount(scope);
         var idSuffix = string.IsNullOrWhiteSpace(controlId) ? string.Empty : $"-{controlId}";
-        ImGui.TextColored(this.configuration.AccentTextColor, $"{planLabel.ToUpperInvariant()} PLAN");
+        ImGui.TextColored(this.configuration.AccentColor, $"{planLabel.ToUpperInvariant()} PLAN");
         ImGui.SameLine();
         ImGui.TextDisabled($"{selectedCount} selected");
 
@@ -2165,14 +2165,16 @@ public sealed class RecipeWindow : Window, IDisposable
             this.SaveCurrentPlan(scope, saveAsNew: true);
         DrawTooltipIfHovered($"Save the selected {planLabel.ToLowerInvariant()} targets as a new named plan.");
 
-        if (this.loadedSavedPlan is not null &&
-            this.configuration.SavedRecipePlans.Contains(this.loadedSavedPlan))
-        {
-            ImGui.SameLine();
-            if (WindowTheme.ShadowedButton($"Update plan##update-plan{idSuffix}"))
-                this.UpdateLoadedSavedPlan(scope);
-            DrawTooltipIfHovered($"Update '{this.loadedSavedPlan.Name}' with the current Recipe Plan, Gatherables, and Collectables.");
-        }
+        var hasLoadedPlan = this.loadedSavedPlan is not null &&
+                            this.configuration.SavedRecipePlans.Contains(this.loadedSavedPlan);
+        ImGui.SameLine();
+        ImGui.BeginDisabled(!hasLoadedPlan);
+        if (WindowTheme.ShadowedButton($"Update plan##update-plan{idSuffix}") && hasLoadedPlan)
+            this.UpdateLoadedSavedPlan(scope);
+        ImGui.EndDisabled();
+        DrawTooltipIfHovered(hasLoadedPlan
+            ? $"Update '{this.loadedSavedPlan!.Name}' with the current {planLabel.ToLowerInvariant()} targets."
+            : "Load a saved plan to update it with the current targets.");
 
         ImGui.SetNextItemWidth(this.ScaleUi(220f));
         ImGui.InputTextWithHint(
@@ -2695,8 +2697,38 @@ public sealed class RecipeWindow : Window, IDisposable
             return;
         }
 
+        var planLabel = GetPlanSaveScopeLabel(scope);
+        if (this.GetPlanSaveScopeSelectionCount(scope) == 0)
+        {
+            this.ShowPlanMessage($"Add at least one {planLabel.ToLowerInvariant()} before updating.", true);
+            return;
+        }
+
         switch (scope)
         {
+            case PlanSaveScope.Recipe:
+                this.loadedSavedPlan.Recipes = this.selectedRecipes
+                    .Select(selection => new SavedRecipePlanEntry
+                    {
+                        RecipeId = selection.Recipe.RecipeId,
+                        ResultItemId = selection.Recipe.ResultItemId,
+                        ResultName = selection.Recipe.ResultName,
+                        ResultAmount = selection.Recipe.ResultAmount,
+                        JobAbbreviations = selection.Recipe.JobAbbreviations,
+                        DesiredAmount = selection.DesiredAmount,
+                    })
+                    .ToList();
+                break;
+            case PlanSaveScope.Gatherable:
+                this.loadedSavedPlan.Gatherables = this.selectedGatherables
+                    .Select(CreateSavedSupplementalEntry)
+                    .ToList();
+                break;
+            case PlanSaveScope.Collectable:
+                this.loadedSavedPlan.Collectables = this.selectedCollectables
+                    .Select(CreateSavedSupplementalEntry)
+                    .ToList();
+                break;
             case PlanSaveScope.DirectIngredient:
                 this.loadedSavedPlan.DirectIngredients = CreateSavedIngredientEntries(
                     this.GetDirectIngredientPlanNeeds(this.recipePlanDetails)
@@ -2707,11 +2739,9 @@ public sealed class RecipeWindow : Window, IDisposable
                     this.GetRawMaterialPlanNeeds(this.recipePlanDetails)
                         .Where(material => !IsElementalCatalyst(material)));
                 break;
-            default:
-                this.UpdateSavedPlan(this.loadedSavedPlan);
-                return;
         }
 
+        this.savedPlanCraftAvailabilityDirty = true;
         this.saveConfiguration();
         this.ShowPlanMessage($"Updated plan '{this.loadedSavedPlan.Name}'.", false);
     }
@@ -3275,7 +3305,7 @@ public sealed class RecipeWindow : Window, IDisposable
         MaterialUsageTooltip.BeginStyledTooltip(this.configuration);
         if (folderNode.Children.Count > 0)
         {
-            ImGui.TextColored(this.configuration.AccentTextColor, "Subfolders");
+            ImGui.TextColored(this.configuration.AccentColor, "Subfolders");
             foreach (var childFolder in folderNode.Children
                          .OrderBy(child => child.Name, StringComparer.CurrentCultureIgnoreCase))
             {
@@ -3293,7 +3323,7 @@ public sealed class RecipeWindow : Window, IDisposable
                 .OrderBy(name => name, StringComparer.CurrentCultureIgnoreCase)
                 .ToList();
 
-            ImGui.TextColored(this.configuration.AccentTextColor, "Recipes in this folder");
+            ImGui.TextColored(this.configuration.AccentColor, "Recipes in this folder");
             if (recipeNames.Count == 0)
             {
                 ImGui.TextDisabled("No recipe plans are stored here.");
@@ -4556,7 +4586,7 @@ public sealed class RecipeWindow : Window, IDisposable
             position,
             position + size,
             ImGui.GetColorU32(WithAlpha(AdjustColor(this.configuration.AccentColor, 0.04f), 0.90f)),
-            this.ScaleUi(8f));
+            this.ScaleUi(10f));
         var textSize = ImGui.CalcTextSize(label);
         drawList.AddText(
             position + new Vector2((size.X - textSize.X) / 2f, this.ScaleUi(7f)),

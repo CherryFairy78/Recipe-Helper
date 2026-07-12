@@ -108,10 +108,13 @@ public static class WindowTheme
 
     public static bool ShadowedButton(string label, Vector2 size = default)
     {
+        // Keep button rounding local so window title-bar controls retain their native spacing.
+        ImGui.PushStyleVar(ImGuiStyleVar.FrameRounding, Math.Max(ImGui.GetStyle().FrameRounding, 8f));
         DrawButtonShadow(label, size);
         ImGui.PushStyleColor(ImGuiCol.Text, GetButtonTextColor());
         var clicked = ImGui.Button(label, size);
         ImGui.PopStyleColor();
+        ImGui.PopStyleVar();
         return clicked;
     }
 

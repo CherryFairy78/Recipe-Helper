@@ -153,9 +153,11 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
             return;
         }
 
+        ImGui.PushStyleVar(ImGuiStyleVar.FrameRounding, 10f);
         this.materialsExpanded = ImGui.CollapsingHeader(
             "MATERIALS##raw-overlay-materials",
             ImGuiTreeNodeFlags.DefaultOpen);
+        ImGui.PopStyleVar();
         if (this.materialsExpanded &&
             ImGui.BeginTable(
                 "raw-travel-items",
@@ -517,7 +519,7 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
             position,
             position + size,
             ImGui.GetColorU32(this.ApplyOverlayOpacity(WithAlpha(AdjustColor(this.configuration.AccentColor, 0.04f), 0.90f))),
-            8f);
+            10f);
         var textSize = ImGui.CalcTextSize(label);
         drawList.AddText(
             position + new Vector2((size.X - textSize.X) / 2f, 4f),

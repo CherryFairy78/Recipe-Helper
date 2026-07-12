@@ -7,15 +7,25 @@ This file is the durable hand-off record for Recipe Helper. Read it before makin
 - Last updated: 2026-07-12
 - Plugin name: Recipe Helper
 - Internal name: `DalamudRecipeHelper`
-- Version: `1.1.38.0`
+- Version: `1.1.39.0`
 - Framework: Dalamud API 15
 - Target: `.NET 10` on Windows x64
 - Command: `/recipehelper`
 - Build command: `dotnet build .\DalamudRecipeHelper.csproj --no-restore`
 - Debug output: `bin\Debug\DalamudRecipeHelper.dll`
-- Last verified build: 2026-07-12, Debug and Release builds succeeded with zero warnings and zero errors. The local dev plugin was moved to `C:\Users\megha\AppData\Roaming\XIVLauncher\backups\RecipeHelper\20260712-111951`, and `releases\DalamudRecipeHelper-v1.1.38.zip` was created with SHA-256 `523955054F1CFE1B8E71D9D52A1C0CE523346E948494DE1FD5F2220BE951D793`.
+- Last verified build: 2026-07-12, Debug and Release builds succeeded with zero warnings and zero errors. `releases\DalamudRecipeHelper-v1.1.39.zip` was created from the verified Release output with SHA-256 `72BA780D86B1AE43F9B011317AA3DDECBCB76C4693DF0FD12A9EAD5EEB2BEDEC`.
 
 ## Recent release
+
+- Version: `1.1.39.0`
+- Rounded action buttons locally and aligned the Missing Items and Artisan overlay section and table headers with the main folder rounding.
+- Rounded the tooltip window background itself so the square corners no longer show behind its accent outline.
+- Updated plan labels and saved-folder hover headings to use the brighter interface accent colour for readability.
+- Kept Save new plan and Update plan visible in every plan section. Scoped updates now preserve the other saved-plan sections.
+- Updated the package metadata and custom repository feed for `v1.1.39`.
+- Verification: Debug and Release builds succeeded with zero warnings and zero errors. `releases\DalamudRecipeHelper-v1.1.39.zip` was created from the verified Release output with SHA-256 `72BA780D86B1AE43F9B011317AA3DDECBCB76C4693DF0FD12A9EAD5EEB2BEDEC`.
+
+## Previous release
 
 - Version: `1.1.38.0`
 - Restored shared title-bar and button spacing by removing the tooltip window-level rounding override.
@@ -28,7 +38,7 @@ This file is the durable hand-off record for Recipe Helper. Read it before makin
 - Updated the package metadata and custom repository feed for `v1.1.38`.
 - Verification: Debug and Release builds succeeded with zero warnings and zero errors. `releases\DalamudRecipeHelper-v1.1.38.zip` was created from the verified Release output with SHA-256 `523955054F1CFE1B8E71D9D52A1C0CE523346E948494DE1FD5F2220BE951D793`.
 
-## Previous release
+## Earlier release
 
 - Version: `1.1.37.0`
 - Added aetherial-reduction result items to supplemental search, so materials such as Levinchrome Aethersand can be found and added from search.
@@ -47,7 +57,7 @@ This file is the durable hand-off record for Recipe Helper. Read it before makin
 - Updated the package metadata and custom repository feed for `v1.1.37`.
 - Verification: Debug and Release builds succeeded with zero warnings and zero errors. `releases\DalamudRecipeHelper-v1.1.37.zip` was created from the verified Release output with SHA-256 `7DE27F89AD003FC20547AE4B084497BB7FF48779CC59A485134074B29A13E05B`.
 
-## Earlier release
+## Historical release
 
 - Version: `1.1.36.0`
 - Expanded source hovers with folklore and master-recipe unlocks, required tools, marketboard availability, Restoration and society-quest details, and matching overlay coverage.

@@ -217,6 +217,7 @@ public static class MaterialUsageTooltip
     {
         ImGui.PushStyleColor(ImGuiCol.Border, configuration.AccentColor);
         ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 1f);
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowRounding, TooltipCornerRounding);
         ImGui.BeginTooltip();
         WindowTheme.ApplyTextScale(configuration);
     }
@@ -235,6 +236,7 @@ public static class MaterialUsageTooltip
             0,
             1f);
         ImGui.EndTooltip();
+        ImGui.PopStyleVar();
         ImGui.PopStyleVar();
         ImGui.PopStyleColor();
     }
