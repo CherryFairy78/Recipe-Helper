@@ -559,13 +559,11 @@ public sealed class ArtisanCraftOverlayWindow : Window
         var size = new Vector2(Math.Max(1f, ImGui.GetContentRegionAvail().X), 22f);
         var position = ImGui.GetCursorScreenPos();
         var drawList = ImGui.GetWindowDrawList();
-        drawList.AddRectFilledMultiColor(
+        drawList.AddRectFilled(
             position,
             position + size,
-            ImGui.GetColorU32(this.ApplyOverlayOpacity(WithAlpha(AdjustColor(this.configuration.AccentColor, 0.15f), 0.92f))),
-            ImGui.GetColorU32(this.ApplyOverlayOpacity(WithAlpha(AdjustColor(this.configuration.AccentColor, 0.04f), 0.92f))),
-            ImGui.GetColorU32(this.ApplyOverlayOpacity(WithAlpha(AdjustColor(this.configuration.AccentColor, -0.02f), 0.78f))),
-            ImGui.GetColorU32(this.ApplyOverlayOpacity(WithAlpha(AdjustColor(this.configuration.AccentColor, -0.10f), 0.78f))));
+            ImGui.GetColorU32(this.ApplyOverlayOpacity(WithAlpha(AdjustColor(this.configuration.AccentColor, 0.04f), 0.90f))),
+            8f);
         var textSize = ImGui.CalcTextSize(label);
         drawList.AddText(
             position + new Vector2((size.X - textSize.X) / 2f, 4f),

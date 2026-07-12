@@ -39,6 +39,10 @@ public sealed class SavedRecipePlan
     public List<SavedSupplementalPlanEntry> Gatherables { get; set; } = [];
 
     public List<SavedSupplementalPlanEntry> Collectables { get; set; } = [];
+
+    public List<SavedSupplementalPlanEntry> DirectIngredients { get; set; } = [];
+
+    public List<SavedSupplementalPlanEntry> RawMaterials { get; set; } = [];
 }
 
 public sealed class SavedRecipePlanEntry

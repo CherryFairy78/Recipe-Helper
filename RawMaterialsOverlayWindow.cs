@@ -229,7 +229,8 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
                     new Vector2(-1, 28),
                     material.Missing.ToString(),
                     WithAlpha(this.configuration.MissingTextColor, 0.18f),
-                    this.configuration.MissingTextColor);
+                    AdjustColor(this.configuration.MissingTextColor, -0.12f),
+                    useReadableBackground: true);
 
                 ImGui.TableNextColumn();
                 if (HasTimedAvailability(availabilityText))
@@ -512,13 +513,11 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
         var size = new Vector2(Math.Max(1f, ImGui.GetContentRegionAvail().X), 22f);
         var position = ImGui.GetCursorScreenPos();
         var drawList = ImGui.GetWindowDrawList();
-        drawList.AddRectFilledMultiColor(
+        drawList.AddRectFilled(
             position,
             position + size,
-            ImGui.GetColorU32(this.ApplyOverlayOpacity(WithAlpha(AdjustColor(this.configuration.AccentColor, 0.15f), 0.92f))),
-            ImGui.GetColorU32(this.ApplyOverlayOpacity(WithAlpha(AdjustColor(this.configuration.AccentColor, 0.04f), 0.92f))),
-            ImGui.GetColorU32(this.ApplyOverlayOpacity(WithAlpha(AdjustColor(this.configuration.AccentColor, -0.02f), 0.78f))),
-            ImGui.GetColorU32(this.ApplyOverlayOpacity(WithAlpha(AdjustColor(this.configuration.AccentColor, -0.10f), 0.78f))));
+            ImGui.GetColorU32(this.ApplyOverlayOpacity(WithAlpha(AdjustColor(this.configuration.AccentColor, 0.04f), 0.90f))),
+            8f);
         var textSize = ImGui.CalcTextSize(label);
         drawList.AddText(
             position + new Vector2((size.X - textSize.X) / 2f, 4f),
@@ -539,7 +538,11 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
         var position = ImGui.GetCursorScreenPos();
         ImGui.InvisibleButton(id, resolvedSize);
         var drawList = ImGui.GetWindowDrawList();
-        drawList.AddRectFilled(position, position + resolvedSize, ImGui.GetColorU32(this.ApplyOverlayOpacity(backgroundColor)), 12f);
+        drawList.AddRectFilled(
+            position,
+            position + resolvedSize,
+            ImGui.GetColorU32(this.ApplyOverlayOpacity(backgroundColor)),
+            12f);
         var titleMax = Math.Max(14, resolvedSize.X < 150f ? 22 : 28);
         var safeTitle = TrimDisplayText(title, titleMax);
         var safeSubtitle = TrimDisplayText(subtitle, Math.Max(16, titleMax + 2));
@@ -574,13 +577,21 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
         Vector2 size,
         string value,
         Vector4 backgroundColor,
-        Vector4 textColor)
+        Vector4 textColor,
+        bool useReadableBackground = false)
     {
         var resolvedSize = ResolveCardSize(size, 32f);
         var position = ImGui.GetCursorScreenPos();
         ImGui.InvisibleButton(id, resolvedSize);
         var drawList = ImGui.GetWindowDrawList();
-        drawList.AddRectFilled(position, position + resolvedSize, ImGui.GetColorU32(this.ApplyOverlayOpacity(backgroundColor)), 12f);
+        drawList.AddRectFilled(
+            position,
+            position + resolvedSize,
+            ImGui.GetColorU32(
+                useReadableBackground
+                    ? this.ApplyOverlayOpacity(this.GetReadableOverlayCardBackground(backgroundColor), minimumOpacity: 0.78f)
+                    : this.ApplyOverlayOpacity(backgroundColor)),
+            12f);
         var displayValue = TrimDisplayText(value, 14);
         var valueSize = ImGui.CalcTextSize(displayValue);
         drawList.AddText(
@@ -626,7 +637,11 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
             : isImminent
                 ? this.configuration.WarningTextColor
                 : this.configuration.TextColor;
-        drawList.AddRectFilled(position, position + resolvedSize, ImGui.GetColorU32(this.ApplyOverlayOpacity(backgroundColor)), 12f);
+        drawList.AddRectFilled(
+            position,
+            position + resolvedSize,
+            ImGui.GetColorU32(this.ApplyOverlayOpacity(this.GetReadableOverlayCardBackground(backgroundColor), minimumOpacity: 0.78f)),
+            12f);
         var displaySize = ImGui.CalcTextSize(displayText);
         drawList.AddText(
             position + new Vector2((resolvedSize.X - displaySize.X) / 2f, (resolvedSize.Y - displaySize.Y) / 2f),
@@ -655,14 +670,31 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
         return new Vector2(width, height);
     }
 
-    private Vector4 ApplyOverlayOpacity(Vector4 color)
+    private Vector4 ApplyOverlayOpacity(Vector4 color, float minimumOpacity = 0f)
     {
         if (!this.configuration.UseTransparentOverlayBackground)
             return color;
 
         return WithAlpha(
             color,
-            Math.Clamp(color.W * this.configuration.OverlayBackgroundOpacity, 0.08f, 1f));
+            Math.Clamp(
+                color.W * this.configuration.OverlayBackgroundOpacity,
+                Math.Clamp(minimumOpacity, 0.08f, 1f),
+                1f));
+    }
+
+    private Vector4 GetReadableOverlayCardBackground(Vector4 tint)
+    {
+        if (!this.configuration.UseTransparentOverlayBackground)
+            return tint;
+
+        var background = this.configuration.WindowBackgroundColor;
+        const float tintWeight = 0.22f;
+        return new Vector4(
+            background.X + ((tint.X - background.X) * tintWeight),
+            background.Y + ((tint.Y - background.Y) * tintWeight),
+            background.Z + ((tint.Z - background.Z) * tintWeight),
+            0.90f);
     }
 
     private static string TrimDisplayText(string text, int maxLength) =>

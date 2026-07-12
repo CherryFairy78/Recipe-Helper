@@ -1,8 +1,8 @@
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
-    <Version>1.1.37.0</Version>
+    <Version>1.1.38.0</Version>
     <Description>Plan multiple FFXIV recipes, compare combined materials with inventory and retainers, and hand crafting or gathering tasks to Artisan, Teamcraft, and GatherBuddy.</Description>
-    <Changelog>v1.1.37 improves saved plans, aetherial-reduction search, crafting-log accuracy, and rounded source hovers.</Changelog>
+    <Changelog>v1.1.38 adds independent ingredient plans, clearer saved-plan browsing, rounded layout details, and improved transparent overlay readability.</Changelog>
     <PackageProjectUrl>https://github.com/CherryFairy78/Recipe-Helper</PackageProjectUrl>
     <Authors>Meghann</Authors>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>

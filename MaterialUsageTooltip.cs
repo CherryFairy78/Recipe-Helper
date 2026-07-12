@@ -216,7 +216,6 @@ public static class MaterialUsageTooltip
     public static void BeginStyledTooltip(Configuration configuration)
     {
         ImGui.PushStyleColor(ImGuiCol.Border, configuration.AccentColor);
-        ImGui.PushStyleVar(ImGuiStyleVar.WindowRounding, TooltipCornerRounding);
         ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 1f);
         ImGui.BeginTooltip();
         WindowTheme.ApplyTextScale(configuration);
@@ -236,7 +235,7 @@ public static class MaterialUsageTooltip
             0,
             1f);
         ImGui.EndTooltip();
-        ImGui.PopStyleVar(2);
+        ImGui.PopStyleVar();
         ImGui.PopStyleColor();
     }
 
