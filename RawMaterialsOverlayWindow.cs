@@ -367,7 +367,8 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
             .Where(entry =>
                 (entry.CanGather ||
                  (this.configuration.ShowVendoredItemsInOverlay && IsVendorMaterial(entry.Material))) &&
-                entry.Material.Missing > 0)
+                entry.Material.Missing > 0 &&
+                !entry.Material.IsFullyCoveredByOwnedPreCraft)
             .OrderBy(entry => entry.SortCategory)
             .ThenBy(entry => entry.WaitSeconds)
             .ThenBy(entry => entry.Material.Name, StringComparer.CurrentCultureIgnoreCase)
