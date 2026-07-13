@@ -1127,6 +1127,19 @@ public sealed class RecipeWindow : Window, IDisposable
             folkloreBookInfo: this.recipeService.GetFolkloreBookInfo(itemId),
             requiredItemInfo: this.recipeService.GetRequiredItemInfo(itemId));
 
+    private IReadOnlyList<string> GetMaterialTooltipLines(IngredientNeed ingredient)
+    {
+        var lines = this.GetItemUnlockTooltipLines(ingredient.ItemId).ToList();
+        if (!ingredient.IsFullyCoveredByOwnedPreCraft)
+            return lines;
+
+        lines.Add("Pre-craft coverage");
+        lines.Add("Status: Enough pre-craft material is already owned.");
+        if (ingredient.PreCraftCoverageNames is { Count: > 0 })
+            lines.Add($"Pre-craft: {string.Join(", ", ingredient.PreCraftCoverageNames)}");
+        return lines;
+    }
+
     private IReadOnlyList<string> GetRecipeUnlockTooltipLines(uint recipeId) =>
         this.BuildUnlockTooltipLines(
             masterRecipeBookInfo: this.recipeService.GetMasterRecipeBookInfo(recipeId));
@@ -1459,32 +1472,15 @@ public sealed class RecipeWindow : Window, IDisposable
 
     private IReadOnlyList<IngredientNeed> BuildOverlayMaterials(RecipePlanDetails? details)
     {
-        var combinedAmounts = new Dictionary<uint, uint>();
-
+        var materials = new List<IngredientNeed>();
         if (details is not null)
-        {
-            foreach (var material in details.RawMaterials)
-                AddOverlayAmount(combinedAmounts, material.ItemId, material.Required);
-        }
+            materials.AddRange(details.RawMaterials);
 
-        foreach (var selection in this.selectedGatherables)
-            AddOverlayAmount(combinedAmounts, selection.Item.ResultItemId, selection.DesiredAmount);
-        foreach (var selection in this.selectedCollectables)
-            AddOverlayAmount(combinedAmounts, selection.Item.ResultItemId, selection.DesiredAmount);
-        foreach (var ingredient in this.selectedDirectIngredients)
-            AddOverlayAmount(combinedAmounts, ingredient.ResultItemId, ingredient.DesiredAmount);
-        foreach (var ingredient in this.selectedRawMaterials)
-            AddOverlayAmount(combinedAmounts, ingredient.ResultItemId, ingredient.DesiredAmount);
-
-        return combinedAmounts
-            .OrderBy(entry => entry.Key)
-            .Select(entry => this.recipeService.GetStandaloneIngredientNeed(
-                entry.Key,
-                entry.Value,
-                this.ownedItems))
-            .Where(need => need is not null)
-            .Select(need => need!)
-            .ToList();
+        materials.AddRange(this.GetSupplementalSelectionNeeds(this.selectedGatherables));
+        materials.AddRange(this.GetSupplementalSelectionNeeds(this.selectedCollectables));
+        materials.AddRange(this.GetStandaloneIngredientNeeds(this.selectedDirectIngredients));
+        materials.AddRange(this.GetStandaloneIngredientNeeds(this.selectedRawMaterials));
+        return this.CombineIngredientNeeds(materials);
     }
 
     private IReadOnlyList<IngredientNeed> GetStandaloneIngredientNeeds(
@@ -1496,6 +1492,21 @@ public sealed class RecipeWindow : Window, IDisposable
                 group.Key,
                 (uint)Math.Min(
                     group.Aggregate(0UL, (total, ingredient) => total + ingredient.DesiredAmount),
+                    uint.MaxValue),
+                this.ownedItems))
+            .Where(ingredient => ingredient is not null)
+            .Select(ingredient => ingredient!)
+            .ToList();
+
+    private IReadOnlyList<IngredientNeed> GetSupplementalSelectionNeeds(
+        IEnumerable<SupplementalItemSelection> selections) =>
+        selections
+            .Where(selection => selection.Item.ResultItemId != 0 && selection.DesiredAmount > 0)
+            .GroupBy(selection => selection.Item.ResultItemId)
+            .Select(group => this.recipeService.GetStandaloneIngredientNeed(
+                group.Key,
+                (uint)Math.Min(
+                    group.Aggregate(0UL, (total, selection) => total + selection.DesiredAmount),
                     uint.MaxValue),
                 this.ownedItems))
             .Where(ingredient => ingredient is not null)
@@ -1515,25 +1526,33 @@ public sealed class RecipeWindow : Window, IDisposable
     private IReadOnlyList<IngredientNeed> CombineIngredientNeeds(IEnumerable<IngredientNeed> ingredients) =>
         ingredients
             .GroupBy(ingredient => ingredient.ItemId)
-            .Select(group => this.recipeService.GetStandaloneIngredientNeed(
-                group.Key,
-                (uint)Math.Min(
-                    group.Aggregate(0UL, (total, ingredient) => total + ingredient.Required),
-                    uint.MaxValue),
-                this.ownedItems))
+            .Select(group =>
+            {
+                var entries = group.ToList();
+                var required = (uint)Math.Min(
+                    entries.Aggregate(0UL, (total, ingredient) => total + ingredient.Required),
+                    uint.MaxValue);
+                var covered = (uint)Math.Min(
+                    entries.Aggregate(0UL, (total, ingredient) => total + ingredient.PreCraftCoveredAmount),
+                    required);
+                var coverageNames = entries
+                    .SelectMany(ingredient => ingredient.PreCraftCoverageNames ?? [])
+                    .Distinct(StringComparer.CurrentCultureIgnoreCase)
+                    .OrderBy(name => name, StringComparer.CurrentCultureIgnoreCase)
+                    .ToList();
+                var need = this.recipeService.GetStandaloneIngredientNeed(group.Key, required, this.ownedItems);
+                return need is null
+                    ? null
+                    : need with
+                    {
+                        PreCraftCoveredAmount = covered,
+                        PreCraftCoverageNames = coverageNames,
+                    };
+            })
             .Where(ingredient => ingredient is not null)
             .Select(ingredient => ingredient!)
             .OrderBy(ingredient => ingredient.Name, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
-
-    private static void AddOverlayAmount(IDictionary<uint, uint> amounts, uint itemId, uint amount)
-    {
-        if (itemId == 0 || amount == 0)
-            return;
-
-        amounts.TryGetValue(itemId, out var existing);
-        amounts[itemId] = (uint)Math.Min((ulong)existing + amount, uint.MaxValue);
-    }
 
     private void DrawDetails()
     {
@@ -4730,10 +4749,12 @@ public sealed class RecipeWindow : Window, IDisposable
             foreach (var ingredient in displayedMaterials)
             {
                 ImGui.TableNextRow(ImGuiTableRowFlags.None, this.ScaleUi(44f));
+                var isPreCraftCovered = tableId == "raw-materials" &&
+                                        ingredient.IsFullyCoveredByOwnedPreCraft;
                 var hasTimedWindow = this.aetherialReductionService.HasTimedWindow(
                     ingredient.ItemId,
                     ingredient.ReductionSources);
-                var rowColor = ingredient.HasEnough
+                var rowColor = isPreCraftCovered || ingredient.HasEnough
                     ? this.configuration.EnoughRowColor
                     : showRawCraftStatus && ingredient.CanCraftMissingFromRaw is true
                         ? WithAlpha(this.configuration.WarningTextColor, 0.18f)
@@ -4744,15 +4765,17 @@ public sealed class RecipeWindow : Window, IDisposable
                     $"{tableId}-ingredient-{ingredient.ItemId}",
                     new Vector2(-1, this.ScaleUi(36f)),
                     ingredient.Name,
-                    ingredient.Source,
+                    isPreCraftCovered ? "Pre-crafted" : ingredient.Source,
                     rowColor,
-                    this.configuration.TextColor);
+                    isPreCraftCovered
+                        ? this.configuration.SuccessTextColor
+                        : this.configuration.TextColor);
                 MaterialUsageTooltip.Draw(
                     this.marketboardPriceService,
                     this.configuration,
                     ingredient.ItemId,
                     ingredient.Name,
-                    detailLines: this.GetItemUnlockTooltipLines(ingredient.ItemId),
+                    detailLines: this.GetMaterialTooltipLines(ingredient),
                     specialContentTooltipInfo: this.GetSpecialContentTooltipInfo(ingredient.ItemId),
                     fishTooltipInfo: this.recipeService.GetFishTooltipInfo(ingredient.ItemId),
                     societyQuestTooltipInfo: this.recipeService.GetSocietyQuestTooltipInfo(ingredient.ItemId),
@@ -4763,7 +4786,7 @@ public sealed class RecipeWindow : Window, IDisposable
                     isMarketboardAvailable: this.recipeService.IsMarketboardAvailable(ingredient.ItemId));
 
                 ImGui.TableNextColumn();
-                var needBackground = ingredient.HasEnough
+                var needBackground = isPreCraftCovered || ingredient.HasEnough
                     ? this.configuration.EnoughRowColor
                     : WithAlpha(this.configuration.AccentColor, 0.14f);
                 this.DrawValueCard(
@@ -4771,12 +4794,23 @@ public sealed class RecipeWindow : Window, IDisposable
                     new Vector2(-1, this.ScaleUi(36f)),
                     ingredient.Required.ToString(),
                     needBackground,
-                    this.configuration.TextColor);
+                    isPreCraftCovered
+                        ? this.configuration.SuccessTextColor
+                        : this.configuration.TextColor);
 
                 if (showMissing)
                 {
                     ImGui.TableNextColumn();
-                    if (ingredient.HasEnough)
+                    if (isPreCraftCovered)
+                    {
+                        this.DrawValueCard(
+                            $"{tableId}-missing-{ingredient.ItemId}",
+                            new Vector2(-1, this.ScaleUi(36f)),
+                            "Pre-crafted",
+                            WithAlpha(this.configuration.SuccessTextColor, 0.18f),
+                            this.configuration.SuccessTextColor);
+                    }
+                    else if (ingredient.HasEnough)
                     {
                         this.DrawValueCard(
                             $"{tableId}-missing-{ingredient.ItemId}",

@@ -208,7 +208,9 @@ public sealed record IngredientNeed(
     bool? CanCraftMissingFromRaw = null,
     uint? RawCraftRecipeId = null,
     uint RawCraftCount = 0,
-    IReadOnlyList<AetherialReductionSource>? ReductionSources = null)
+    IReadOnlyList<AetherialReductionSource>? ReductionSources = null,
+    uint PreCraftCoveredAmount = 0,
+    IReadOnlyList<string>? PreCraftCoverageNames = null)
 {
     public uint Owned => (uint)Math.Min((ulong)this.OwnedNq + this.OwnedHq, uint.MaxValue);
     public IReadOnlyList<string> Locations =>
@@ -218,6 +220,8 @@ public sealed record IngredientNeed(
             .ToList();
     public uint Missing => this.Required > this.Owned ? this.Required - this.Owned : 0;
     public bool HasEnough => this.Missing == 0;
+    public bool IsFullyCoveredByOwnedPreCraft =>
+        this.Required > 0 && this.PreCraftCoveredAmount >= this.Required;
 }
 
 public sealed record RecipeDetails(

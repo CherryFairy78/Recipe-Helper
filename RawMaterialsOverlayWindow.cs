@@ -188,7 +188,8 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
                 var canGather = this.CanGatherMaterial(material, reductionSource, availabilityText);
 
                 ImGui.TableNextRow(ImGuiTableRowFlags.None, 32);
-                var rowColor = material.HasEnough ||
+                var isPreCraftCovered = material.IsFullyCoveredByOwnedPreCraft;
+                var rowColor = isPreCraftCovered || material.HasEnough ||
                                this.aetherialReductionService.IsCurrentlyAvailable(
                                    material.ItemId,
                                    material.ReductionSources)
@@ -202,20 +203,23 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
                     material.Name,
                     string.Empty,
                     rowColor,
-                    this.configuration.TextColor);
+                    isPreCraftCovered
+                        ? this.configuration.SuccessTextColor
+                        : this.configuration.TextColor);
                 if (this.recipeService.GetCollectibleRewardInfo(material.ItemId) is { } rewardInfo)
                     this.DrawCollectibleRewardTooltip(
                         material.ItemId,
                         material.Name,
                         rewardInfo,
                         material.Missing,
-                        this.GetItemUnlockTooltipLines(material.ItemId));
+                        this.GetMaterialTooltipLines(material));
                 else
                     MaterialUsageTooltip.Draw(
                         this.marketboardPriceService,
                         this.configuration,
                         material.ItemId,
                         material.Name,
+                        detailLines: this.GetMaterialTooltipLines(material),
                         specialContentTooltipInfo: this.recipeService.GetSpecialContentTooltipInfo(material.ItemId),
                         fishTooltipInfo: this.recipeService.GetFishTooltipInfo(material.ItemId),
                         societyQuestTooltipInfo: this.recipeService.GetSocietyQuestTooltipInfo(material.ItemId),
@@ -229,9 +233,13 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
                 this.DrawValueCard(
                     $"overlay-missing-{material.ItemId}",
                     new Vector2(-1, 28),
-                    material.Missing.ToString(),
-                    WithAlpha(this.configuration.MissingTextColor, 0.18f),
-                    AdjustColor(this.configuration.MissingTextColor, -0.12f),
+                    isPreCraftCovered ? "Pre-crafted" : material.Missing.ToString(),
+                    isPreCraftCovered
+                        ? WithAlpha(this.configuration.SuccessTextColor, 0.18f)
+                        : WithAlpha(this.configuration.MissingTextColor, 0.18f),
+                    isPreCraftCovered
+                        ? this.configuration.SuccessTextColor
+                        : AdjustColor(this.configuration.MissingTextColor, -0.12f),
                     useReadableBackground: true);
 
                 ImGui.TableNextColumn();
@@ -830,6 +838,19 @@ public sealed class RawMaterialsOverlayWindow : Window, IDisposable
             lines.Add(requiredItemInfo.ItemName);
         }
 
+        return lines;
+    }
+
+    private IReadOnlyList<string> GetMaterialTooltipLines(IngredientNeed material)
+    {
+        var lines = this.GetItemUnlockTooltipLines(material.ItemId).ToList();
+        if (!material.IsFullyCoveredByOwnedPreCraft)
+            return lines;
+
+        lines.Add("Pre-craft coverage");
+        lines.Add("Status: Enough pre-craft material is already owned.");
+        if (material.PreCraftCoverageNames is { Count: > 0 })
+            lines.Add($"Pre-craft: {string.Join(", ", material.PreCraftCoverageNames)}");
         return lines;
     }
 

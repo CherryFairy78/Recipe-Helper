@@ -1297,51 +1297,85 @@ public sealed class RecipeService
         IReadOnlyDictionary<uint, OwnedInventoryItem> ownedItems)
     {
         var amounts = new Dictionary<uint, ulong>();
+        var coveredAmounts = new Dictionary<uint, ulong>();
+        var coverageNamesByItemId = new Dictionary<uint, HashSet<string>>();
+        var combinedRequirements = requirements
+            .Where(requirement => requirement.ItemId != 0 && requirement.Amount != 0)
+            .GroupBy(requirement => requirement.ItemId)
+            .Select(group => (
+                ItemId: group.Key,
+                Amount: group.Aggregate(0UL, (total, requirement) => AddSaturating(total, requirement.Amount))))
+            .ToList();
+
+        // Always list the complete raw-material recipe tree, then separately mark branches already covered by owned pre-crafts.
+        foreach (var requirement in combinedRequirements)
+            this.AddRawMaterialRequirement(requirement.ItemId, requirement.Amount, recipesByResult, amounts);
+
         var stock = new Dictionary<uint, ulong>();
-        foreach (var requirement in requirements
-                     .Where(requirement => requirement.ItemId != 0 && requirement.Amount != 0)
-                     .GroupBy(requirement => requirement.ItemId)
-                     .Select(group => (
-                         ItemId: group.Key,
-                         Amount: group.Aggregate(0UL, (total, requirement) => AddSaturating(total, requirement.Amount)))))
-        {
-            this.ResolveRawMaterialRequirement(
+        foreach (var requirement in combinedRequirements)
+            this.MarkOwnedPreCraftCoverage(
                 requirement.ItemId,
                 requirement.Amount,
                 recipesByResult,
                 ownedItems,
                 stock,
-                amounts,
+                coveredAmounts,
+                coverageNamesByItemId,
                 new HashSet<uint>());
-        }
 
         var rawIngredients = amounts
             .Select(entry => (entry.Key, (uint)Math.Min(entry.Value, uint.MaxValue)))
             .OrderBy(entry => this.GetItemName(entry.Key))
             .ToList();
 
-        return this.CreateIngredientNeeds(rawIngredients, ownedItems);
+        var coverageAmounts = rawIngredients.ToDictionary(
+            ingredient => ingredient.Key,
+            ingredient => (uint)Math.Min(
+                coveredAmounts.GetValueOrDefault(ingredient.Key),
+                ingredient.Item2));
+        var coverageNames = coverageNamesByItemId.ToDictionary(
+            entry => entry.Key,
+            entry => (IReadOnlyList<string>)entry.Value
+                .OrderBy(name => name, StringComparer.CurrentCultureIgnoreCase)
+                .ToList());
+        return this.CreateIngredientNeeds(rawIngredients, ownedItems, coverageAmounts, coverageNames);
     }
 
-    // Owned intermediate crafts satisfy their recipe requirement before the planner expands it into raw materials.
-    private void ResolveRawMaterialRequirement(
+    private void AddRawMaterialRequirement(
         uint itemId,
         ulong required,
         IReadOnlyDictionary<uint, Recipe> recipesByResult,
-        IReadOnlyDictionary<uint, OwnedInventoryItem> ownedItems,
-        IDictionary<uint, ulong> stock,
-        IDictionary<uint, ulong> rawAmounts,
-        ISet<uint> recipePath)
+        IDictionary<uint, ulong> rawAmounts)
     {
         if (required == 0)
             return;
 
-        if (recipePath.Contains(itemId) || !recipesByResult.TryGetValue(itemId, out var recipe))
+        if (!recipesByResult.TryGetValue(itemId, out var recipe))
         {
             rawAmounts.TryGetValue(itemId, out var current);
             rawAmounts[itemId] = AddSaturating(current, required);
             return;
         }
+
+        var resultAmount = Math.Max(1U, this.ReadUInt(recipe, "AmountResult"));
+        var craftCount = (required + resultAmount - 1) / resultAmount;
+        this.ExpandRawMaterials(recipe, craftCount, recipesByResult, rawAmounts, new HashSet<uint>());
+    }
+
+    private void MarkOwnedPreCraftCoverage(
+        uint itemId,
+        ulong required,
+        IReadOnlyDictionary<uint, Recipe> recipesByResult,
+        IReadOnlyDictionary<uint, OwnedInventoryItem> ownedItems,
+        IDictionary<uint, ulong> stock,
+        IDictionary<uint, ulong> coveredAmounts,
+        IDictionary<uint, HashSet<string>> coverageNamesByItemId,
+        ISet<uint> recipePath)
+    {
+        if (required == 0 ||
+            recipePath.Contains(itemId) ||
+            !recipesByResult.TryGetValue(itemId, out var recipe))
+            return;
 
         if (!stock.TryGetValue(itemId, out var available))
         {
@@ -1352,12 +1386,37 @@ public sealed class RecipeService
 
         var consumed = Math.Min(available, required);
         stock[itemId] = available - consumed;
-        var missing = required - consumed;
-        if (missing == 0)
-            return;
+        if (consumed == required)
+        {
+            var resultAmount = Math.Max(1U, this.ReadUInt(recipe, "AmountResult"));
+            var craftCount = (required + resultAmount - 1) / resultAmount;
+            var coveredRawAmounts = new Dictionary<uint, ulong>();
+            this.ExpandRawMaterials(
+                recipe,
+                craftCount,
+                recipesByResult,
+                coveredRawAmounts,
+                new HashSet<uint>());
 
-        var resultAmount = Math.Max(1U, this.ReadUInt(recipe, "AmountResult"));
-        var craftCount = (missing + resultAmount - 1) / resultAmount;
+            var preCraftName = this.GetItemName(itemId);
+            foreach (var coveredRawAmount in coveredRawAmounts)
+            {
+                coveredAmounts.TryGetValue(coveredRawAmount.Key, out var current);
+                coveredAmounts[coveredRawAmount.Key] = AddSaturating(current, coveredRawAmount.Value);
+                if (!coverageNamesByItemId.TryGetValue(coveredRawAmount.Key, out var names))
+                {
+                    names = [];
+                    coverageNamesByItemId[coveredRawAmount.Key] = names;
+                }
+
+                names.Add(preCraftName);
+            }
+
+            return;
+        }
+
+        var resultAmountForChildren = Math.Max(1U, this.ReadUInt(recipe, "AmountResult"));
+        var craftCountForChildren = (required + resultAmountForChildren - 1) / resultAmountForChildren;
         recipePath.Add(itemId);
         foreach (var ingredient in this.ReadIngredients(recipe)
                      .GroupBy(ingredient => ingredient.ItemId)
@@ -1365,23 +1424,18 @@ public sealed class RecipeService
                          ItemId: group.Key,
                          Amount: group.Aggregate(0UL, (total, ingredient) => AddSaturating(total, ingredient.Amount)))))
         {
-            this.ResolveRawMaterialRequirement(
+            this.MarkOwnedPreCraftCoverage(
                 ingredient.ItemId,
-                MultiplySaturating(ingredient.Amount, craftCount),
+                MultiplySaturating(ingredient.Amount, craftCountForChildren),
                 recipesByResult,
                 ownedItems,
                 stock,
-                rawAmounts,
+                coveredAmounts,
+                coverageNamesByItemId,
                 recipePath);
         }
 
         recipePath.Remove(itemId);
-        var produced = MultiplySaturating((ulong)resultAmount, craftCount);
-        if (produced > missing)
-        {
-            stock.TryGetValue(itemId, out var remaining);
-            stock[itemId] = AddSaturating(remaining, produced - missing);
-        }
     }
 
     private IReadOnlyDictionary<uint, Recipe> BuildRecipesByResult(IEnumerable<Recipe> recipes)
@@ -1564,7 +1618,9 @@ public sealed class RecipeService
 
     private IReadOnlyList<IngredientNeed> CreateIngredientNeeds(
         IEnumerable<(uint ItemId, uint Amount)> ingredients,
-        IReadOnlyDictionary<uint, OwnedInventoryItem> ownedItems)
+        IReadOnlyDictionary<uint, OwnedInventoryItem> ownedItems,
+        IReadOnlyDictionary<uint, uint>? preCraftCoveredAmounts = null,
+        IReadOnlyDictionary<uint, IReadOnlyList<string>>? preCraftCoverageNames = null)
     {
         return ingredients.Select(ingredient =>
         {
@@ -1581,7 +1637,9 @@ public sealed class RecipeService
                 this.IsFishing(ingredient.ItemId),
                 owned?.NqLocations ?? [],
                 owned?.HqLocations ?? [],
-                ReductionSources: reductionSources);
+                ReductionSources: reductionSources,
+                PreCraftCoveredAmount: preCraftCoveredAmounts?.GetValueOrDefault(ingredient.ItemId) ?? 0,
+                PreCraftCoverageNames: preCraftCoverageNames?.GetValueOrDefault(ingredient.ItemId) ?? []);
         }).ToList();
     }
 
