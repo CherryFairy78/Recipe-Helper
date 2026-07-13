@@ -107,6 +107,8 @@ public sealed class RecipeWindow : Window, IDisposable
     private readonly List<SavedSupplementalPlanEntry> selectedDirectIngredients = [];
     private readonly List<SavedSupplementalPlanEntry> selectedRawMaterials = [];
     private readonly HashSet<SavedRecipePlan> selectedSavedPlans = [];
+    private readonly Dictionary<uint, bool?> itemLogStatusFilterCache = [];
+    private readonly Dictionary<uint, bool?> recipeLogStatusFilterCache = [];
     private readonly HashSet<string> autoCloseSectionIds =
     [
         "saved-plans-section",
@@ -126,6 +128,7 @@ public sealed class RecipeWindow : Window, IDisposable
     private string selectedFishTypeFilter = string.Empty;
     private string selectedMasterRecipeBookFilter = string.Empty;
     private string selectedFolkloreBookFilter = string.Empty;
+    private string selectedLogStatusFilter = string.Empty;
     private string selectedSearchTypeFilter = string.Empty;
     private string selectedScripFilter = string.Empty;
     private RecipePlanDetails? recipePlanDetails;
@@ -302,7 +305,8 @@ public sealed class RecipeWindow : Window, IDisposable
                         this.MatchesJobFilter(result) &&
                         this.MatchesFishTypeFilter(result) &&
                         this.MatchesMasterRecipeBookFilter(result) &&
-                        this.MatchesFolkloreBookFilter(result))
+                        this.MatchesFolkloreBookFilter(result) &&
+                        this.MatchesLogStatusFilter(result))
                     .ToList();
                 ImGui.TextColored(
                     this.configuration.AccentColor,
@@ -371,6 +375,31 @@ public sealed class RecipeWindow : Window, IDisposable
                 }
 
                 DrawTooltipIfHovered("Filter these results by job.");
+
+                if (!this.showingCraftableRecipes)
+                {
+                    ImGui.SetNextItemWidth(-1);
+                    var selectedLogStatusLabel = this.selectedLogStatusFilter switch
+                    {
+                        "Obtained" => "Obtained in log",
+                        "Not obtained" => "Not obtained in log",
+                        _ => "All log statuses",
+                    };
+                    if (ImGui.BeginCombo("##log-status-filter", selectedLogStatusLabel))
+                    {
+                        if (ImGui.Selectable("All log statuses", string.IsNullOrWhiteSpace(this.selectedLogStatusFilter)))
+                            this.selectedLogStatusFilter = string.Empty;
+                        if (ImGui.Selectable("Obtained in log", this.selectedLogStatusFilter == "Obtained"))
+                            this.selectedLogStatusFilter = "Obtained";
+                        if (ImGui.Selectable("Not obtained in log", this.selectedLogStatusFilter == "Not obtained"))
+                            this.selectedLogStatusFilter = "Not obtained";
+                        ImGui.EndCombo();
+                    }
+
+                    DrawTooltipIfHovered(
+                        "Filter results by the character's Gathering, Fishing, Spearfishing, or confirmed Crafting Log progress.\n"
+                        + "Log limitation: Quest items, society quest items, Cosmic Exploration items, special-tool items, and ephemeral nodes do not appear in the log.");
+                }
 
                 if (string.Equals(this.selectedJobFilter, "FSH", StringComparison.OrdinalIgnoreCase))
                 {
@@ -876,6 +905,8 @@ public sealed class RecipeWindow : Window, IDisposable
         this.selectedFishTypeFilter = string.Empty;
         this.selectedMasterRecipeBookFilter = string.Empty;
         this.selectedFolkloreBookFilter = string.Empty;
+        this.selectedLogStatusFilter = string.Empty;
+        this.ClearLogStatusFilterCache();
         this.selectedSearchTypeFilter = string.Empty;
         this.selectedScripFilter = string.Empty;
         this.craftableAvailability =
@@ -893,6 +924,7 @@ public sealed class RecipeWindow : Window, IDisposable
             !string.IsNullOrWhiteSpace(this.selectedFishTypeFilter) ||
             !string.IsNullOrWhiteSpace(this.selectedMasterRecipeBookFilter) ||
             !string.IsNullOrWhiteSpace(this.selectedFolkloreBookFilter) ||
+            !string.IsNullOrWhiteSpace(this.selectedLogStatusFilter) ||
             !string.IsNullOrWhiteSpace(this.selectedSearchTypeFilter) ||
             !string.IsNullOrWhiteSpace(this.selectedScripFilter);
 
@@ -920,6 +952,10 @@ public sealed class RecipeWindow : Window, IDisposable
             this.selectedMasterRecipeBookFilter = string.Empty;
         if (scanInventory)
             this.selectedFolkloreBookFilter = string.Empty;
+        if (scanInventory)
+            this.selectedLogStatusFilter = string.Empty;
+        if (scanInventory)
+            this.ClearLogStatusFilterCache();
         if (scanInventory)
             this.selectedSearchTypeFilter = string.Empty;
         if (scanInventory)
@@ -1151,6 +1187,8 @@ public sealed class RecipeWindow : Window, IDisposable
         this.selectedFishTypeFilter = string.Empty;
         this.selectedMasterRecipeBookFilter = string.Empty;
         this.selectedFolkloreBookFilter = string.Empty;
+        this.selectedLogStatusFilter = string.Empty;
+        this.ClearLogStatusFilterCache();
         this.selectedSearchTypeFilter = string.Empty;
         this.selectedScripFilter = string.Empty;
         this.searchResults = [];
@@ -1240,6 +1278,42 @@ public sealed class RecipeWindow : Window, IDisposable
             this.recipeService.GetFolkloreBookInfo(result.ResultItemId)?.BookName,
             this.selectedFolkloreBookFilter,
             StringComparison.OrdinalIgnoreCase);
+
+    private bool MatchesLogStatusFilter(RecipeMatch result)
+    {
+        if (string.IsNullOrWhiteSpace(this.selectedLogStatusFilter))
+            return true;
+
+        bool? isObtained;
+        if (result.ResultKind == SearchResultKind.CraftedRecipe)
+        {
+            if (!this.recipeLogStatusFilterCache.TryGetValue(result.RecipeId, out isObtained))
+            {
+                isObtained = this.recipeService.GetRecipeLogStatusTooltipInfo(result.RecipeId, result.ResultItemId) is not null
+                    ? true
+                    : null;
+                this.recipeLogStatusFilterCache[result.RecipeId] = isObtained;
+            }
+        }
+        else if (!this.itemLogStatusFilterCache.TryGetValue(result.ResultItemId, out isObtained))
+        {
+            isObtained = this.recipeService.IsItemObtainedInLog(result.ResultItemId);
+            this.itemLogStatusFilterCache[result.ResultItemId] = isObtained;
+        }
+
+        return this.selectedLogStatusFilter switch
+        {
+            "Obtained" => isObtained is true,
+            "Not obtained" => isObtained is false,
+            _ => true,
+        };
+    }
+
+    private void ClearLogStatusFilterCache()
+    {
+        this.itemLogStatusFilterCache.Clear();
+        this.recipeLogStatusFilterCache.Clear();
+    }
 
     private bool IsGathererJobFilterSelected() => IsGathererJob(this.selectedJobFilter);
 

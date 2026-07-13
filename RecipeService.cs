@@ -389,6 +389,8 @@ public sealed class RecipeService
         this.EnsureItemSources();
         if (!this.itemLogEntriesByItemId!.TryGetValue(itemId, out var logEntries))
             return null;
+        if (this.IsItemLogStatusExcluded(itemId))
+            return null;
 
         try
         {
@@ -396,7 +398,7 @@ public sealed class RecipeService
             if (playerState is null)
                 return null;
 
-            var lines = new List<string>();
+            var obtainedByLogLabel = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
             foreach (var logEntry in logEntries)
             {
                 var isRecorded = logEntry.Kind switch
@@ -408,16 +410,62 @@ public sealed class RecipeService
                     ItemLogKind.Spearfishing => playerState is not null && playerState->IsSpearfishCaught(logEntry.EntryId),
                     _ => false,
                 };
-                lines.Add($"{logEntry.Label}: {(isRecorded ? "Obtained" : "Not yet obtained")}");
+                obtainedByLogLabel[logEntry.Label] =
+                    obtainedByLogLabel.GetValueOrDefault(logEntry.Label) || isRecorded;
             }
 
-            return new LogStatusTooltipInfo(lines);
+            return new LogStatusTooltipInfo(obtainedByLogLabel
+                .OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase)
+                .Select(entry => $"{entry.Key}: {(entry.Value ? "Obtained" : "Not yet obtained")}")
+                .ToList());
         }
         catch
         {
             return null;
         }
     }
+
+    public unsafe bool? IsItemObtainedInLog(uint itemId)
+    {
+        this.EnsureItemSources();
+        if (!this.itemLogEntriesByItemId!.TryGetValue(itemId, out var logEntries))
+            return null;
+        if (this.IsItemLogStatusExcluded(itemId))
+            return null;
+
+        try
+        {
+            var playerState = FFXIVClientStructs.FFXIV.Client.Game.UI.PlayerState.Instance();
+            if (playerState is null)
+                return null;
+            foreach (var logEntry in logEntries)
+            {
+                var isRecorded = logEntry.Kind switch
+                {
+                    ItemLogKind.Gathering =>
+                        logEntry.EntryId <= ushort.MaxValue &&
+                        QuestManager.IsGatheringItemGathered((ushort)logEntry.EntryId),
+                    ItemLogKind.Fishing => playerState is not null && playerState->IsFishCaught(logEntry.EntryId),
+                    ItemLogKind.Spearfishing => playerState is not null && playerState->IsSpearfishCaught(logEntry.EntryId),
+                    _ => false,
+                };
+                if (isRecorded)
+                    return true;
+            }
+
+            return false;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private bool IsItemLogStatusExcluded(uint itemId) =>
+        this.cosmicExplorationTooltipInfoByItemId!.ContainsKey(itemId) ||
+        this.questTooltipInfoByItemId!.ContainsKey(itemId) ||
+        this.societyQuestTooltipInfoByItemId!.ContainsKey(itemId) ||
+        (this.requiredItemsByItemId!.TryGetValue(itemId, out var requiredItemInfo) && requiredItemInfo.IsTool);
 
     public unsafe LogStatusTooltipInfo? GetRecipeLogStatusTooltipInfo(uint recipeId, uint resultItemId = 0)
     {
@@ -2479,15 +2527,8 @@ public sealed class RecipeService
         ExcelSheet<SpearfishingItem>? spearfishingItems,
         IReadOnlyDictionary<uint, GatherBuddyFishTooltipData> gatherBuddyFishTooltipData)
     {
-        var cosmicFishItemIds = fishParameters?
-            .Where(fish => fish.Item.RowId != 0)
-            .Select(fish => fish.Item.RowId)
-            .ToHashSet() ?? [];
-        cosmicFishItemIds.UnionWith(spearfishingItems?
-            .Where(fish => fish.Item.RowId != 0)
-            .Select(fish => fish.Item.RowId) ?? []);
         var tooltipInfoByItemId = wksItemInfos?
-            .Where(itemInfo => cosmicFishItemIds.Contains(itemInfo.Item.RowId))
+            .Where(itemInfo => itemInfo.Item.RowId != 0)
             .Select(itemInfo => itemInfo.Item.RowId)
             .Distinct()
             .ToDictionary(

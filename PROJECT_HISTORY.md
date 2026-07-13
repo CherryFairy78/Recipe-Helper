@@ -4,18 +4,27 @@ This file is the durable hand-off record for Recipe Helper. Read it before makin
 
 ## Project snapshot
 
-- Last updated: 2026-07-12
+- Last updated: 2026-07-13
 - Plugin name: Recipe Helper
 - Internal name: `DalamudRecipeHelper`
-- Version: `1.1.41.0`
+- Version: `1.1.42.0`
 - Framework: Dalamud API 15
 - Target: `.NET 10` on Windows x64
 - Command: `/recipehelper`
 - Build command: `dotnet build .\DalamudRecipeHelper.csproj --no-restore`
 - Debug output: `bin\Debug\DalamudRecipeHelper.dll`
-- Last verified build: 2026-07-12, Debug and Release builds succeeded with zero warnings and zero errors. `releases\DalamudRecipeHelper-v1.1.41.zip` was created from the verified Release output with SHA-256 `B14A017840EDE117D86326C166A66B3E2850C5DC1F509C21D76DA38278969EC7`.
+- Last verified build: 2026-07-13, Debug and Release builds succeeded with zero warnings and zero errors. `releases\DalamudRecipeHelper-v1.1.42.zip` was created from the verified Release output with SHA-256 `271937F166E499EFFFC2CE8D0FC46D303630E6921FA96A2C97E1411505731234`.
 
 ## Recent release
+
+- Version: `1.1.42.0`
+- Added a log-status filter for items obtained or not obtained in Gathering, Fishing, Spearfishing, and confirmed Crafting Logs.
+- Cosmic Exploration detection now covers all WKS items, suppresses normal gathering-log rows for those items, and collapses duplicate log labels for other items.
+- Excluded Cosmic Exploration, quest, society quest, special-tool, and ephemeral-node items from Log Status filtering.
+- Updated the package metadata and custom repository feed for `v1.1.42`.
+- Verification: Debug and Release builds succeeded with zero warnings and zero errors. `releases\DalamudRecipeHelper-v1.1.42.zip` was created from the verified Release output with SHA-256 `271937F166E499EFFFC2CE8D0FC46D303630E6921FA96A2C97E1411505731234`.
+
+## Previous release
 
 - Version: `1.1.41.0`
 - Folder Rename now gives each dialog its own input state, preserves the selected folder's parent, and supports slashes in renamed subfolder labels without creating extra levels.
@@ -28,13 +37,6 @@ This file is the durable hand-off record for Recipe Helper. Read it before makin
 - Added a MIN/BTN/FSH Folklore Book filter, alongside the FSH Fish Type filter.
 - Updated the package metadata and custom repository feed for `v1.1.41`.
 - Verification: Debug and Release builds succeeded with zero warnings and zero errors. `releases\DalamudRecipeHelper-v1.1.41.zip` was created from the verified Release output with SHA-256 `B14A017840EDE117D86326C166A66B3E2850C5DC1F509C21D76DA38278969EC7`.
-
-## Previous release
-
-- Version: `1.1.40.0`
-- Fixed folder Rename to edit only the selected folder segment, keep subfolders in their current parent, and prevent duplicate sibling names.
-- Updated the package metadata and custom repository feed for `v1.1.40`.
-- Verification: Debug and Release builds succeeded with zero warnings and zero errors. `releases\DalamudRecipeHelper-v1.1.40.zip` was created from the verified Release output with SHA-256 `021A07BEA8597D757A2B3FF91469FC9A450D86C613DE41D3F55BF3E5712AD09E`.
 
 ## Earlier release
 
