@@ -7,15 +7,24 @@ This file is the durable hand-off record for Recipe Helper. Read it before makin
 - Last updated: 2026-07-13
 - Plugin name: Recipe Helper
 - Internal name: `DalamudRecipeHelper`
-- Version: `1.1.45.0`
+- Version: `1.1.46.0`
 - Framework: Dalamud API 15
 - Target: `.NET 10` on Windows x64
 - Command: `/recipehelper`
 - Build command: `dotnet build .\DalamudRecipeHelper.csproj --no-restore`
 - Debug output: `bin\Debug\DalamudRecipeHelper.dll`
-- Last verified build: 2026-07-13, Debug and Release builds succeeded with zero warnings and zero errors. `releases\DalamudRecipeHelper-v1.1.45.zip` was created from the verified Release output with SHA-256 `7C31BBB9580BFCA70CE8E89A50708653A9AC2C6A25D3AAB000A16D4C0B7FA02C`.
+- Last verified build: 2026-07-13, Debug and Release builds succeeded with zero warnings and zero errors. `releases\DalamudRecipeHelper-v1.1.46.zip` was created from the verified Release output with SHA-256 `9795E6E14873CB840795D1FD18D82EF124B25C95FC68FD1A4FD03ED5416A3741`.
 
 ## Recent release
+
+- Version: `1.1.46.0`
+- Added a stable Can Craft column to Direct Ingredients, with enabled actions for available pre-crafts and disabled actions that name the missing live-inventory material.
+- Direct pre-craft checks now include available intermediate materials, matching Craftable Now behaviour.
+- Always-available gathering rows now display Always Up instead of a dash.
+- Updated the package metadata and custom repository feed for `v1.1.46`.
+- Verification: Debug and Release builds succeeded with zero warnings and zero errors. `releases\DalamudRecipeHelper-v1.1.46.zip` was created from the verified Release output with SHA-256 `9795E6E14873CB840795D1FD18D82EF124B25C95FC68FD1A4FD03ED5416A3741`.
+
+## Previous release
 
 - Version: `1.1.45.0`
 - Fully pre-crafted raw materials are now omitted from the Missing Items Overlay.
@@ -23,7 +32,7 @@ This file is the durable hand-off record for Recipe Helper. Read it before makin
 - Updated the package metadata and custom repository feed for `v1.1.45`.
 - Verification: Debug and Release builds succeeded with zero warnings and zero errors. `releases\DalamudRecipeHelper-v1.1.45.zip` was created from the verified Release output with SHA-256 `7C31BBB9580BFCA70CE8E89A50708653A9AC2C6A25D3AAB000A16D4C0B7FA02C`.
 
-## Previous release
+## Earlier release
 
 - Version: `1.1.44.0`
 - Restored the full raw-material recipe tree while separately identifying branches covered by owned pre-crafts.

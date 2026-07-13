@@ -1540,6 +1540,8 @@ public sealed class RecipeWindow : Window, IDisposable
                     .Distinct(StringComparer.CurrentCultureIgnoreCase)
                     .OrderBy(name => name, StringComparer.CurrentCultureIgnoreCase)
                     .ToList();
+                var rawCraftEntry = entries.FirstOrDefault(ingredient =>
+                    ingredient.RawCraftRecipeId is not null);
                 var need = this.recipeService.GetStandaloneIngredientNeed(group.Key, required, this.ownedItems);
                 return need is null
                     ? null
@@ -1547,6 +1549,9 @@ public sealed class RecipeWindow : Window, IDisposable
                     {
                         PreCraftCoveredAmount = covered,
                         PreCraftCoverageNames = coverageNames,
+                        CanCraftMissingFromRaw = rawCraftEntry?.CanCraftMissingFromRaw,
+                        RawCraftRecipeId = rawCraftEntry?.RawCraftRecipeId,
+                        RawCraftCount = rawCraftEntry?.RawCraftCount ?? 0,
                     };
             })
             .Where(ingredient => ingredient is not null)
@@ -1591,16 +1596,20 @@ public sealed class RecipeWindow : Window, IDisposable
                 defaultOpen: false))
             this.DrawSavedPlans();
 
-        var canShowCraftAll =
-            this.artisanCraftQueue.Count > 0 &&
-            (details.Recipes.Count > 1 ||
-             this.artisanCraftQueue.Any(recipe => recipe.IsIntermediate));
-        var craftAllTooltip = this.canCraftAllFromLiveInventory
+        var hasPreCraftRequirement = details.Ingredients.Any(ingredient =>
+            ingredient.RawCraftRecipeId is not null);
+        var canShowCraftAll = details.Recipes.Count > 1 || hasPreCraftRequirement;
+        var canUseCraftAll =
+            this.canCraftAllFromLiveInventory &&
+            this.artisanCraftQueue.Count > 0;
+        var craftAllTooltip = canUseCraftAll
             ? "Crafts all pre-crafts and recipes with Artisan."
-            : "Only activates when all items are already in inventory. Use Refresh Inventory if needed.";
+            : string.IsNullOrWhiteSpace(this.artisanCraftQueueError)
+                ? "Only activates when all required raw materials and pre-crafts are in live inventory. Use Refresh Inventory if needed."
+                : this.artisanCraftQueueError;
         var hasDreamFeature = this.gwenDreamService.IsAutoRetainerAvailable;
         var canUseDreamWithdrawals = hasDreamFeature && this.gwenDreamService.CanUseForSelection(this.recipePlanDetails);
-        var canUseDream = hasDreamFeature && (canUseDreamWithdrawals || canShowCraftAll);
+        var canUseDream = hasDreamFeature && (canUseDreamWithdrawals || canUseCraftAll);
         var dreamTooltip = canUseDream
             ? "Will automatically withdraw all materials from retainers and craft all pre-crafts and recipes - ultimate laziness!"
             : "Only activates when all required raw materials and/or pre-crafts are available.";
@@ -1623,7 +1632,7 @@ public sealed class RecipeWindow : Window, IDisposable
                 var craftAllClicked = false;
                 if (canShowCraftAll)
                 {
-                    ImGui.BeginDisabled(!this.canCraftAllFromLiveInventory);
+                    ImGui.BeginDisabled(!canUseCraftAll);
                     craftAllClicked = WindowTheme.ShadowedButton("Craft all with Artisan", new Vector2(this.ScaleUi(160f), 0));
                     ImGui.EndDisabled();
                 }
@@ -4644,9 +4653,13 @@ public sealed class RecipeWindow : Window, IDisposable
         });
         var showStock = displayedMaterials.Any(material => material.OwnedNq > 0 || material.OwnedHq > 0);
         var showFoundIn = displayedMaterials.Any(material => material.Locations.Count > 0);
-        var showRawCraftStatus =
-            isDirectIngredients &&
-            displayedMaterials.Any(material => material.CanCraftMissingFromRaw.HasValue);
+        // Keep the action column stable so unavailable pre-crafts explain why they cannot be made yet.
+        var showRawCraftStatus = isDirectIngredients;
+        var ingredientColumnWidth = this.ScaleUi(isDirectIngredients ? 200f : 220f);
+        var availableColumnWidth = this.ScaleUi(isDirectIngredients ? 100f : 115f);
+        var stockColumnWidth = this.ScaleUi(isDirectIngredients ? 80f : 88f);
+        var foundInColumnWidth = this.ScaleUi(isDirectIngredients ? 150f : 210f);
+        var craftColumnWidth = this.ScaleUi(84f);
         const bool showMissing = true;
         var columnCount =
             1 +
@@ -4662,13 +4675,13 @@ public sealed class RecipeWindow : Window, IDisposable
             ImGuiTableFlags.Resizable |
             ImGuiTableFlags.SizingFixedFit;
         var requestedTableWidth =
-            this.ScaleUi(220f) +
+            ingredientColumnWidth +
             this.ScaleUi(45f) +
             (showTravel ? this.ScaleUi(68f) : 0f) +
-            (showAvailable ? this.ScaleUi(115f) : 0f) +
-            (showStock ? this.ScaleUi(88f) : 0f) +
-            (showFoundIn ? this.ScaleUi(210f) : 0f) +
-            (showRawCraftStatus ? this.ScaleUi(96f) : 0f) +
+            (showAvailable ? availableColumnWidth : 0f) +
+            (showStock ? stockColumnWidth : 0f) +
+            (showFoundIn ? foundInColumnWidth : 0f) +
+            (showRawCraftStatus ? craftColumnWidth : 0f) +
             (showMissing ? this.ScaleUi(75f) : 0f) +
             (ImGui.GetStyle().CellPadding.X * 2 * columnCount) +
             2f;
@@ -4696,20 +4709,20 @@ public sealed class RecipeWindow : Window, IDisposable
                 tableFlags,
                 new Vector2(Math.Max(1f, availableTableWidth), tableHeight)))
         {
-            SetupColumn("Ingredient", "ingredient", this.ScaleUi(220f));
+            SetupColumn("Ingredient", "ingredient", ingredientColumnWidth);
             SetupColumn("Need", "need", this.ScaleUi(45f));
             if (showMissing)
                 SetupColumn("Missing", "missing", this.ScaleUi(75f));
             if (showTravel)
                 SetupColumn("Travel", "travel", this.ScaleUi(68f));
             if (showAvailable)
-                SetupColumn("Available", "available", this.ScaleUi(115f));
+                SetupColumn("Available", "available", availableColumnWidth);
             if (showStock)
-                SetupColumn("Stock", "stock", this.ScaleUi(88f));
+                SetupColumn("Stock", "stock", stockColumnWidth);
             if (showFoundIn)
-                SetupColumn("Found in", "found", this.ScaleUi(210f));
+                SetupColumn("Found in", "found", foundInColumnWidth);
             if (showRawCraftStatus)
-                SetupColumn("From raw", "raw", this.ScaleUi(96f));
+                SetupColumn("Can craft", "raw", craftColumnWidth);
             ImGui.TableNextRow(ImGuiTableRowFlags.None, this.ScaleUi(36f));
             ImGui.TableNextColumn();
             this.DrawHeaderCard("Ingredient");
@@ -4743,7 +4756,7 @@ public sealed class RecipeWindow : Window, IDisposable
             if (showRawCraftStatus)
             {
                 ImGui.TableNextColumn();
-                this.DrawHeaderCard("From Raw");
+                this.DrawHeaderCard("Can Craft");
             }
 
             foreach (var ingredient in displayedMaterials)
@@ -4935,20 +4948,26 @@ public sealed class RecipeWindow : Window, IDisposable
                             WithAlpha(this.configuration.SuccessTextColor, 0.18f),
                             this.configuration.SuccessTextColor);
                     }
-                    else if (ingredient.CanCraftMissingFromRaw is true &&
-                             ingredient.RawCraftRecipeId is { } rawCraftRecipeId)
+                    else if (ingredient.RawCraftRecipeId is { } rawCraftRecipeId)
                     {
+                        var canCraftFromLiveInventory = this.recipeService.CanCraftRecipeFromInventory(
+                            rawCraftRecipeId,
+                            ingredient.RawCraftCount,
+                            this.inventoryService.GetImmediatelyUsableItems(),
+                            out var unavailableReason);
                         var cardSize = this.ResolveCardSize(new Vector2(-1, this.ScaleUi(36f)), 42f);
                         this.DrawDecorativeCardBackground(
                             cardSize,
                             WithAlpha(this.configuration.ButtonColor, 0.16f));
                         var cardMin = ImGui.GetItemRectMin();
-                        var buttonSize = this.ScaleUi(new Vector2(96f, 26f));
+                        var buttonSize = this.ScaleUi(new Vector2(82f, 26f));
                         ImGui.SetCursorScreenPos(new Vector2(
                             cardMin.X + MathF.Max(0f, (cardSize.X - buttonSize.X) / 2f),
                             cardMin.Y + MathF.Max(0f, (cardSize.Y - buttonSize.Y) / 2f)));
+                        ImGui.BeginDisabled(!canCraftFromLiveInventory);
                         var readyToCraftClicked =
-                            WindowTheme.ShadowedButton($"Ready to craft##{tableId}-raw-{ingredient.ItemId}", buttonSize);
+                            WindowTheme.ShadowedButton($"Can craft##{tableId}-raw-{ingredient.ItemId}", buttonSize);
+                        ImGui.EndDisabled();
                         if (readyToCraftClicked)
                         {
                             var trackedRecipe = this.artisanCraftQueue.FirstOrDefault(recipe =>
@@ -4965,7 +4984,13 @@ public sealed class RecipeWindow : Window, IDisposable
                                     true),
                                 out this.integrationMessage);
                         }
-                        DrawTooltipIfHovered("Open Artisan to craft the missing amount from raw materials.");
+                        DrawTooltipIfHovered(
+                            canCraftFromLiveInventory
+                                ? "Open Artisan to craft the missing amount from available materials."
+                                : string.IsNullOrWhiteSpace(unavailableReason)
+                                    ? "This pre-craft needs more raw materials in live inventory before it can be crafted."
+                                    : $"{unavailableReason} This item needs to be in your inventory.",
+                            allowWhenDisabled: true);
                     }
                     else
                     {
@@ -5324,9 +5349,14 @@ public sealed class RecipeWindow : Window, IDisposable
         if (fishItemId != 0 && this.recipeService.GetGatherBuddyFishAvailabilityText(fishItemId) is { } fishAvailability)
             return fishAvailability;
 
-        return reductionSource is not null
+        var availability = reductionSource is not null
             ? this.aetherialReductionService.GetTimerText(reductionSource)
             : this.aetherialReductionService.GetGatheringTimerText(ingredient.ItemId);
+        return !string.IsNullOrWhiteSpace(availability) ||
+               fishItemId != 0 ||
+               !this.CanGatherIngredient(ingredient, reductionSource)
+            ? availability
+            : "Always Up";
     }
 
     private static bool HasTimedAvailability(string? availabilityText) =>

@@ -809,6 +809,39 @@ public sealed class RecipeService
         return true;
     }
 
+    public bool CanCraftRecipeFromInventory(
+        uint recipeId,
+        uint craftCount,
+        IReadOnlyDictionary<uint, OwnedInventoryItem> ownedItems,
+        out string error)
+    {
+        if (craftCount == 0 || !this.TryGetRecipe(recipeId, out var recipe))
+        {
+            error = "Recipe data is not available.";
+            return false;
+        }
+
+        var recipes = this.dataManager.GetExcelSheet<Recipe>();
+        if (recipes is null)
+        {
+            error = "Recipe data is not available.";
+            return false;
+        }
+
+        var stock = ownedItems.ToDictionary(
+            entry => entry.Key,
+            entry => (ulong)entry.Value.Quantity);
+        return this.TryQueueRecipe(
+            recipe,
+            craftCount,
+            true,
+            stock,
+            this.BuildRecipesByResult(recipes),
+            new List<ArtisanCraftQueueEntry>(),
+            new HashSet<uint>(),
+            out error);
+    }
+
     public uint GetMaximumCraftableCountFromCurrentCatalysts(
         uint recipeId,
         uint desiredCraftCount,
@@ -1565,17 +1598,12 @@ public sealed class RecipeService
 
             var resultAmount = Math.Max(1U, this.ReadUInt(recipe, "AmountResult"));
             var craftCount = ((ulong)ingredient.Missing + resultAmount - 1) / resultAmount;
-            var rawAmounts = new Dictionary<uint, ulong>();
-            this.ExpandRawMaterials(
+            // Use the same recursive stock simulation as Craftable Now so owned intermediate materials count too.
+            var canCraft = this.CanCraftFromOwnedItems(
                 recipe,
                 craftCount,
                 recipesByResult,
-                rawAmounts,
-                new HashSet<uint>());
-
-            var canCraft = rawAmounts.All(raw =>
-                ownedItems.TryGetValue(raw.Key, out var owned) &&
-                owned.Quantity >= raw.Value);
+                ownedItems);
 
             return ingredient with
             {
