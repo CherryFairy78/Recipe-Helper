@@ -7,15 +7,23 @@ This file is the durable hand-off record for Recipe Helper. Read it before makin
 - Last updated: 2026-07-13
 - Plugin name: Recipe Helper
 - Internal name: `DalamudRecipeHelper`
-- Version: `1.1.42.0`
+- Version: `1.1.43.0`
 - Framework: Dalamud API 15
 - Target: `.NET 10` on Windows x64
 - Command: `/recipehelper`
 - Build command: `dotnet build .\DalamudRecipeHelper.csproj --no-restore`
 - Debug output: `bin\Debug\DalamudRecipeHelper.dll`
-- Last verified build: 2026-07-13, Debug and Release builds succeeded with zero warnings and zero errors. `releases\DalamudRecipeHelper-v1.1.42.zip` was created from the verified Release output with SHA-256 `271937F166E499EFFFC2CE8D0FC46D303630E6921FA96A2C97E1411505731234`.
+- Last verified build: 2026-07-13, Debug and Release builds succeeded with zero warnings and zero errors. `releases\DalamudRecipeHelper-v1.1.43.zip` was created from the verified Release output with SHA-256 `64019BFF0F53FA7DD564696C46D9689E3709614C8EAB280E6C5C78560D2A7AF5`.
 
 ## Recent release
+
+- Version: `1.1.43.0`
+- Raw-material planning now consumes owned pre-crafts before expanding their ingredients, so materials underneath already-owned intermediates are no longer shown as missing.
+- Applies to individual recipes, combined recipe plans, saved plans, and the Missing Items Overlay.
+- Updated the package metadata and custom repository feed for `v1.1.43`.
+- Verification: Debug and Release builds succeeded with zero warnings and zero errors. `releases\DalamudRecipeHelper-v1.1.43.zip` was created from the verified Release output with SHA-256 `64019BFF0F53FA7DD564696C46D9689E3709614C8EAB280E6C5C78560D2A7AF5`.
+
+## Previous release
 
 - Version: `1.1.42.0`
 - Added a log-status filter for items obtained or not obtained in Gathering, Fishing, Spearfishing, and confirmed Crafting Logs.
@@ -24,7 +32,7 @@ This file is the durable hand-off record for Recipe Helper. Read it before makin
 - Updated the package metadata and custom repository feed for `v1.1.42`.
 - Verification: Debug and Release builds succeeded with zero warnings and zero errors. `releases\DalamudRecipeHelper-v1.1.42.zip` was created from the verified Release output with SHA-256 `271937F166E499EFFFC2CE8D0FC46D303630E6921FA96A2C97E1411505731234`.
 
-## Previous release
+## Earlier release
 
 - Version: `1.1.41.0`
 - Folder Rename now gives each dialog its own input state, preserves the selected folder's parent, and supports slashes in renamed subfolder labels without creating extra levels.

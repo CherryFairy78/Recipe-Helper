@@ -647,34 +647,9 @@ public sealed class RecipeService
                 ownedItems),
             recipesByResult,
             ownedItems);
-        var rawAmounts = new Dictionary<uint, ulong>();
-        foreach (var ingredient in ingredients)
-        {
-            if (recipesByResult.TryGetValue(ingredient.ItemId, out var ingredientRecipe))
-            {
-                var resultAmount = Math.Max(1U, this.ReadUInt(ingredientRecipe, "AmountResult"));
-                var craftCount =
-                    ((ulong)ingredient.Required + resultAmount - 1) / resultAmount;
-                this.ExpandRawMaterials(
-                    ingredientRecipe,
-                    craftCount,
-                    recipesByResult,
-                    rawAmounts,
-                    new HashSet<uint>());
-            }
-            else
-            {
-                rawAmounts.TryGetValue(ingredient.ItemId, out var current);
-                rawAmounts[ingredient.ItemId] = current + ingredient.Required;
-            }
-        }
-
-        var rawMaterials = this.CreateIngredientNeeds(
-            rawAmounts
-                .Select(entry => (
-                    entry.Key,
-                    (uint)Math.Min(entry.Value, uint.MaxValue)))
-                .OrderBy(entry => this.GetItemName(entry.Key)),
+        var rawMaterials = this.GetRawMaterialsForRequirements(
+            ingredients.Select(ingredient => (ingredient.ItemId, (ulong)ingredient.Required)),
+            recipesByResult,
             ownedItems);
 
         this.fileLog.Info(
@@ -1308,9 +1283,37 @@ public sealed class RecipeService
         IReadOnlyDictionary<uint, OwnedInventoryItem> ownedItems,
         uint craftCount)
     {
+        var requirements = this.ReadIngredients(rootRecipe)
+            .Select(ingredient => (
+                ingredient.ItemId,
+                MultiplySaturating((ulong)ingredient.Amount, craftCount)));
+
+        return this.GetRawMaterialsForRequirements(requirements, recipesByResult, ownedItems);
+    }
+
+    private IReadOnlyList<IngredientNeed> GetRawMaterialsForRequirements(
+        IEnumerable<(uint ItemId, ulong Amount)> requirements,
+        IReadOnlyDictionary<uint, Recipe> recipesByResult,
+        IReadOnlyDictionary<uint, OwnedInventoryItem> ownedItems)
+    {
         var amounts = new Dictionary<uint, ulong>();
-        var recipePath = new HashSet<uint>();
-        this.ExpandRawMaterials(rootRecipe, craftCount, recipesByResult, amounts, recipePath);
+        var stock = new Dictionary<uint, ulong>();
+        foreach (var requirement in requirements
+                     .Where(requirement => requirement.ItemId != 0 && requirement.Amount != 0)
+                     .GroupBy(requirement => requirement.ItemId)
+                     .Select(group => (
+                         ItemId: group.Key,
+                         Amount: group.Aggregate(0UL, (total, requirement) => AddSaturating(total, requirement.Amount)))))
+        {
+            this.ResolveRawMaterialRequirement(
+                requirement.ItemId,
+                requirement.Amount,
+                recipesByResult,
+                ownedItems,
+                stock,
+                amounts,
+                new HashSet<uint>());
+        }
 
         var rawIngredients = amounts
             .Select(entry => (entry.Key, (uint)Math.Min(entry.Value, uint.MaxValue)))
@@ -1318,6 +1321,67 @@ public sealed class RecipeService
             .ToList();
 
         return this.CreateIngredientNeeds(rawIngredients, ownedItems);
+    }
+
+    // Owned intermediate crafts satisfy their recipe requirement before the planner expands it into raw materials.
+    private void ResolveRawMaterialRequirement(
+        uint itemId,
+        ulong required,
+        IReadOnlyDictionary<uint, Recipe> recipesByResult,
+        IReadOnlyDictionary<uint, OwnedInventoryItem> ownedItems,
+        IDictionary<uint, ulong> stock,
+        IDictionary<uint, ulong> rawAmounts,
+        ISet<uint> recipePath)
+    {
+        if (required == 0)
+            return;
+
+        if (recipePath.Contains(itemId) || !recipesByResult.TryGetValue(itemId, out var recipe))
+        {
+            rawAmounts.TryGetValue(itemId, out var current);
+            rawAmounts[itemId] = AddSaturating(current, required);
+            return;
+        }
+
+        if (!stock.TryGetValue(itemId, out var available))
+        {
+            available = ownedItems.TryGetValue(itemId, out var ownedItem)
+                ? ownedItem.Quantity
+                : 0;
+        }
+
+        var consumed = Math.Min(available, required);
+        stock[itemId] = available - consumed;
+        var missing = required - consumed;
+        if (missing == 0)
+            return;
+
+        var resultAmount = Math.Max(1U, this.ReadUInt(recipe, "AmountResult"));
+        var craftCount = (missing + resultAmount - 1) / resultAmount;
+        recipePath.Add(itemId);
+        foreach (var ingredient in this.ReadIngredients(recipe)
+                     .GroupBy(ingredient => ingredient.ItemId)
+                     .Select(group => (
+                         ItemId: group.Key,
+                         Amount: group.Aggregate(0UL, (total, ingredient) => AddSaturating(total, ingredient.Amount)))))
+        {
+            this.ResolveRawMaterialRequirement(
+                ingredient.ItemId,
+                MultiplySaturating(ingredient.Amount, craftCount),
+                recipesByResult,
+                ownedItems,
+                stock,
+                rawAmounts,
+                recipePath);
+        }
+
+        recipePath.Remove(itemId);
+        var produced = MultiplySaturating((ulong)resultAmount, craftCount);
+        if (produced > missing)
+        {
+            stock.TryGetValue(itemId, out var remaining);
+            stock[itemId] = AddSaturating(remaining, produced - missing);
+        }
     }
 
     private IReadOnlyDictionary<uint, Recipe> BuildRecipesByResult(IEnumerable<Recipe> recipes)
