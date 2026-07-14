@@ -4,18 +4,26 @@ This file is the durable hand-off record for Recipe Helper. Read it before makin
 
 ## Project snapshot
 
-- Last updated: 2026-07-13
+- Last updated: 2026-07-14
 - Plugin name: Recipe Helper
 - Internal name: `DalamudRecipeHelper`
-- Version: `1.1.46.0`
+- Version: `1.1.47.0`
 - Framework: Dalamud API 15
 - Target: `.NET 10` on Windows x64
 - Command: `/recipehelper`
 - Build command: `dotnet build .\DalamudRecipeHelper.csproj --no-restore`
 - Debug output: `bin\Debug\DalamudRecipeHelper.dll`
-- Last verified build: 2026-07-13, Debug and Release builds succeeded with zero warnings and zero errors. `releases\DalamudRecipeHelper-v1.1.46.zip` was created from the verified Release output with SHA-256 `9795E6E14873CB840795D1FD18D82EF124B25C95FC68FD1A4FD03ED5416A3741`.
+- Last verified build: 2026-07-14, Debug and Release builds succeeded with zero warnings and zero errors. `releases\DalamudRecipeHelper-v1.1.47.zip` was created from the verified Release output with SHA-256 `E08E54C4EE9EF0052D3DB3D5D0B7BDE41947A2B0A547EE77FC393F606CE3564F`.
 
 ## Recent release
+
+- Version: `1.1.47.0`
+- Added an in-settings Changelog button. It displays the full embedded release-note history in the existing Settings window, with a Back action to return to settings.
+- Changelog entries now wrap inside the Settings window so full release notes remain readable at every supported interface scale.
+- Updated the package metadata and custom repository feed for `v1.1.47`.
+- Verification: Debug and Release builds succeeded with zero warnings and zero errors. `releases\DalamudRecipeHelper-v1.1.47.zip` was created from the verified Release output with SHA-256 `E08E54C4EE9EF0052D3DB3D5D0B7BDE41947A2B0A547EE77FC393F606CE3564F`.
+
+## Previous release
 
 - Version: `1.1.46.0`
 - Added a stable Can Craft column to Direct Ingredients, with enabled actions for available pre-crafts and disabled actions that name the missing live-inventory material.

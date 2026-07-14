@@ -1,12 +1,16 @@
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
-    <Version>1.1.46.0</Version>
+    <Version>1.1.47.0</Version>
     <Description>Plan multiple FFXIV recipes, compare combined materials with inventory and retainers, and hand crafting or gathering tasks to Artisan, Teamcraft, and GatherBuddy.</Description>
-    <Changelog>v1.1.42 adds Log Status filtering and correct Cosmic Exploration and special-content log handling.</Changelog>
+    <Changelog>v1.1.47 adds a complete in-settings changelog with wrapped release notes.</Changelog>
     <PackageProjectUrl>https://github.com/CherryFairy78/Recipe-Helper</PackageProjectUrl>
     <Authors>Meghann</Authors>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Platforms>x64</Platforms>
     <TargetFramework>net10.0-windows</TargetFramework>
   </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="RELEASE_NOTES_v*.md" />
+  </ItemGroup>
 </Project>
