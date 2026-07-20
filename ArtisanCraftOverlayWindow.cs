@@ -16,8 +16,10 @@ public sealed class ArtisanCraftOverlayWindow : Window
         string QuantityText,
         string CraftText,
         string StatusText,
+        string StatusTooltip,
         Vector4 RowColor,
-        Vector4 StatusColor);
+        Vector4 StatusColor,
+        float Progress);
 
     private sealed record ActionButtonDefinition(
         string Label,
@@ -34,6 +36,7 @@ public sealed class ArtisanCraftOverlayWindow : Window
     private float overlayWidth = 420f;
     private bool compactMode;
     private bool recipesExpanded = true;
+    private bool completedRecipesExpanded;
     private Vector2 lastSavedWindowPosition = new(float.NaN, float.NaN);
 
     public ArtisanCraftOverlayWindow(
@@ -145,30 +148,47 @@ public sealed class ArtisanCraftOverlayWindow : Window
         }
 
         var rows = this.BuildRows(snapshot);
-        if (rows.Count == 0)
+        var completedRows = this.BuildCompletedRows(snapshot);
+        if (rows.Count == 0 && completedRows.Count == 0)
         {
             ImGui.Spacing();
             ImGui.TextDisabled("No Artisan recipe progress to show.");
             return;
         }
 
-        ImGui.PushStyleVar(ImGuiStyleVar.FrameRounding, 10f);
-        this.recipesExpanded = ImGui.CollapsingHeader(
-            "RECIPES##artisan-progress-recipes",
-            ImGuiTreeNodeFlags.DefaultOpen);
-        ImGui.PopStyleVar();
-        if (!this.recipesExpanded)
-            return;
+        if (rows.Count > 0)
+        {
+            ImGui.PushStyleVar(ImGuiStyleVar.FrameRounding, 10f);
+            this.recipesExpanded = ImGui.CollapsingHeader(
+                "RECIPES##artisan-progress-recipes",
+                ImGuiTreeNodeFlags.DefaultOpen);
+            ImGui.PopStyleVar();
+            if (this.recipesExpanded)
+                this.DrawProgressTable("artisan-progress-table", rows);
+        }
 
+        if (completedRows.Count > 0)
+        {
+            ImGui.Spacing();
+            ImGui.PushStyleVar(ImGuiStyleVar.FrameRounding, 10f);
+            this.completedRecipesExpanded = ImGui.CollapsingHeader(
+                $"COMPLETED PRE-CRAFTS AND RECIPES ({completedRows.Count:N0})##artisan-progress-completed",
+                ImGuiTreeNodeFlags.None);
+            ImGui.PopStyleVar();
+            if (this.completedRecipesExpanded)
+                this.DrawProgressTable("artisan-progress-completed-table", completedRows);
+        }
+    }
+
+    private void DrawProgressTable(string tableId, IReadOnlyList<ProgressRow> rows)
+    {
         if (!ImGui.BeginTable(
-                "artisan-progress-table",
+                tableId,
                 4,
                 ImGuiTableFlags.PadOuterX |
                 ImGuiTableFlags.Resizable |
                 ImGuiTableFlags.SizingStretchProp))
-        {
             return;
-        }
 
         ImGui.TableSetupColumn("Recipe", ImGuiTableColumnFlags.WidthStretch, 1.6f);
         ImGui.TableSetupColumn("Qty", ImGuiTableColumnFlags.WidthFixed, 74);
@@ -191,7 +211,7 @@ public sealed class ArtisanCraftOverlayWindow : Window
 
             ImGui.TableNextColumn();
             this.DrawInfoCard(
-                $"artisan-row-recipe-{row.RecipeName}-{row.StatusText}",
+                $"{tableId}-recipe-{row.RecipeName}-{row.StatusText}",
                 new Vector2(-1, 28),
                 row.RecipeName,
                 string.Empty,
@@ -200,7 +220,7 @@ public sealed class ArtisanCraftOverlayWindow : Window
 
             ImGui.TableNextColumn();
             this.DrawValueCard(
-                $"artisan-row-qty-{row.RecipeName}-{row.StatusText}",
+                $"{tableId}-qty-{row.RecipeName}-{row.StatusText}",
                 new Vector2(-1, 28),
                 row.QuantityText,
                 AdjustColor(this.configuration.WindowBackgroundColor, 0.07f),
@@ -208,19 +228,19 @@ public sealed class ArtisanCraftOverlayWindow : Window
 
             ImGui.TableNextColumn();
             this.DrawValueCard(
-                $"artisan-row-crafts-{row.RecipeName}-{row.StatusText}",
+                $"{tableId}-crafts-{row.RecipeName}-{row.StatusText}",
                 new Vector2(-1, 28),
                 row.CraftText,
                 AdjustColor(this.configuration.WindowBackgroundColor, 0.07f),
                 this.configuration.TextColor);
 
             ImGui.TableNextColumn();
-            this.DrawValueCard(
-                $"artisan-row-status-{row.RecipeName}-{row.StatusText}",
+            var statusBackground = WithAlpha(row.StatusColor, 0.18f);
+            this.DrawStatusProgressCard(
+                $"{tableId}-status-{row.RecipeName}-{row.StatusText}",
                 new Vector2(-1, 28),
-                row.StatusText,
-                WithAlpha(row.StatusColor, 0.18f),
-                this.GetReadableStatusTextColor(WithAlpha(row.StatusColor, 0.18f), row.StatusColor));
+                row,
+                statusBackground);
         }
 
         ImGui.EndTable();
@@ -277,29 +297,18 @@ public sealed class ArtisanCraftOverlayWindow : Window
             var completedCrafts = Math.Min(snapshot.CurrentEntryCompletedCrafts, currentEntry.CraftCount);
             var remainingCrafts = Math.Max(0u, currentEntry.CraftCount - completedCrafts);
             var remainingQuantity = (ulong)remainingCrafts * currentEntry.ResultAmount;
-            var currentCraftIndex = currentEntry.CraftCount == 0
-                ? 0u
-                : Math.Min(currentEntry.CraftCount, completedCrafts + 1);
-            var currentStatus = snapshot.IsPausedForAutoRetainer
-                ? $"Paused ({completedCrafts:N0}/{currentEntry.CraftCount:N0})"
-                : snapshot.IsPausedForRetainerRefill
-                    ? $"Refilling ({completedCrafts:N0}/{currentEntry.CraftCount:N0})"
-                : snapshot.StopAfterCurrentCraftRequested
-                    ? snapshot.CurrentEntryStarted
-                        ? $"Stopping ({currentCraftIndex:N0}/{currentEntry.CraftCount:N0})"
-                        : $"Stopping ({completedCrafts:N0}/{currentEntry.CraftCount:N0})"
-                : snapshot.CurrentEntryStarted
-                    ? $"Crafting ({currentCraftIndex:N0}/{currentEntry.CraftCount:N0})"
-                    : $"Starting (0/{currentEntry.CraftCount:N0})";
+            var currentStatus = GetCurrentStatus(snapshot, completedCrafts, currentEntry.CraftCount);
             rows.Add(new ProgressRow(
                 this.GetDisplayName(currentEntry),
                 remainingQuantity.ToString("N0"),
                 remainingCrafts.ToString("N0"),
-                currentStatus,
+                currentStatus.Label,
+                currentStatus.Tooltip,
                 AdjustColor(this.configuration.WindowBackgroundColor, 0.10f),
                 snapshot.IsPausedForAutoRetainer || snapshot.IsPausedForRetainerRefill
                     ? this.configuration.WarningTextColor
-                    : this.configuration.AccentColor));
+                    : this.configuration.AccentColor,
+                GetProgress(completedCrafts, currentEntry.CraftCount)));
         }
 
         rows.AddRange(snapshot.PendingEntries
@@ -308,20 +317,66 @@ public sealed class ArtisanCraftOverlayWindow : Window
                 this.GetDisplayName(entry),
                 FormatQuantity(entry),
                 FormatCrafts(entry),
+                "Queued",
                 $"Queued (0/{entry.CraftCount:N0})",
                 AdjustColor(this.configuration.WindowBackgroundColor, 0.05f),
-                this.configuration.AccentColor)));
-
-        rows.AddRange(snapshot.CompletedEntries
-            .Select(entry => new ProgressRow(
-                this.GetDisplayName(entry),
-                "0",
-                "0",
-                $"Done ({entry.CraftCount:N0}/{entry.CraftCount:N0})",
-                this.configuration.EnoughRowColor,
-                this.configuration.SuccessTextColor)));
+                this.configuration.AccentColor,
+                0f)));
 
         return rows;
+    }
+
+    private List<ProgressRow> BuildCompletedRows(ArtisanCraftProgressSnapshot snapshot)
+    {
+        if (snapshot.OrderedEntries.Count == 0)
+            return snapshot.CompletedEntries
+                .Select(this.BuildCompletedRow)
+                .ToList();
+
+        var completedSequences = snapshot.CompletedEntries
+            .Select(entry => entry.QueueSequence)
+            .ToHashSet();
+        return snapshot.OrderedEntries
+            .Where(entry => completedSequences.Contains(entry.QueueSequence))
+            .OrderBy(entry => entry.QueueSequence)
+            .Select(this.BuildCompletedRow)
+            .ToList();
+    }
+
+    private ProgressRow BuildCompletedRow(ArtisanCraftQueueEntry entry) =>
+        new(
+            this.GetDisplayName(entry),
+            "0",
+            "0",
+            "Done",
+            $"Done ({entry.CraftCount:N0}/{entry.CraftCount:N0})",
+            this.configuration.EnoughRowColor,
+            this.configuration.SuccessTextColor,
+            1f);
+
+    private static (string Label, string Tooltip) GetCurrentStatus(
+        ArtisanCraftProgressSnapshot snapshot,
+        uint completedCrafts,
+        uint totalCrafts)
+    {
+        var currentCraftIndex = totalCrafts == 0
+            ? 0u
+            : Math.Min(totalCrafts, completedCrafts + 1);
+        if (snapshot.IsPausedForAutoRetainer)
+            return ("Paused", $"Paused ({completedCrafts:N0}/{totalCrafts:N0})");
+        if (snapshot.IsPausedForRetainerRefill)
+            return ("Refilling", $"Refilling ({completedCrafts:N0}/{totalCrafts:N0})");
+        if (snapshot.StopAfterCurrentCraftRequested)
+        {
+            var displayedCrafts = snapshot.CurrentEntryStarted
+                ? currentCraftIndex
+                : completedCrafts;
+            return ("Stopping", $"Stopping ({displayedCrafts:N0}/{totalCrafts:N0})");
+        }
+
+        return snapshot.CurrentEntryStarted
+            ? ("Crafting", $"Crafting ({currentCraftIndex:N0}/{totalCrafts:N0})")
+            : ("Starting", $"Starting (0/{totalCrafts:N0})");
     }
 
     private List<ProgressRow> BuildOrderedRows(ArtisanCraftProgressSnapshot snapshot)
@@ -338,41 +393,23 @@ public sealed class ArtisanCraftOverlayWindow : Window
                 var completedCrafts = Math.Min(snapshot.CurrentEntryCompletedCrafts, currentEntry.CraftCount);
                 var remainingCrafts = Math.Max(0u, currentEntry.CraftCount - completedCrafts);
                 var remainingQuantity = (ulong)remainingCrafts * currentEntry.ResultAmount;
-                var currentCraftIndex = currentEntry.CraftCount == 0
-                    ? 0u
-                    : Math.Min(currentEntry.CraftCount, completedCrafts + 1);
-                var currentStatus = snapshot.IsPausedForAutoRetainer
-                    ? $"Paused ({completedCrafts:N0}/{currentEntry.CraftCount:N0})"
-                    : snapshot.IsPausedForRetainerRefill
-                        ? $"Refilling ({completedCrafts:N0}/{currentEntry.CraftCount:N0})"
-                    : snapshot.StopAfterCurrentCraftRequested
-                        ? snapshot.CurrentEntryStarted
-                            ? $"Stopping ({currentCraftIndex:N0}/{currentEntry.CraftCount:N0})"
-                            : $"Stopping ({completedCrafts:N0}/{currentEntry.CraftCount:N0})"
-                    : snapshot.CurrentEntryStarted
-                        ? $"Crafting ({currentCraftIndex:N0}/{currentEntry.CraftCount:N0})"
-                        : $"Starting (0/{currentEntry.CraftCount:N0})";
+                var currentStatus = GetCurrentStatus(snapshot, completedCrafts, currentEntry.CraftCount);
                 rows.Add(new ProgressRow(
                     this.GetDisplayName(currentEntry),
                     remainingQuantity.ToString("N0"),
                     remainingCrafts.ToString("N0"),
-                    currentStatus,
+                    currentStatus.Label,
+                    currentStatus.Tooltip,
                     AdjustColor(this.configuration.WindowBackgroundColor, 0.10f),
                     snapshot.IsPausedForAutoRetainer || snapshot.IsPausedForRetainerRefill
                         ? this.configuration.WarningTextColor
-                        : this.configuration.AccentColor));
+                        : this.configuration.AccentColor,
+                    GetProgress(completedCrafts, currentEntry.CraftCount)));
                 continue;
             }
 
             if (completedSequences.Contains(entry.QueueSequence))
             {
-                rows.Add(new ProgressRow(
-                    this.GetDisplayName(entry),
-                    "0",
-                    "0",
-                    $"Done ({entry.CraftCount:N0}/{entry.CraftCount:N0})",
-                    this.configuration.EnoughRowColor,
-                    this.configuration.SuccessTextColor));
                 continue;
             }
 
@@ -380,9 +417,11 @@ public sealed class ArtisanCraftOverlayWindow : Window
                 this.GetDisplayName(entry),
                 FormatQuantity(entry),
                 FormatCrafts(entry),
+                "Queued",
                 $"Queued (0/{entry.CraftCount:N0})",
                 AdjustColor(this.configuration.WindowBackgroundColor, 0.05f),
-                this.configuration.AccentColor));
+                this.configuration.AccentColor,
+                0f));
         }
 
         return rows;
@@ -406,6 +445,7 @@ public sealed class ArtisanCraftOverlayWindow : Window
 
         var snapshot = this.pluginIntegrationService.GetCraftAllProgressSnapshot();
         var rowCount = this.BuildRows(snapshot).Count;
+        var completedRowCount = this.BuildCompletedRows(snapshot).Count;
         var style = ImGui.GetStyle();
         var titleBarHeight = ImGui.GetFrameHeight() + 6f;
         var windowPadding = style.WindowPadding.Y * 2;
@@ -414,7 +454,12 @@ public sealed class ArtisanCraftOverlayWindow : Window
         var waitingHeight = this.GetPreCraftBannerText(snapshot) is not null
             ? ImGui.GetTextLineHeight() + style.ItemSpacing.Y
             : 0f;
-        var collapsedHeaderHeight = ImGui.GetFrameHeight() + style.ItemSpacing.Y;
+        var collapsedHeaderHeight = rowCount > 0
+            ? ImGui.GetFrameHeight() + style.ItemSpacing.Y
+            : 0f;
+        var completedHeaderHeight = completedRowCount > 0
+            ? ImGui.GetFrameHeight() + style.ItemSpacing.Y
+            : 0f;
         var fixedHeight =
             titleBarHeight +
             windowPadding +
@@ -422,17 +467,18 @@ public sealed class ArtisanCraftOverlayWindow : Window
             actionsHeight +
             waitingHeight +
             collapsedHeaderHeight +
+            completedHeaderHeight +
             12f;
-        if (!this.recipesExpanded || rowCount == 0)
-            return Math.Max(140f, fixedHeight);
 
         var tableHeaderHeight = 24f;
         var tableRowHeight = 36f;
-        var tableHeight =
-            tableHeaderHeight +
-            (tableRowHeight * rowCount) +
-            4f;
-        return Math.Max(180f, fixedHeight + tableHeight);
+        var tableHeight = this.recipesExpanded && rowCount > 0
+            ? tableHeaderHeight + (tableRowHeight * rowCount) + 4f
+            : 0f;
+        var completedTableHeight = this.completedRecipesExpanded && completedRowCount > 0
+            ? tableHeaderHeight + (tableRowHeight * completedRowCount) + 4f
+            : 0f;
+        return Math.Max(140f, fixedHeight + tableHeight + completedTableHeight);
     }
 
     private void DrawCompactView(ArtisanCraftProgressSnapshot snapshot)
@@ -461,17 +507,12 @@ public sealed class ArtisanCraftOverlayWindow : Window
         if (snapshot.StopAfterCurrentCraftRequested)
             return "Stopping after the current craft finishes.";
 
-        var queuedEntries = snapshot.PendingEntries
-            .Skip(snapshot.CurrentEntry is null ? 0 : 1)
-            .ToList();
-        var laterPreCraftsQueued = queuedEntries.Any(entry => entry.IsIntermediate);
-        var laterFinalRecipesQueued = queuedEntries.Any(entry => !entry.IsIntermediate);
-        if (!laterPreCraftsQueued || !laterFinalRecipesQueued)
+        var hasPreCraftsRemaining = snapshot.PendingEntries.Any(entry => entry.IsIntermediate);
+        var hasFinalRecipesQueued = snapshot.PendingEntries.Any(entry => !entry.IsIntermediate);
+        if (!hasPreCraftsRemaining || !hasFinalRecipesQueued)
             return null;
 
-        return snapshot.CurrentEntry is { IsIntermediate: false }
-            ? "Current recipe is crafting. Later final recipes are still waiting on pre-crafts."
-            : "Waiting on pre-crafts before later final recipes continue.";
+        return "Consolidated pre-crafts are completed before final recipes begin.";
     }
 
     private void DrawOverlayActions(ArtisanCraftProgressSnapshot snapshot)
@@ -697,12 +738,59 @@ public sealed class ArtisanCraftOverlayWindow : Window
             ImGui.SetTooltip(value);
     }
 
+    private void DrawStatusProgressCard(
+        string id,
+        Vector2 size,
+        ProgressRow row,
+        Vector4 backgroundColor)
+    {
+        var resolvedSize = ResolveCardSize(size, 38f);
+        var position = ImGui.GetCursorScreenPos();
+        ImGui.InvisibleButton(id, resolvedSize);
+        var drawList = ImGui.GetWindowDrawList();
+        drawList.AddRectFilled(
+            position,
+            position + resolvedSize,
+            ImGui.GetColorU32(this.ApplyOverlayOpacity(backgroundColor)),
+            12f);
+
+        var progress = Math.Clamp(row.Progress, 0f, 1f);
+        if (progress > 0f)
+        {
+            var progressMax = new Vector2(
+                position.X + (resolvedSize.X * progress),
+                position.Y + resolvedSize.Y);
+            drawList.AddRectFilled(
+                position,
+                progressMax,
+                ImGui.GetColorU32(this.ApplyOverlayOpacity(WithAlpha(this.configuration.SuccessTextColor, 0.52f))),
+                12f);
+        }
+
+        var displayStatus = TrimDisplayText(row.StatusText, 18);
+        var statusSize = ImGui.CalcTextSize(displayStatus);
+        var textBackground = progress >= 0.5f
+            ? WithAlpha(this.configuration.SuccessTextColor, 0.52f)
+            : backgroundColor;
+        var textColor = this.GetReadableStatusTextColor(textBackground, row.StatusColor);
+        drawList.AddText(
+            position + new Vector2((resolvedSize.X - statusSize.X) / 2f, 4f),
+            ImGui.GetColorU32(textColor),
+            displayStatus);
+
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip(row.StatusTooltip);
+    }
+
     private static Vector2 ResolveCardSize(Vector2 size, float defaultHeight)
     {
         var width = size.X <= 0f ? Math.Max(1f, ImGui.GetContentRegionAvail().X) : size.X;
         var height = size.Y <= 0f ? defaultHeight : size.Y;
         return new Vector2(width, height);
     }
+
+    private static float GetProgress(uint completedCrafts, uint totalCrafts) =>
+        totalCrafts == 0 ? 0f : Math.Clamp((float)completedCrafts / totalCrafts, 0f, 1f);
 
     private float GetActionButtonWidth(string label, float scale) =>
         Math.Max(

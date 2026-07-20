@@ -15,6 +15,13 @@ namespace DalamudRecipeHelper;
 public sealed class RecipeService
 {
     private const uint CrystalInventoryCap = 9999;
+
+    private enum VisitState
+    {
+        Visiting,
+        Added,
+    }
+
     private static readonly IReadOnlyDictionary<uint, string> CraftingJobAbbreviationsByCraftTypeId =
         new Dictionary<uint, string>
         {
@@ -804,7 +811,104 @@ public sealed class RecipeService
             }
         }
 
-        queue = plannedQueue;
+        return this.TryConsolidateAndOrderArtisanQueue(plannedQueue, recipes, out queue, out error);
+    }
+
+    private bool TryConsolidateAndOrderArtisanQueue(
+        IReadOnlyList<ArtisanCraftQueueEntry> plannedQueue,
+        ExcelSheet<Recipe> recipes,
+        out IReadOnlyList<ArtisanCraftQueueEntry> queue,
+        out string error)
+    {
+        var preCrafts = new List<ArtisanCraftQueueEntry>();
+        foreach (var group in plannedQueue.Where(entry => entry.IsIntermediate)
+                     .GroupBy(entry => entry.RecipeId))
+        {
+            var craftCount = group.Aggregate(0UL, (total, entry) =>
+                AddSaturating(total, entry.CraftCount));
+            if (craftCount > int.MaxValue)
+            {
+                queue = [];
+                error = "One of the consolidated pre-craft amounts cannot be sent to Artisan.";
+                return false;
+            }
+
+            preCrafts.Add(group.First() with { CraftCount = (uint)craftCount });
+        }
+
+        var preCraftsByResult = preCrafts.ToDictionary(entry => entry.ResultItemId);
+        var visitStates = new Dictionary<uint, VisitState>();
+        var orderedPreCrafts = new List<ArtisanCraftQueueEntry>(preCrafts.Count);
+        foreach (var preCraft in preCrafts)
+        {
+            if (!this.TryAddPreCraftDependencies(
+                    preCraft,
+                    recipes,
+                    preCraftsByResult,
+                    visitStates,
+                    orderedPreCrafts,
+                    out error))
+            {
+                queue = [];
+                return false;
+            }
+        }
+
+        queue = orderedPreCrafts
+            .Concat(plannedQueue.Where(entry => !entry.IsIntermediate))
+            .ToList();
+        error = string.Empty;
+        return true;
+    }
+
+    private bool TryAddPreCraftDependencies(
+        ArtisanCraftQueueEntry preCraft,
+        ExcelSheet<Recipe> recipes,
+        IReadOnlyDictionary<uint, ArtisanCraftQueueEntry> preCraftsByResult,
+        IDictionary<uint, VisitState> visitStates,
+        ICollection<ArtisanCraftQueueEntry> orderedPreCrafts,
+        out string error)
+    {
+        if (visitStates.TryGetValue(preCraft.RecipeId, out var state))
+        {
+            if (state == VisitState.Added)
+            {
+                error = string.Empty;
+                return true;
+            }
+
+            if (state == VisitState.Visiting)
+            {
+                error = "A circular intermediate recipe was found.";
+                return false;
+            }
+        }
+
+        var recipe = recipes.GetRowOrDefault(preCraft.RecipeId);
+        if (recipe is not { } recipeRow)
+        {
+            error = $"Recipe data for {preCraft.ResultName} is not available.";
+            return false;
+        }
+
+        visitStates[preCraft.RecipeId] = VisitState.Visiting;
+        foreach (var ingredient in this.ReadIngredients(recipeRow))
+        {
+            if (!preCraftsByResult.TryGetValue(ingredient.ItemId, out var ingredientPreCraft))
+                continue;
+
+            if (!this.TryAddPreCraftDependencies(
+                    ingredientPreCraft,
+                    recipes,
+                    preCraftsByResult,
+                    visitStates,
+                    orderedPreCrafts,
+                    out error))
+                return false;
+        }
+
+        visitStates[preCraft.RecipeId] = VisitState.Added;
+        orderedPreCrafts.Add(preCraft);
         error = string.Empty;
         return true;
     }

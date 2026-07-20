@@ -310,6 +310,7 @@ public sealed unsafe class PluginIntegrationService : IDisposable
             .Aggregate(
                 0UL,
                 (total, recipe) => total + recipe.CraftCount);
+        var preCraftBatchCount = recipes.Count(recipe => recipe.IsIntermediate);
         var finalRecipeCount = recipes.Count(recipe => !recipe.IsIntermediate);
         var queuedItemCount = recipePlanCount > 0
             ? recipePlanCount
@@ -323,7 +324,9 @@ public sealed unsafe class PluginIntegrationService : IDisposable
             $"{recipes.Count(recipe => recipe.IsIntermediate)} pre-craft batch(es).");
         message = preCraftCount > 0
             ? $"Queued {queuedItemCount} {queuedItemName} with " +
-              $"{preCraftCount:N0} pre-craft{(preCraftCount == 1 ? string.Empty : "s")} in Artisan."
+              $"{preCraftCount:N0} pre-craft{(preCraftCount == 1 ? string.Empty : "s")} " +
+              $"across {preCraftBatchCount:N0} consolidated batch{(preCraftBatchCount == 1 ? string.Empty : "es")}, " +
+              "before final recipes."
             : $"Queued {queuedItemCount} {queuedItemName} with Artisan.";
         return true;
     }
